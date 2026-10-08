@@ -1,7 +1,7 @@
 name: AI Router
 
 # Workflow reutilizavel roteador. O repositorio consumidor tem UM workflow
-# chamador (examples/ai.yml) com todos os gatilhos do fluxo e chama este
+# chamador (.github/workflows/ai.yml) com todos os gatilhos do fluxo e chama este
 # arquivo. Cada job abaixo e um destino: o `if` decide se o evento e dele e o
 # `uses` chama o reutilizavel correspondente. Assim a regra "qual evento
 # aciona qual etapa" mora aqui e vale para todos os consumidores de uma vez.
@@ -13,7 +13,7 @@ name: AI Router
 # contra o repositorio do chamador de cima, nao contra este.
 #
 # O que NAO da para mover para ca (regra do GitHub): `on:` e `permissions:`
-# ficam no chamador. Por isso o examples/ai.yml ja nasce com todos os gatilhos
+# ficam no chamador. Por isso o ai.yml ja nasce com todos os gatilhos
 # e com a uniao das permissoes que as etapas pedem.
 
 on:

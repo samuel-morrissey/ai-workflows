@@ -2,8 +2,8 @@ name: Issue Remote Implement
 
 # Workflow reutilizavel de implementacao. Chamado pelo router.yml quando um
 # humano comenta `/implement` em issue com label ready-for-agent (e sem
-# work-in-progress). Os guardas estao no router; o snippet do consumidor em
-# examples/ai.yml.
+# work-in-progress). Os guardas estao no router; o chamador do consumidor e
+# o .github/workflows/ai.yml (ver README.md).
 
 on:
   workflow_call:

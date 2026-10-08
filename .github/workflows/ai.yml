@@ -1,8 +1,12 @@
 name: AI
 
-# Chamador dos fluxos de IA para os issues deste proprio repositorio. Mesmo
-# conteudo de examples/ai.yml, sem quality_checks: aqui nao ha build nem
-# testes para rodar.
+# Chamador dos fluxos de IA. Roda nos issues deste repositorio e e o modelo
+# que os outros repositorios da organizacao copiam para
+# `.github/workflows/ai.yml` (passo a passo no README.md).
+#
+# As regras (qual evento aciona qual etapa, guardas, labels) moram no
+# router.yml. Este arquivo so declara o que o GitHub exige que fique no
+# chamador: gatilhos (`on:`) e permissoes.
 
 on:
   issues:
@@ -22,4 +26,12 @@ permissions:
 jobs:
   ai:
     uses: caravelasistemas/ai-workflows/.github/workflows/router.yml@main
+    # Comandos de verificacao de qualidade, um por linha, rodados pela etapa
+    # issue-remote-implement antes de abrir o PR. Vazio: segue sem
+    # verificacao. Este repositorio nao tem build nem testes; no consumidor,
+    # descomente e ajuste:
+    # with:
+    #   quality_checks: |
+    #     npm run typecheck
+    #     npm test
     secrets: inherit
