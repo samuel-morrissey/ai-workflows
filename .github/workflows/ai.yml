@@ -1,0 +1,25 @@
+name: AI
+
+# Chamador dos fluxos de IA para os issues deste proprio repositorio. Mesmo
+# conteudo de examples/ai.yml, sem quality_checks: aqui nao ha build nem
+# testes para rodar.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+# Uniao das permissoes pedidas pelas etapas. Um reutilizavel nunca recebe mais
+# do que o chamador concede, por isso todas ficam aqui.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  ai:
+    uses: caravelasistemas/ai-workflows/.github/workflows/router.yml@main
+    secrets: inherit
