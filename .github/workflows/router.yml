@@ -26,32 +26,11 @@ on:
         type: string
         required: false
         default: ""
-      claude_args:
-        description: "Repassado ao @claude: argumentos extras da CLI (--model, --allowed-tools, --max-turns...)."
-        type: string
-        required: false
-        default: ""
-      plugins:
-        description: "Repassado ao @claude: plugins do marketplace a carregar. Exige o secret AI_WORKFLOWS_REPO_READ_ACCESS_TOKEN."
-        type: string
-        required: false
-        default: ""
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
-      AI_WORKFLOWS_REPO_READ_ACCESS_TOKEN:
-        required: false
 
 jobs:
-  # Smoke test: label `hello-claude` aplicado a um issue.
-  hello-issue:
-    if: >
-      github.event_name == 'issues' &&
-      github.event.action == 'labeled' &&
-      github.event.label.name == 'hello-claude'
-    uses: samuel-morrissey/ai-workflows/.github/workflows/hello-issue.yml@main
-    secrets: inherit
-
   # Triagem: label `need-triage` aplicado, ou comentario humano em issue que
   # ainda carrega `need-triage` (resposta a um handoff).
   # - `!github.event.issue.pull_request` — issue_comment tambem dispara em
@@ -69,29 +48,7 @@ jobs:
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'need-triage') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
-    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-triage.yml@main
-    secrets: inherit
-
-  # Refinamento: comentario humano em issue com `need-refinement`.
-  issue-refinement:
-    if: >
-      github.event_name == 'issue_comment' &&
-      !github.event.issue.pull_request &&
-      github.event.comment.user.type != 'Bot' &&
-      contains(join(github.event.issue.labels.*.name, ','), 'need-refinement') &&
-      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
-    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-refinement.yml@main
-    secrets: inherit
-
-  # Break-down: comentario humano em issue com `need-break-down`.
-  issue-break-down:
-    if: >
-      github.event_name == 'issue_comment' &&
-      !github.event.issue.pull_request &&
-      github.event.comment.user.type != 'Bot' &&
-      contains(join(github.event.issue.labels.*.name, ','), 'need-break-down') &&
-      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
-    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
+    uses: caravelasistemas/ai-workflows/.github/workflows/issue-triage.yml@main
     secrets: inherit
 
   # Implementacao: comentario humano contendo `/implement` em issue com
@@ -105,25 +62,7 @@ jobs:
       contains(github.event.comment.body, '/implement') &&
       contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
-    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-remote-implement.yml@main
+    uses: caravelasistemas/ai-workflows/.github/workflows/issue-remote-implement.yml@main
     with:
       quality_checks: ${{ inputs.quality_checks }}
-    secrets: inherit
-
-  # @claude: mencao livre em issue (aberto ou atribuido), comentario de
-  # issue/PR ou review de PR. O `labeled` fica de fora: o chamador escuta esse
-  # tipo por causa da triagem e do smoke test, e sem o filtro cada label
-  # aplicado a um issue que cita @claude acordaria o agente de novo.
-  claude:
-    if: >
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' &&
-       (github.event.action == 'opened' || github.event.action == 'assigned') &&
-       (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
-    uses: samuel-morrissey/ai-workflows/.github/workflows/claude.yml@main
-    with:
-      claude_args: ${{ inputs.claude_args }}
-      plugins: ${{ inputs.plugins }}
     secrets: inherit
