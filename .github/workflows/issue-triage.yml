@@ -51,6 +51,11 @@ jobs:
           gh label create work-in-progress --color D93F0B \
             --description "Worker em execucao nesta issue" 2>/dev/null || true
           gh issue edit "$NUMBER" --add-label work-in-progress
+          # Nova rodada = o humano respondeu: sai o sinal de espera. Se a
+          # rodada parar em outra pergunta, a skill aplica de novo.
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+            gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
 
       - uses: anthropics/claude-code-action@v1
         if: steps.wip.outputs.skip != 'true'
@@ -72,7 +77,8 @@ jobs:
       # e a rede de seguranca: se o issue saiu da triagem (fechado ou com outro
       # label de estado) e ainda carrega need-triage, remove. Se nao saiu
       # (handoff aguardando resposta humana), mantem — e o need-triage que faz
-      # o proximo comentario humano disparar nova rodada.
+      # o proximo comentario humano disparar nova rodada — e garante o
+      # awaiting-reply, caso a skill nao o tenha aplicado.
       - name: Remover need-triage se a triagem concluiu
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         env:
@@ -89,6 +95,11 @@ jobs:
             gh issue edit "$NUMBER" --remove-label need-triage
           else
             echo "::notice::Triagem em handoff: need-triage mantido em #$NUMBER para a proxima rodada."
+            if ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+              gh label create awaiting-reply --color C5DEF5 \
+                --description "Aguardando resposta humana" 2>/dev/null || true
+              gh issue edit "$NUMBER" --add-label awaiting-reply
+            fi
           fi
 
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker

@@ -63,6 +63,11 @@ jobs:
           gh label create work-in-progress --color D93F0B \
             --description "Worker em execucao nesta issue" 2>/dev/null || true
           gh issue edit "$NUMBER" --add-label work-in-progress
+          # Nova rodada = o humano respondeu: sai o sinal de espera. Se a
+          # rodada parar em outra pergunta, a skill aplica de novo.
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+            gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
 
       # Cada linha de quality_checks vira (a) um prefixo liberado na allowlist
       # e (b) um item da lista que a skill recebe via system prompt. Um input
@@ -100,12 +105,13 @@ jobs:
           plugins: "samuel-morrissey-skills@samuel-morrissey-claude-marketplace"
           prompt: "/samuel-morrissey-skills:issue-remote-implement ${{ steps.target.outputs.number }}"
           # A allowlist espelha o frontmatter da skill issue-remote-implement (git para
-          # branch/commit/push, gh pr para abrir o PR, Edit/Write para mudar
+          # branch/commit/push, gh pr para abrir o PR, gh issue edit e gh label
+          # create so para o awaiting-reply do handoff, Edit/Write para mudar
           # codigo; Skill libera git-flow, labeling, grilling e async-first)
           # mais os prefixos derivados de quality_checks.
           claude_args: |
             --model claude-opus-5
-            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh label create:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
             --max-turns 150
             ${{ steps.quality.outputs.sysprompt }}
 
