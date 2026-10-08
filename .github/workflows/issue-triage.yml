@@ -1,0 +1,101 @@
+name: Issue Triage
+
+# Workflow reutilizavel de triagem. Chamado pelo router.yml quando o label
+# `need-triage` e aplicado a um issue ou quando um humano comenta em issue que
+# ainda carrega esse label (resposta a um handoff). Os guardas estao no
+# router; ver README.md.
+
+on:
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  issue-triage:
+    name: Triage Issue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolver numero do issue
+        id: target
+        env:
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ -z "$EVENT_NUMBER" ]; then
+            echo "::error::Evento sem issue: dispare o workflow chamador em um evento de issue."
+            exit 1
+          fi
+          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # Guarda de concorrencia (fluxo-de-issues.md §2.4): issue com
+      # work-in-progress ja tem um worker atuando — encerra sem falhar.
+      - name: Aplicar work-in-progress
+        id: wip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+            echo "::notice::Issue #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh label create work-in-progress --color D93F0B \
+            --description "Worker em execucao nesta issue" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label work-in-progress
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/samuel-morrissey/claude-marketplace.git"
+          plugins: "samuel-morrissey-skills@samuel-morrissey-claude-marketplace"
+          prompt: "/samuel-morrissey-skills:issue-triage ${{ steps.target.outputs.number }}"
+          # A allowlist espelha o frontmatter da skill issue-triage; Skill libera a
+          # invocacao de labeling, async-first e grilling no meio da execucao.
+          claude_args: |
+            --model claude-opus-5
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Read,Grep,Glob,Skill,TodoWrite"
+            --max-turns 50
+
+      # A skill troca need-triage pelo label de estado ao concluir. Este passo
+      # e a rede de seguranca: se o issue saiu da triagem (fechado ou com outro
+      # label de estado) e ainda carrega need-triage, remove. Se nao saiu
+      # (handoff aguardando resposta humana), mantem — e o need-triage que faz
+      # o proximo comentario humano disparar nova rodada.
+      - name: Remover need-triage se a triagem concluiu
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          INFO=$(gh issue view "$NUMBER" --json state,labels)
+          STATE=$(jq -r '.state' <<<"$INFO")
+          LABELS=$(jq -r '.labels[].name' <<<"$INFO")
+          if ! grep -Fqx 'need-triage' <<<"$LABELS"; then
+            exit 0
+          fi
+          if [ "$STATE" = "CLOSED" ] || grep -Eqx 'need-(discovery|refinement|break-down)|ready-for-(agent|human)|wontfix' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label need-triage
+          else
+            echo "::notice::Triagem em handoff: need-triage mantido em #$NUMBER para a proxima rodada."
+          fi
+
+      # Remove o WIP mesmo quando a action falha — mas so se foi este worker
+      # que o aplicou (skip vazio), para nao apagar o label de outro worker.
+      - name: Remover work-in-progress
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: gh issue edit "$NUMBER" --remove-label work-in-progress

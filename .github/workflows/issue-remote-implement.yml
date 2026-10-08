@@ -1,0 +1,119 @@
+name: Issue Remote Implement
+
+# Workflow reutilizavel de implementacao. Chamado pelo router.yml quando um
+# humano comenta `/implement` em issue com label ready-for-agent (e sem
+# work-in-progress). Os guardas estao no router; o snippet do consumidor em
+# examples/ai.yml.
+
+on:
+  workflow_call:
+    inputs:
+      quality_checks:
+        description: >-
+          Comandos de verificacao de qualidade do repositorio consumidor, um por
+          linha (ex.: `npm run typecheck`, `npm test`). Cada linha vira prefixo
+          liberado na allowlist do agente (Bash(<linha>:*)) e e informada a
+          skill issue-remote-implement, que os roda antes de abrir o PR. Vazio: a skill
+          segue sem verificacao e declara isso no PR.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  issue-remote-implement:
+    name: Implement Issue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolver numero do issue
+        id: target
+        env:
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ -z "$EVENT_NUMBER" ]; then
+            echo "::error::Evento sem issue: dispare o workflow chamador em um comentario de issue."
+            exit 1
+          fi
+          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # Guarda de concorrencia (fluxo-de-issues.md §2.4): issue com
+      # work-in-progress ja tem um worker atuando — encerra sem falhar.
+      - name: Aplicar work-in-progress
+        id: wip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+            echo "::notice::Issue #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh label create work-in-progress --color D93F0B \
+            --description "Worker em execucao nesta issue" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label work-in-progress
+
+      # Cada linha de quality_checks vira (a) um prefixo liberado na allowlist
+      # e (b) um item da lista que a skill recebe via system prompt. Um input
+      # so alimenta os dois, sem abrir Bash(*) para o agente.
+      - name: Preparar verificacao de qualidade
+        id: quality
+        if: steps.wip.outputs.skip != 'true'
+        env:
+          QUALITY_CHECKS: ${{ inputs.quality_checks }}
+        run: |
+          ALLOW=""
+          LIST=""
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
+            ALLOW="${ALLOW},Bash(${line}:*)"
+            LIST="${LIST}${LIST:+ ; }${line}"
+          done <<<"$QUALITY_CHECKS"
+          echo "allow=$ALLOW" >> "$GITHUB_OUTPUT"
+          if [ -n "$LIST" ]; then
+            echo "sysprompt=--append-system-prompt \"Verificacao de qualidade: o workflow chamador liberou e pede que voce rode, nesta ordem, os comandos: ${LIST}\"" >> "$GITHUB_OUTPUT"
+            echo "::notice::quality_checks: ${LIST}"
+          else
+            echo "sysprompt=" >> "$GITHUB_OUTPUT"
+            echo "::notice::Sem quality_checks: a skill segue sem verificacao e declara isso no PR."
+          fi
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/samuel-morrissey/claude-marketplace.git"
+          plugins: "samuel-morrissey-skills@samuel-morrissey-claude-marketplace"
+          prompt: "/samuel-morrissey-skills:issue-remote-implement ${{ steps.target.outputs.number }}"
+          # A allowlist espelha o frontmatter da skill issue-remote-implement (git para
+          # branch/commit/push, gh pr para abrir o PR, Edit/Write para mudar
+          # codigo; Skill libera git-flow, labeling, grilling e async-first)
+          # mais os prefixos derivados de quality_checks.
+          claude_args: |
+            --model claude-opus-5
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
+            --max-turns 150
+            ${{ steps.quality.outputs.sysprompt }}
+
+      # Remove o WIP mesmo quando a action falha — mas so se foi este worker
+      # que o aplicou (skip vazio), para nao apagar o label de outro worker.
+      - name: Remover work-in-progress
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: gh issue edit "$NUMBER" --remove-label work-in-progress

@@ -1,0 +1,129 @@
+name: AI Router
+
+# Workflow reutilizavel roteador. O repositorio consumidor tem UM workflow
+# chamador (examples/ai.yml) com todos os gatilhos do fluxo e chama este
+# arquivo. Cada job abaixo e um destino: o `if` decide se o evento e dele e o
+# `uses` chama o reutilizavel correspondente. Assim a regra "qual evento
+# aciona qual etapa" mora aqui e vale para todos os consumidores de uma vez.
+#
+# Job que nao passa no `if` e pulado sem consumir runner.
+#
+# Os destinos sao referenciados pelo caminho completo (@main), nao por
+# `./.github/workflows/...`: em chamada aninhada o caminho local resolve
+# contra o repositorio do chamador de cima, nao contra este.
+#
+# O que NAO da para mover para ca (regra do GitHub): `on:` e `permissions:`
+# ficam no chamador. Por isso o examples/ai.yml ja nasce com todos os gatilhos
+# e com a uniao das permissoes que as etapas pedem.
+
+on:
+  workflow_call:
+    inputs:
+      quality_checks:
+        description: >-
+          Repassado ao implement: comandos de verificacao do repositorio
+          consumidor, um por linha.
+        type: string
+        required: false
+        default: ""
+      claude_args:
+        description: "Repassado ao @claude: argumentos extras da CLI (--model, --allowed-tools, --max-turns...)."
+        type: string
+        required: false
+        default: ""
+      plugins:
+        description: "Repassado ao @claude: plugins do marketplace a carregar. Exige o secret AI_WORKFLOWS_REPO_READ_ACCESS_TOKEN."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      AI_WORKFLOWS_REPO_READ_ACCESS_TOKEN:
+        required: false
+
+jobs:
+  # Smoke test: label `hello-claude` aplicado a um issue.
+  hello-issue:
+    if: >
+      github.event_name == 'issues' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'hello-claude'
+    uses: samuel-morrissey/ai-workflows/.github/workflows/hello-issue.yml@main
+    secrets: inherit
+
+  # Triagem: label `need-triage` aplicado, ou comentario humano em issue que
+  # ainda carrega `need-triage` (resposta a um handoff).
+  # - `!github.event.issue.pull_request` — issue_comment tambem dispara em
+  #   comentario de PR, e triagem de PR esta fora de escopo;
+  # - `comment.user.type != 'Bot'` — so comentario humano reativa a triagem;
+  # - sem work-in-progress — outro worker ja esta atuando no issue.
+  issue-triage:
+    if: >
+      (github.event_name == 'issues' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'need-triage' &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       github.event.comment.user.type != 'Bot' &&
+       contains(join(github.event.issue.labels.*.name, ','), 'need-triage') &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-triage.yml@main
+    secrets: inherit
+
+  # Refinamento: comentario humano em issue com `need-refinement`.
+  issue-refinement:
+    if: >
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(join(github.event.issue.labels.*.name, ','), 'need-refinement') &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-refinement.yml@main
+    secrets: inherit
+
+  # Break-down: comentario humano em issue com `need-break-down`.
+  issue-break-down:
+    if: >
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(join(github.event.issue.labels.*.name, ','), 'need-break-down') &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
+    secrets: inherit
+
+  # Implementacao: comentario humano contendo `/implement` em issue com
+  # `ready-for-agent`. Aplicar o label nao inicia nada — e o humano quem da o
+  # "vai" comentando.
+  issue-remote-implement:
+    if: >
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(github.event.comment.body, '/implement') &&
+      contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-remote-implement.yml@main
+    with:
+      quality_checks: ${{ inputs.quality_checks }}
+    secrets: inherit
+
+  # @claude: mencao livre em issue (aberto ou atribuido), comentario de
+  # issue/PR ou review de PR. O `labeled` fica de fora: o chamador escuta esse
+  # tipo por causa da triagem e do smoke test, e sem o filtro cada label
+  # aplicado a um issue que cita @claude acordaria o agente de novo.
+  claude:
+    if: >
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' &&
+       (github.event.action == 'opened' || github.event.action == 'assigned') &&
+       (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    uses: samuel-morrissey/ai-workflows/.github/workflows/claude.yml@main
+    with:
+      claude_args: ${{ inputs.claude_args }}
+      plugins: ${{ inputs.plugins }}
+    secrets: inherit
