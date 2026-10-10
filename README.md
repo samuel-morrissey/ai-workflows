@@ -13,6 +13,8 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos.
 
+Quando o `/implement` termina e abre o PR, o issue troca `ready-for-agent` por `awaiting-pr-review`: a implementação acabou e o PR está pronto para análise. Um novo `/implement` nesse issue não dispara nada.
+
 Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é de um humano. Responda no issue. Na triagem, a resposta já dispara a próxima rodada. No `/implement`, responda e comente `/implement` de novo. O workflow tira o `awaiting-reply` quando a rodada seguinte começa.
 
 | Labels no issue | Quer dizer |
@@ -20,6 +22,9 @@ Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é
 | `need-triage` + `awaiting-reply` | esperando você responder |
 | `need-triage` + `work-in-progress` | Claude trabalhando agora |
 | `need-triage` sozinho | esperando a triagem rodar |
+| `ready-for-agent` sozinho | esperando alguém comentar `/implement` |
+| `ready-for-agent` + `work-in-progress` | Claude implementando agora |
+| `awaiting-pr-review` | PR aberto, esperando revisão e merge |
 
 Comentários de bots e de PRs não disparam nada.
 
@@ -57,7 +62,7 @@ Comentários de bots e de PRs não disparam nada.
 
 3. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
-Os labels do fluxo (`need-triage`, `ready-for-agent`, `awaiting-reply`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam o `work-in-progress`.
+Os labels do fluxo (`need-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam o `work-in-progress`.
 
 ## Testar
 

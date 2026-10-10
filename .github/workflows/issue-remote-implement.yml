@@ -147,7 +147,8 @@ jobs:
           prompt: "/samuel-morrissey-skills:issue-remote-implement ${{ steps.target.outputs.number }}"
           # A allowlist espelha o frontmatter da skill issue-remote-implement (git para
           # branch/commit/push, gh pr para abrir o PR, gh issue edit e gh label
-          # create so para o awaiting-reply do handoff, Edit/Write para mudar
+          # create para trocar ready-for-agent por awaiting-pr-review ao abrir o
+          # PR e para o awaiting-reply do handoff, Edit/Write para mudar
           # codigo; Skill libera git-flow, labeling, grilling e async-first)
           # mais os prefixos derivados de quality_checks.
           claude_args: |
