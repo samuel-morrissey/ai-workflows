@@ -26,11 +26,21 @@ permissions:
 jobs:
   ai:
     uses: caravelasistemas/ai-workflows/.github/workflows/router.yml@main
-    # Comandos de verificacao de qualidade, um por linha, rodados pela etapa
-    # issue-remote-implement antes de abrir o PR. Vazio: segue sem
-    # verificacao. Este repositorio nao tem build nem testes; no consumidor,
-    # descomente e ajuste:
+    # Dois inputs, um comando por linha cada, usados pela etapa
+    # issue-remote-implement:
+    #
+    # - setup_commands: preparacao do ambiente, rodada pelo workflow antes de
+    #   chamar o agente. Comando que falha interrompe o job. Vazio: nada roda.
+    #   Precisa de uma versao especifica de runtime? Resolva aqui; mudanca de
+    #   PATH so chega ao agente se gravada em $GITHUB_PATH.
+    # - quality_checks: verificacao rodada pelo agente antes de abrir o PR.
+    #   Vazio: o PR sai declarando que nao houve verificacao.
+    #
+    # Este repositorio nao tem build nem testes, por isso vai sem os dois. No
+    # consumidor, descomente e ajuste:
     # with:
+    #   setup_commands: |
+    #     npm ci
     #   quality_checks: |
     #     npm run typecheck
     #     npm test

@@ -8,6 +8,20 @@ name: Issue Remote Implement
 on:
   workflow_call:
     inputs:
+      setup_commands:
+        description: >-
+          Comandos de preparacao do ambiente do repositorio consumidor, um por
+          linha (ex.: `npm ci`). Rodados por este workflow, na ordem declarada,
+          no mesmo shell, antes de chamar o agente; comando que falha
+          interrompe o job e o agente nao e chamado. Ao contrario de
+          quality_checks, nao entram na allowlist nem no system prompt do
+          agente. Vazio: nenhum comando roda e o fluxo segue igual. Escolher a
+          versao do runtime esta fora do escopo deste input — quem precisa
+          resolve no proprio setup (mudanca de PATH ou de variavel so chega ao
+          agente se gravada em $GITHUB_PATH / $GITHUB_ENV).
+        type: string
+        required: false
+        default: ""
       quality_checks:
         description: >-
           Comandos de verificacao de qualidade do repositorio consumidor, um por
@@ -93,6 +107,33 @@ jobs:
           else
             echo "sysprompt=" >> "$GITHUB_OUTPUT"
             echo "::notice::Sem quality_checks: a skill segue sem verificacao e declara isso no PR."
+          fi
+
+      # setup_commands serve a um fim so: ser executado aqui. Instalar
+      # dependencia e pre-condicao, nao decisao — por isso quem roda e o
+      # workflow (falha com log legivel, sem gastar turno do agente nem abrir
+      # prefixo novo na allowlist), e nao o agente. Nada deste input vaza para
+      # --allowed-tools ou para o system prompt.
+      - name: Preparar ambiente do consumidor
+        if: steps.wip.outputs.skip != 'true'
+        env:
+          SETUP_COMMANDS: ${{ inputs.setup_commands }}
+        run: |
+          set -e
+          RAN=0
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
+            echo "::group::setup: ${line}"
+            # Falha aqui para o job: o agente nao roda em ambiente quebrado.
+            # stdin em /dev/null para o comando nao consumir as linhas que
+            # faltam e furar a ordem declarada.
+            eval "$line" </dev/null
+            echo "::endgroup::"
+            RAN=$((RAN + 1))
+          done <<<"$SETUP_COMMANDS"
+          if [ "$RAN" -eq 0 ]; then
+            echo "::notice::Sem setup_commands: nenhum comando de preparacao executado."
           fi
 
       - uses: anthropics/claude-code-action@v1
