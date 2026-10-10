@@ -19,6 +19,14 @@ name: AI Router
 on:
   workflow_call:
     inputs:
+      setup_commands:
+        description: >-
+          Repassado ao implement: comandos de preparacao do ambiente do
+          repositorio consumidor, um por linha, rodados pelo workflow antes de
+          chamar o agente.
+        type: string
+        required: false
+        default: ""
       quality_checks:
         description: >-
           Repassado ao implement: comandos de verificacao do repositorio
@@ -64,5 +72,6 @@ jobs:
       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
     uses: caravelasistemas/ai-workflows/.github/workflows/issue-remote-implement.yml@main
     with:
+      setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
     secrets: inherit

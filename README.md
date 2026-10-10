@@ -50,7 +50,10 @@ Comentários de bots e de PRs não disparam nada.
    gh api repos/caravelasistemas/ai-workflows/contents/.github/workflows/ai.yml -q .content | base64 -d > .github/workflows/ai.yml
    ```
 
-2. Ajuste `quality_checks` no fim do arquivo. Descomente o bloco `with:` e coloque os comandos de verificação do projeto, um por linha. A implementação roda esses comandos antes de abrir o PR. Sem eles, o PR sai declarando que não houve verificação.
+2. Ajuste os inputs no fim do arquivo. Descomente o bloco `with:` e preencha os dois, um comando por linha:
+
+   - `setup_commands`: prepara o ambiente do projeto (por exemplo `npm ci`). O **workflow** roda esses comandos, na ordem declarada, antes de chamar o Claude. Sem eles, `quality_checks` roda num checkout sem dependências instaladas. Se um comando falhar, o job para ali e o Claude não é chamado. Precisa de uma versão específica de runtime? Resolva dentro desses comandos, porque o fluxo não escolhe versão. Uma mudança de `PATH` só chega ao Claude se for gravada em `$GITHUB_PATH`. Sem esses comandos, nenhuma preparação roda.
+   - `quality_checks`: os comandos de verificação do projeto. O **Claude** roda esses comandos antes de abrir o PR. Sem eles, o PR sai declarando que não houve verificação.
 
 3. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
@@ -75,7 +78,3 @@ Problemas comuns:
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, roda o Claude com a skill da etapa (do marketplace `samuel-morrissey/claude-marketplace`) e tira o label no fim.
 
 Os `uses` apontam para `caravelasistemas/ai-workflows/...@main`, e não para `./.github/workflows/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.
-
-## Limitações conhecidas
-
-- A implementação não instala as dependências do projeto antes de rodar `quality_checks` ([#1](https://github.com/caravelasistemas/ai-workflows/issues/1)).
