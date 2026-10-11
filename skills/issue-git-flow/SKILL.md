@@ -49,18 +49,19 @@ mesmo assim: e por ele que o fechamento abaixo acha a sub-task.
 
 Por isso, **todo PR do fluxo** recebe tambem o vinculo nativo pela API, logo
 depois de aberto, qualquer que seja a base. Vincule o PR a cada issue que ele
-fecha (`Closes`), nunca ao pai do `Parte de`:
+fecha (`Closes`), nunca ao pai do `Parte de`.
 
-```bash
-pr_id=$(gh pr view <url> --json id --jq .id)
-issue_id=$(gh issue view <issue> --json id --jq .id)
-gh api graphql -f query='
-  mutation($issue: ID!, $pr: ID!) {
-    addCloseIssueReferences(input: {issueId: $issue, pullRequestIds: [$pr]}) {
-      clientMutationId
-    }
-  }' -f issue="$issue_id" -f pr="$pr_id"
-```
+Rode tres comandos soltos, sem variavel de shell nem `$(...)`: a allowlist
+do workflow libera `gh api`, `gh pr view` e `gh issue view` so como comando
+que comeca por eles.
+
+1. Pegue o id do PR: `gh pr view <url> --json id --jq .id`.
+2. Pegue o id do issue: `gh issue view <issue> --json id --jq .id`.
+3. Vincule, colando os dois ids:
+
+   ```bash
+   gh api graphql -f query='mutation { addCloseIssueReferences(input: {issueId: "<id-do-issue>", pullRequestIds: ["<id-do-pr>"]}) { clientMutationId } }'
+   ```
 
 Confira depois: `gh pr view <url> --json closingIssuesReferences` lista o
 issue, em qualquer base. Nao listou? Rode a mutation de novo e confira outra
