@@ -93,8 +93,8 @@ como sub-issues nativas do GitHub, com bloqueios como dependencias nativas
   bloqueios, nao de label: e a primeira sub-task aberta, na ordem das
   sub-issues, sem bloqueio aberto e sem PR em revisao.
 - **A sub-task so ganha `awaiting-pr-review`,** quando o PR dela (para a
-  branch de integracao do pai) fica pronto. O `/implement` seguinte do pai a
-  fecha depois do merge.
+  branch de integracao do pai) fica pronto. O merge desse PR a fecha (ver
+  `issue-git-flow`).
 - **O pai so ganha `awaiting-pr-review`** quando todas as sub-tasks estao
   fechadas e o PR dele, da branch de integracao para a `main`, fica pronto.
 
