@@ -1,0 +1,45 @@
+name: PR Merged
+
+# Workflow reutilizavel chamado pelo router.yml quando um PR e mergeado numa
+# branch que nao e a padrao (a branch de integracao de um pai com
+# sub-tasks). O GitHub so fecha issue por `Closes #n` em PR para a branch
+# padrao; aqui o workflow faz esse papel: fecha cada issue que o corpo do PR
+# declara com Closes/Fixes/Resolves e tira o awaiting-pr-review. Sem agente:
+# so gh.
+
+on:
+  workflow_call:
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  close-issues:
+    name: Close Issues From Merged PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fechar os issues do Closes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          NUMBERS=$(grep -oiE '^[[:space:]]*(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' <<<"$BODY" | grep -oE '[0-9]+' | sort -u || true)
+          if [ -z "$NUMBERS" ]; then
+            echo "::notice::PR #$PR_NUMBER nao declara Closes; nada a fechar."
+            exit 0
+          fi
+          for N in $NUMBERS; do
+            STATE=$(gh issue view "$N" --json state -q .state 2>/dev/null || echo MISSING)
+            if [ "$STATE" != "OPEN" ]; then
+              echo "::notice::#$N esta $STATE; ignorado."
+              continue
+            fi
+            gh issue close "$N" --comment "Integrada em \`$BASE\` pelo #$PR_NUMBER."
+            if gh issue view "$N" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-pr-review'; then
+              gh issue edit "$N" --remove-label awaiting-pr-review
+            fi
+          done

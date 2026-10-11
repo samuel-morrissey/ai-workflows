@@ -12,6 +12,7 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 | Refinamento | o label `need-refinement` entra no issue, ou uma pessoa comenta num issue que tem `need-refinement` | `issue-refinement.yml` |
 | Quebra em sub-tasks | o label `need-break-down` entra no issue, ou uma pessoa comenta num issue que tem `need-break-down` | `issue-break-down.yml` |
 | Implementação | uma pessoa comenta `/implement` num issue com `ready-for-agent` | `issue-remote-implement.yml` |
+| Fechar sub-task | um PR é mergeado numa branch que não é a padrão (a branch do pai). Fecha os issues do `Closes` do corpo, porque o GitHub só faz isso sozinho na branch padrão | `pr-merged.yml` |
 
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos.
 
@@ -25,7 +26,7 @@ A quebra cria `[SUB-TASK]`s ligadas ao issue pai, com bloqueios entre elas. O `/
 
 1. Comente `/implement` no pai. O agente abre o PR da primeira sub-task sem bloqueio para a branch do pai, e a sub-task ganha `awaiting-pr-review`.
 2. Revise e faça o merge do PR da sub-task.
-3. Comente `/implement` no pai de novo. O agente fecha a sub-task integrada e abre o PR da próxima.
+3. O merge fecha a sub-task sozinho. Comente `/implement` no pai de novo: o agente abre o PR da próxima.
 4. Quando todas fecharem, o próximo `/implement` abre o PR do pai para a `main`, e o pai ganha `awaiting-pr-review`.
 
 Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é de um humano. Responda no issue. Na triagem, no refinamento e na quebra, a resposta já dispara a próxima rodada. No `/implement`, responda e comente `/implement` de novo. O workflow tira o `awaiting-reply` quando a rodada seguinte começa.
