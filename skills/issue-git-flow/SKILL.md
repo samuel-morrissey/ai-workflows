@@ -42,15 +42,30 @@ secao:
 | Sub-task | `Closes #<sub-task>` e `Parte de #<pai>` |
 | Pai | `Closes #<pai>` |
 
-Num PR para a branch padrao, o `Closes` e o vinculo nativo: o GitHub mostra
-o PR no issue e fecha o issue no merge. Confira depois de abrir:
-`gh pr view <url> --json closingIssuesReferences` lista o issue.
+O `Closes` no corpo nao basta: o GitHub so o le em PR para a branch padrao.
+Num PR de sub-task, a base e a branch de integracao, e o `Closes` e
+**ignorado** — o PR nao aparece em *Development* do issue. O `Closes` fica
+mesmo assim: e por ele que o fechamento abaixo acha a sub-task.
 
-Num PR de sub-task, a base e a branch de integracao, e o GitHub **ignora** o
-`Closes` fora da branch padrao: `closingIssuesReferences` volta vazio, e o
-merge nao fecha nada. O `#<sub-task>` no corpo ainda cria a referencia na
-linha do tempo do issue. O `Closes` fica mesmo assim: e por ele que o
-fechamento abaixo acha a sub-task.
+Por isso, **todo PR do fluxo** recebe tambem o vinculo nativo pela API, logo
+depois de aberto, qualquer que seja a base. Vincule o PR a cada issue que ele
+fecha (`Closes`), nunca ao pai do `Parte de`:
+
+```bash
+pr_id=$(gh pr view <url> --json id --jq .id)
+issue_id=$(gh issue view <issue> --json id --jq .id)
+gh api graphql -f query='
+  mutation($issue: ID!, $pr: ID!) {
+    addCloseIssueReferences(input: {issueId: $issue, pullRequestIds: [$pr]}) {
+      clientMutationId
+    }
+  }' -f issue="$issue_id" -f pr="$pr_id"
+```
+
+Confira depois: `gh pr view <url> --json closingIssuesReferences` lista o
+issue, em qualquer base. Nao listou? Rode a mutation de novo e confira outra
+vez. O vinculo nao muda o fechamento: fora da branch padrao, o merge
+continua sem fechar o issue.
 
 ## Fechamento
 
