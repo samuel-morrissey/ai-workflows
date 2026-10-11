@@ -1,6 +1,6 @@
 # ai-workflows
 
-Workflows reutilizáveis do GitHub Actions que levam o fluxo de issues da Caravela para o Claude: triagem e implementação.
+Workflows reutilizáveis do GitHub Actions que levam o fluxo de issues da Caravela para o Claude: triagem, refinamento, quebra em sub-tasks e implementação.
 
 Cada repositório da organização tem um único arquivo, `.github/workflows/ai.yml`. Ele chama o `router.yml` daqui, e o router escolhe a etapa que o evento aciona.
 
@@ -9,13 +9,26 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 | Etapa | Dispara quando | Workflow |
 | --- | --- | --- |
 | Triagem | o label `need-triage` entra no issue, ou uma pessoa comenta num issue que ainda tem `need-triage` | `issue-triage.yml` |
+| Refinamento | o label `need-refinement` entra no issue, ou uma pessoa comenta num issue que tem `need-refinement` | `issue-refinement.yml` |
+| Quebra em sub-tasks | o label `need-break-down` entra no issue, ou uma pessoa comenta num issue que tem `need-break-down` | `issue-break-down.yml` |
 | Implementação | uma pessoa comenta `/implement` num issue com `ready-for-agent` | `issue-remote-implement.yml` |
 
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos.
 
+Quando uma etapa troca o label sozinha (ex.: o refinamento termina e põe `need-break-down`), o GitHub não dispara a etapa seguinte. Comente no issue para ela rodar. Esse comentário é o seu "pode seguir".
+
 Quando o `/implement` termina e abre o PR, o issue troca `ready-for-agent` por `awaiting-pr-review`: a implementação acabou e o PR está pronto para análise. Um novo `/implement` nesse issue não dispara nada.
 
-Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é de um humano. Responda no issue. Na triagem, a resposta já dispara a próxima rodada. No `/implement`, responda e comente `/implement` de novo. O workflow tira o `awaiting-reply` quando a rodada seguinte começa.
+### Issue com sub-tasks
+
+A quebra cria `[SUB-TASK]`s ligadas ao issue pai, com bloqueios entre elas. O `/implement` é sempre comentado no **pai**, uma vez por PR:
+
+1. Comente `/implement` no pai. O agente abre o PR da primeira sub-task sem bloqueio para a branch do pai, e a sub-task ganha `awaiting-pr-review`.
+2. Revise e faça o merge do PR da sub-task.
+3. Comente `/implement` no pai de novo. O agente fecha a sub-task integrada e abre o PR da próxima.
+4. Quando todas fecharem, o próximo `/implement` abre o PR do pai para a `main`, e o pai ganha `awaiting-pr-review`.
+
+Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é de um humano. Responda no issue. Na triagem, no refinamento e na quebra, a resposta já dispara a próxima rodada. No `/implement`, responda e comente `/implement` de novo. O workflow tira o `awaiting-reply` quando a rodada seguinte começa.
 
 | Labels no issue | Quer dizer |
 | --- | --- |
@@ -24,6 +37,8 @@ Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é
 | `need-triage` sozinho | esperando a triagem rodar |
 | `ready-for-agent` sozinho | esperando alguém comentar `/implement` |
 | `ready-for-agent` + `work-in-progress` | Claude implementando agora |
+| `need-refinement` + `awaiting-reply` | perguntas do refinamento esperando você |
+| `need-break-down` sozinho | comente no issue para quebrar em sub-tasks |
 | `awaiting-pr-review` | PR aberto, esperando revisão e merge |
 
 Comentários de bots e de PRs não disparam nada.

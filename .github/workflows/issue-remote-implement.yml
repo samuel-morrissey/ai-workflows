@@ -148,12 +148,14 @@ jobs:
           # A allowlist espelha o frontmatter da skill issue-remote-implement (git para
           # branch/commit/push, gh pr para abrir o PR, gh issue edit e gh label
           # create para trocar ready-for-agent por awaiting-pr-review ao abrir o
-          # PR e para o awaiting-reply do handoff, Edit/Write para mudar
-          # codigo; Skill libera git-flow, labeling, grilling e async-first)
+          # PR e para o awaiting-reply do handoff, gh api para ler sub-issues e
+          # bloqueios de um pai, gh issue close para fechar a sub-task ja
+          # integrada, Edit/Write para mudar codigo; Skill libera labeling,
+          # grilling e async-first)
           # mais os prefixos derivados de quality_checks.
           claude_args: |
             --model claude-opus-5
-            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh label create:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
             --max-turns 150
             ${{ steps.quality.outputs.sysprompt }}
 
