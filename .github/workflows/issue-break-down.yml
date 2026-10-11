@@ -1,0 +1,103 @@
+name: Issue Break Down
+
+# Workflow reutilizavel de quebra em sub-tasks. Chamado pelo router.yml quando
+# o label `need-break-down` e aplicado a um issue ou quando um humano comenta
+# em issue que carrega esse label. A rodada cria as sub-tasks ligadas ao pai e
+# o entrega em ready-for-*, ou para em pergunta (awaiting-reply). Os guardas
+# estao no router; ver README.md.
+
+on:
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  issue-break-down:
+    name: Break Down Issue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolver numero do issue
+        id: target
+        env:
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ -z "$EVENT_NUMBER" ]; then
+            echo "::error::Evento sem issue: dispare o workflow chamador em um evento de issue."
+            exit 1
+          fi
+          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # Guarda de concorrencia (fluxo-de-issues.md §2.4): issue com
+      # work-in-progress ja tem um worker atuando — encerra sem falhar.
+      - name: Aplicar work-in-progress
+        id: wip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+            echo "::notice::Issue #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh label create work-in-progress --color D93F0B \
+            --description "Worker em execucao nesta issue" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label work-in-progress
+          # Nova rodada = o humano respondeu: sai o sinal de espera. Se a
+          # rodada parar em outra pergunta, a skill aplica de novo.
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+            gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/samuel-morrissey/claude-marketplace.git"
+          plugins: "samuel-morrissey-skills@samuel-morrissey-claude-marketplace"
+          prompt: "/samuel-morrissey-skills:issue-break-down ${{ steps.target.outputs.number }}"
+          # A allowlist espelha o frontmatter da skill issue-break-down; Skill libera a
+          # invocacao de labeling, async-first e grilling no meio da execucao.
+          claude_args: |
+            --model claude-opus-5
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue create:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(git log:*),Read,Grep,Glob,Skill,TodoWrite"
+            --max-turns 100
+
+      # Rede de seguranca: se a rodada terminou e o issue continua em
+      # `need-break-down`, a rodada parou em pergunta. Garante o awaiting-reply, caso
+      # a skill nao o tenha aplicado. O `need-break-down` fica: e ele que faz o
+      # proximo comentario humano disparar nova rodada.
+      - name: Garantir awaiting-reply se a rodada parou em pergunta
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          INFO=$(gh issue view "$NUMBER" --json state,labels)
+          STATE=$(jq -r '.state' <<<"$INFO")
+          LABELS=$(jq -r '.labels[].name' <<<"$INFO")
+          if [ "$STATE" = "OPEN" ] && grep -Fqx 'need-break-down' <<<"$LABELS" && ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+            gh label create awaiting-reply --color C5DEF5 \
+              --description "Aguardando resposta humana" 2>/dev/null || true
+            gh issue edit "$NUMBER" --add-label awaiting-reply
+          fi
+
+      # Remove o WIP mesmo quando a action falha — mas so se foi este worker
+      # que o aplicou (skip vazio), para nao apagar o label de outro worker.
+      - name: Remover work-in-progress
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: gh issue edit "$NUMBER" --remove-label work-in-progress
