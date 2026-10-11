@@ -21,9 +21,10 @@ formato na `to-pr`? Vale aqui na proxima execucao, sem tocar neste arquivo.
 
 3. **Vinculos pela `issue-git-flow`.** As linhas de vinculo do topo do corpo
    seguem a tabela dela. Elas substituem a tabela de vinculos da `to-pr`,
-   inclusive o `Parte de #<pai>` da sub-task. Confira
-   `closingIssuesReferences` so quando a base e a branch padrao: fora dela,
-   o GitHub ignora o `Closes`, e a lista vazia e o esperado.
+   inclusive o `Parte de #<pai>` da sub-task. Depois de abrir, faca o
+   vinculo nativo pela API (`addCloseIssueReferences`) e confira
+   `closingIssuesReferences`, como a `issue-git-flow` manda — sempre,
+   qualquer que seja a base.
 
 4. **Sem "mostrar e perguntar".** O passo de imprimir o rascunho e esperar
    resposta vira: abra o PR direto, com o rascunho final.
@@ -46,5 +47,6 @@ formato na `to-pr`? Vale aqui na proxima execucao, sem tocar neste arquivo.
 6. Devolva a URL do PR para quem chamou.
 
 Pronto quando o PR esta aberto da head para a base recebidas, o corpo comeca
-pelas linhas de vinculo da `issue-git-flow`, segue o `TEMPLATE.md` da `to-pr`
+pelas linhas de vinculo da `issue-git-flow`, o `closingIssuesReferences` do
+PR lista cada issue do `Closes`, segue o `TEMPLATE.md` da `to-pr`
 e termina na ultima secao de conteudo.

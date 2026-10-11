@@ -178,7 +178,8 @@ vias, nesta ordem de preferencia:
 
 A rodada esta completa quando existe exatamente um PR novo da branch da
 unidade para a base da `issue-git-flow`, cujo corpo comeca pelas linhas de
-vinculo dela, cujo diff cobre todos os criterios de aceite da unidade com teste na
+vinculo dela, vinculado ao issue da unidade pela API (aparece em
+*Development* do issue), cujo diff cobre todos os criterios de aceite da unidade com teste na
 fronteira de cada um, cuja verificacao esta verde (ou declarada ausente, com
 motivo), e a unidade esta com `awaiting-pr-review` e o comentario com o link.
 Os outros fins validos sao: comentario explicando por que nao ha unidade
