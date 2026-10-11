@@ -4,7 +4,7 @@ description: Implementa um issue ready-for-agent - num pontual, abre o PR dele; 
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit:*) Bash(gh issue close:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(git status:*) Bash(git branch:*) Bash(git checkout:*) Bash(git switch:*) Bash(git fetch:*) Bash(git pull:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git diff:*) Bash(git log:*) Bash(git config:*) Read Grep Glob Edit Write
+allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit:*) Bash(gh issue close:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr create:*) Bash(gh pr edit:*) Bash(gh pr view:*) Bash(git status:*) Bash(git branch:*) Bash(git checkout:*) Bash(git switch:*) Bash(git fetch:*) Bash(git pull:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git diff:*) Bash(git log:*) Bash(git config:*) Read Grep Glob Edit Write
 ---
 
 # Implement
@@ -19,8 +19,8 @@ O alvo do `/implement` e sempre o issue com `ready-for-agent`:
 - **pai com sub-tasks**: a rodada escolhe o que fazer, entre a proxima
   sub-task sem bloqueio e o PR do pai.
 
-Branch, base, fechamento e formato de PR estao em [GIT-FLOW.md](GIT-FLOW.md).
-Leia antes do passo 3.
+Branch, base, vinculo e fechamento seguem a skill `issue-git-flow`. Invoque-a
+antes do passo 2. O texto do PR e da skill `remote-to-pr`.
 
 Decisao a montante, execucao a jusante: o brief ja diz **o que** (criterios
 de aceite) e **onde** (a fronteira em que cada criterio se observa). Voce nao
@@ -76,8 +76,9 @@ vias, nesta ordem de preferencia:
 
 2. **Pai: escolha a unidade da rodada.**
 
-   1. **Feche as sub-tasks ja integradas.** Para cada sub-task aberta, procure
-      PR mergeado que a feche:
+   1. **Feche as sub-tasks ja integradas.** O workflow de PR mergeado ja as
+      fecha no merge; este passo e a rede de seguranca. Para cada sub-task
+      aberta, procure PR mergeado que a feche:
 
       ```bash
       gh pr list --state merged --search "Closes #<sub>" --json number,baseRefName
@@ -106,7 +107,7 @@ vias, nesta ordem de preferencia:
 
    Os criterios de aceite da rodada vem do corpo da sub-task escolhida.
 
-3. **Crie a branch** conforme o GIT-FLOW.md. Sub-task: garanta antes a branch
+3. **Crie a branch** conforme a `issue-git-flow`. Sub-task: garanta antes a branch
    de integracao do pai, criando e publicando se nao existir. Garanta
    identidade de commit antes do primeiro commit:
 
@@ -145,7 +146,8 @@ vias, nesta ordem de preferencia:
 
    PR com verificacao vermelha nao existe nesta skill.
 
-6. **Abra o PR** com a base e o formato do GIT-FLOW.md.
+6. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
+   unidade) e a base da `issue-git-flow`.
 
 7. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
 
@@ -175,8 +177,8 @@ vias, nesta ordem de preferencia:
    <url>. Depois do merge, comente `/implement` aqui para a proxima."
 
 A rodada esta completa quando existe exatamente um PR novo da branch da
-unidade para a base do GIT-FLOW.md, cujo corpo comeca com `Closes #<unidade>`,
-cujo diff cobre todos os criterios de aceite da unidade com teste na
+unidade para a base da `issue-git-flow`, cujo corpo comeca pelas linhas de
+vinculo dela, cujo diff cobre todos os criterios de aceite da unidade com teste na
 fronteira de cada um, cuja verificacao esta verde (ou declarada ausente, com
 motivo), e a unidade esta com `awaiting-pr-review` e o comentario com o link.
 Os outros fins validos sao: comentario explicando por que nao ha unidade
