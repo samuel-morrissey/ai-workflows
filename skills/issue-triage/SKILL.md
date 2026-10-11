@@ -9,10 +9,9 @@ allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*)
 
 # Triage
 
-> **Skills ainda nao criadas:** `issue-discovery`, `issue-refinement` e
-> `issue-break-down` sao citadas neste arquivo como proximo passo, mas ainda
-> nao existem neste plugin. Ao indicar uma delas, avise que nao e possivel
-> usar a skill referenciada porque ela ainda nao foi criada.
+> **Skill ainda nao criada:** `issue-discovery` e citada neste arquivo como
+> proximo passo, mas ainda nao existe neste plugin. Ao indica-la, avise que
+> nao e possivel usar a skill referenciada porque ela ainda nao foi criada.
 
 Caracteriza um issue cru e o entrega pronto para a proxima etapa: investiga o
 codigo, atribui **tipo + label de estado** e registra o que descobriu.

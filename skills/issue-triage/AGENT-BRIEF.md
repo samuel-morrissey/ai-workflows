@@ -1,14 +1,15 @@
 # Brief
 
-> **Skills ainda nao criadas:** `issue-discovery` e `issue-refinement` sao
-> citadas neste arquivo como proximo passo, mas ainda nao existem neste
-> plugin. Ao indicar uma delas, avise que nao e possivel usar a skill
-> referenciada porque ela ainda nao foi criada.
+> **Skill ainda nao criada:** `issue-discovery` e citada neste arquivo como
+> proximo passo, mas ainda nao existe neste plugin. Ao indica-la, avise que
+> nao e possivel usar a skill referenciada porque ela ainda nao foi criada.
 
 Formatos do que a triagem escreve depois de investigar o codigo: o **brief
 completo**, que vira o corpo de um issue de tipo pontual, e a **leitura de
 codigo**, que
-vai em comentario de `[MAP]`/`[SPEC]`.
+vai em comentario de `[MAP]`/`[SPEC]`. A `issue-break-down` usa o mesmo brief
+completo no corpo de cada `[SUB-TASK]`, e a `issue-refinement` segue os
+mesmos principios no comentario de refinamento.
 
 ## Principios
 

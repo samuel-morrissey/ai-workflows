@@ -5,10 +5,9 @@ description: Vocabulario canonico do fluxo de issues - tipos (MAP, SPEC, SUB-TAS
 
 # Labeling
 
-> **Skills ainda nao criadas:** `issue-discovery`, `issue-refinement` e
-> `issue-break-down` sao citadas neste arquivo como proximo passo, mas ainda
-> nao existem neste plugin. Ao indicar uma delas, avise que nao e possivel
-> usar a skill referenciada porque ela ainda nao foi criada.
+> **Skill ainda nao criada:** `issue-discovery` e citada neste arquivo como
+> proximo passo, mas ainda nao existe neste plugin. Ao indica-la, avise que
+> nao e possivel usar a skill referenciada porque ela ainda nao foi criada.
 
 Referencia canonica de tipos e labels do fluxo de issues. Toda skill que mexe
 em labels segue este vocabulario.
@@ -28,7 +27,7 @@ O tipo e **imutavel**: um `[MAP]` nunca vira `[SPEC]` — ele gera filhos.
 | `[DOCS]` | Pontual: somente documentacao |
 | `[INFRA]` | Pontual: CI, workflows, build, tooling, configuracao de repo |
 | `[TASK]` | Pontual generica — fallback quando nenhum pontual acima encaixa |
-| `[SUB-TASK]` | Unidade executavel de trabalho, que vira um PR |
+| `[SUB-TASK]` | Unidade executavel de trabalho, que vira um PR. Filha de um pai; ver "Pai e sub-tasks" |
 
 `[BUG]`, `[FEAT]`, `[REFACTOR]`, `[DOCS]`, `[INFRA]` e `[TASK]` sao os
 **tipos pontuais**: no fluxo se comportam de forma identica (mesmos labels de
@@ -44,11 +43,11 @@ O estado e um **label** e diz o **proximo passo** da issue.
 |---|---|---|---|
 | `need-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` |
 | `need-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` |
-| `need-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement` | `FBCA04` |
+| `need-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: cada comentario humano dispara a proxima | `FBCA04` |
 | `need-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` |
-| `ready-for-agent` | Unidade executavel que o agente faz sozinho | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` |
+| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` |
-| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR (o merge fecha a issue) | `5319E7` |
+| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois comenta `/implement` no pai | `5319E7` |
 | `wontfix` | Nao sera feito. Terminal: a issue e fechada com esse label | — | `FFFFFF` |
 
 ## Label de trabalho
@@ -81,6 +80,31 @@ Lendo os labels juntos:
 - `need-triage` + `work-in-progress` — worker atuando agora;
 - `need-triage` sozinho — esperando a triagem rodar.
 
+## Pai e sub-tasks
+
+A `issue-break-down` transforma um issue em **pai** de `[SUB-TASK]`s, ligadas
+como sub-issues nativas do GitHub, com bloqueios como dependencias nativas
+(`blocked_by`). Os labels se dividem assim:
+
+- **O pai carrega o estado.** Sai da quebra com `ready-for-*` e fica nele
+  enquanto as sub-tasks andam. O `/implement` e comentado no pai, nunca na
+  sub-task.
+- **A sub-task nasce sem label de estado.** "Pode ser feita agora" se le dos
+  bloqueios, nao de label: e a primeira sub-task aberta, na ordem das
+  sub-issues, sem bloqueio aberto e sem PR em revisao.
+- **A sub-task so ganha `awaiting-pr-review`,** quando o PR dela (para a
+  branch de integracao do pai) fica pronto. O `/implement` seguinte do pai a
+  fecha depois do merge.
+- **O pai so ganha `awaiting-pr-review`** quando todas as sub-tasks estao
+  fechadas e o PR dele, da branch de integracao para a `main`, fica pronto.
+
+Lendo os labels de um pai:
+
+- pai `ready-for-agent` + sub-task `awaiting-pr-review`: PR da sub-task
+  esperando revisao e merge; depois, `/implement` no pai;
+- pai `ready-for-agent` sem sub-task em revisao: comente `/implement` no pai;
+- pai `awaiting-pr-review`: PR final esperando revisao e merge na `main`.
+
 ## Regras
 
 1. **Um label de estado por vez.** Ao mover a issue de estagio, remova o label
@@ -88,8 +112,9 @@ Lendo os labels juntos:
 2. **O fluxo so anda para frente:**
    `need-triage → need-discovery → need-refinement → need-break-down →
    ready-for-* → awaiting-pr-review` e, por fim, issue fechada (merge do PR ou
-   fechamento manual). `awaiting-pr-review` so vem de `ready-for-agent`: e a
-   `issue-remote-implement` que o aplica ao abrir o PR. Correcao de
+   fechamento manual). `awaiting-pr-review` so vem de `ready-for-agent` (ou,
+   numa sub-task, de nenhum label): e a `issue-remote-implement` que o aplica
+   ao abrir o PR. Correcao de
    classificacao ou problema pos-merge vira **issue nova** vinculada — o label
    de uma issue existente permanece no estagio em que esta.
 3. **Quem troca o label e a skill que conclui o estagio.** Cada skill entrega a
