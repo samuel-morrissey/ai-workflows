@@ -2,7 +2,7 @@
     "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
     "name": "samuel-morrissey-skills",
     "displayName": "Samuel Morrissey Skills",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "description": "Skills e workflows compartilhados: triagem de issues/PRs e utilitarios de automacao para GitHub Actions.",
     "author": {
         "name": "Samuel de Lima",

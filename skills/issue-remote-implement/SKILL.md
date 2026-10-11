@@ -1,39 +1,40 @@
 ---
 name: issue-remote-implement
-description: Implementa um issue ready-for-agent de ponta a ponta - cria a branch conforme o git-flow, desenvolve test-first nos criterios de aceite, roda as verificacoes de qualidade, abre o PR com Closes e move o issue para awaiting-pr-review. Termina na abertura do PR; verificacao vermelha nao vira PR.
+description: Implementa um issue ready-for-agent - num pontual, abre o PR dele; num pai com sub-tasks, fecha as ja integradas e abre o PR da proxima sub-task sem bloqueio, ou o PR do pai quando todas fecharam. Desenvolve test-first nos criterios de aceite e roda as verificacoes de qualidade. Verificacao vermelha nao vira PR.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(git status:*) Bash(git branch:*) Bash(git checkout:*) Bash(git switch:*) Bash(git fetch:*) Bash(git pull:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git diff:*) Bash(git log:*) Bash(git config:*) Read Grep Glob Edit Write
+allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit:*) Bash(gh issue close:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(git status:*) Bash(git branch:*) Bash(git checkout:*) Bash(git switch:*) Bash(git fetch:*) Bash(git pull:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git diff:*) Bash(git log:*) Bash(git config:*) Read Grep Glob Edit Write
 ---
 
 # Implement
 
-> **Skill ainda nao criada:** `issue-git-flow` e citada neste arquivo (nome
-> de branch, base e formato de PR), mas ainda nao existe neste plugin. Ao
-> chegar em um passo que depende dela, avise que nao e possivel usar a skill
-> referenciada porque ela ainda nao foi criada.
+Cada rodada termina em **no maximo um PR aberto**. O merge e a revisao nao
+sao daqui: o humano revisa, faz o merge e comenta `/implement` de novo para a
+proxima rodada.
 
-Executa uma unidade de trabalho de ponta a ponta e termina em **um PR
-aberto**. O merge e a revisao nao sao daqui — o fluxo desta skill acaba na
-abertura do PR.
+O alvo do `/implement` e sempre o issue com `ready-for-agent`:
 
-Siga a skill `issue-git-flow` para nome de branch, base e formato de PR.
+- **pontual sem sub-tasks**: a rodada implementa o proprio issue;
+- **pai com sub-tasks**: a rodada escolhe o que fazer, entre a proxima
+  sub-task sem bloqueio e o PR do pai.
 
-Decisao a montante, execucao a jusante: o brief do issue ja diz **o que**
-(criterios de aceite) e **onde** (a fronteira em que cada criterio se
-observa). Voce nao redesenha o plano — transforma o brief em codigo
-verificado.
+Branch, base, fechamento e formato de PR estao em [GIT-FLOW.md](GIT-FLOW.md).
+Leia antes do passo 3.
 
-Travou em algo que so o humano resolve (decisao de produto que o corpo nao
+Decisao a montante, execucao a jusante: o brief ja diz **o que** (criterios
+de aceite) e **onde** (a fronteira em que cada criterio se observa). Voce nao
+redesenha o plano: transforma o brief em codigo verificado.
+
+Travou em algo que so o humano resolve (decisao de produto que o brief nao
 cobre, acesso faltando, verificacao que nao fica verde dentro do escopo)?
-Siga as skills `grilling` e `issue-async-first`: handoff completo no issue e
-encerre a rodada sem abrir PR, com `awaiting-reply` aplicado. Termine a
-mensagem com: "responda e comente `/implement` para retomar".
+Siga as skills `grilling` e `issue-async-first`: handoff completo no issue
+alvo do `/implement`, `awaiting-reply` aplicado, e encerre sem abrir PR.
+Termine a mensagem com: "responda e comente `/implement` aqui para retomar".
 
 ## Argumento
 
-`$issue` — o numero do issue a implementar.
+`$issue` — o numero do issue que recebeu o `/implement`.
 
 Se `$issue` estiver vazio, **pare e informe** que a skill precisa do numero do
 issue.
@@ -55,45 +56,68 @@ vias, nesta ordem de preferencia:
 
 ## Passos
 
-1. **Leia o issue e verifique se ele esta apto:**
+1. **Leia o issue e confira se esta apto:**
 
    ```bash
    gh issue view $issue --json number,title,body,labels,state,url,comments
+   gh api "repos/{owner}/{repo}/issues/$issue/sub_issues" \
+     --jq '.[] | {number, title, state, labels: [.labels[].name]}'
    ```
 
-   Apto exige as tres condicoes:
+   Apto exige label `ready-for-agent`. `[SUB-TASK]` nunca e alvo: comente
+   apontando o pai e pare. Fora disso, comente o estado atual e pare.
 
-   - titulo com prefixo de tipo pontual (ver `issue-labeling`), `[SPEC]` ou
-     `[SUB-TASK]`, e label
-     `ready-for-agent`;
-   - **sem PR aberto vinculado** — verifique com
-     `gh pr list --state open --search "Closes #$issue"`; se ja existe,
-     comente apontando o PR e pare (iterar em PR existente e trabalho de
-     outra versao desta skill);
-   - **sem bloqueio pendente** — a secao `Dependencias` do corpo lista
-     "Bloqueada por: #n"; confira cada um com `gh issue view <n> --json state`
-     e, se algum estiver aberto, comente informando o bloqueio e pare.
+   Leia tambem os comentarios: handoffs e respostas humanas de rodadas
+   anteriores valem. O corpo e lido **agora**: se o humano editou o brief
+   antes de comentar `/implement`, vale a versao editada.
 
-   Issue inapto em qualquer condicao: comente o estado atual e pare.
+   Sem sub-issues, e um **pontual**: a unidade da rodada e o proprio issue.
+   Siga para o passo 3. Com sub-issues, siga para o passo 2.
 
-2. **Leia as rodadas anteriores.** Comentarios carregam handoffs e respostas
-   humanas — incorpore antes de comecar. O corpo do issue e lido **agora**:
-   se o humano editou o brief antes de comentar `/implement`, vale a versao
-   editada.
+2. **Pai: escolha a unidade da rodada.**
 
-3. **Crie a branch** conforme a `issue-git-flow`: nome `<tipo>-<numero>`, base
-   `main` — ou, para `SUB-TASK`, a branch de integracao do parent (criando e
-   publicando a do parent primeiro, se nao existir). Garanta identidade de
-   commit antes do primeiro commit:
+   1. **Feche as sub-tasks ja integradas.** Para cada sub-task aberta, procure
+      PR mergeado que a feche:
+
+      ```bash
+      gh pr list --state merged --search "Closes #<sub>" --json number,baseRefName
+      ```
+
+      PR mergeado na branch de integracao do pai: feche a sub-task com
+      `gh issue close <sub> --comment "Integrada em <branch> pelo #<pr>."`.
+
+   2. **Todas fechadas:** a unidade e o **PR do pai**. Se ja existe PR aberto
+      da branch de integracao, comente apontando-o e pare. Senao, rode a
+      verificacao (passo 5) na branch de integracao atualizada e siga para o
+      passo 6.
+
+   3. **Senao, escolha a proxima sub-task.** E a primeira, na ordem das
+      sub-issues, que esta aberta, sem `awaiting-pr-review` (sem PR
+      esperando revisao), sem bloqueio aberto e cujo brief nao diz
+      **Executor: humano**:
+
+      ```bash
+      gh api "repos/{owner}/{repo}/issues/<sub>/dependencies/blocked_by" --jq '.[] | {number, state}'
+      ```
+
+   4. **Nenhuma disponivel:** comente no pai o que esta esperando (PRs em
+      revisao, bloqueios, sub-tasks humanas) e pare. E espera de revisao, nao
+      pergunta: sem `awaiting-reply`.
+
+   Os criterios de aceite da rodada vem do corpo da sub-task escolhida.
+
+3. **Crie a branch** conforme o GIT-FLOW.md. Sub-task: garanta antes a branch
+   de integracao do pai, criando e publicando se nao existir. Garanta
+   identidade de commit antes do primeiro commit:
 
    ```bash
    git config user.name "claude"
    git config user.email "noreply@anthropic.com"
    ```
 
-4. **Implemente, test-first, um criterio de aceite por vez.** Os criterios do
-   corpo sao o contrato, e cada um nomeia a fronteira (seam) onde o
-   comportamento se observa — funcao publica, endpoint, comando, tela. Para
+4. **Implemente, test-first, um criterio de aceite por vez.** Os criterios da
+   unidade sao o contrato, e cada um nomeia a fronteira (seam) onde o
+   comportamento se observa: funcao publica, endpoint, comando, tela. Para
    cada criterio:
 
    1. escreva o teste **na fronteira que o criterio nomeia** e veja falhar;
@@ -104,37 +128,38 @@ vias, nesta ordem de preferencia:
    oferece para aquele comportamento e anote a escolha para o comentario do
    PR. Repositorio sem infra de teste: implemente cobrindo os criterios, rode
    o que existir (typecheck, lint) e anote isso tambem. Em nenhum dos dois
-   casos voce para para perguntar — a fronteira e fato do codigo, nao
-   decisao.
+   casos voce para para perguntar: a fronteira e fato do codigo, nao decisao.
 
    Commits pequenos com mensagem clara. Estilo: o codigo novo le como o
    codigo ao redor.
 
 5. **Verifique.** Antes de abrir o PR, rode a bateria completa dos comandos
-   da secao "Verificacao de qualidade" — uma vez, ao final. Resultado:
+   da secao "Verificacao de qualidade", uma vez, ao final. Resultado:
 
    - **Verde:** siga para o PR.
    - **Vermelho causado pela sua mudanca:** corrija e rode de novo.
-   - **Vermelho fora do escopo do issue** (ja quebrado antes de voce chegar,
-     ou exige decisao que o brief nao cobre): nao abra PR. Faca push da
-     branch para nao perder o trabalho, handoff `issue-async-first` no issue com o
-     erro exato colado e o que falta, e encerre a rodada.
+   - **Vermelho fora do escopo da unidade** (ja quebrado antes de voce
+     chegar, ou exige decisao que o brief nao cobre): nao abra PR. Faca push
+     da branch para nao perder o trabalho, handoff `issue-async-first` no
+     issue alvo com o erro exato colado e o que falta, e encerre a rodada.
 
    PR com verificacao vermelha nao existe nesta skill.
 
-6. **Abra o PR** para a base definida pela `issue-git-flow`, com o template dela
-   (`Closes #$issue` + "O que muda" + "Como verificar").
+6. **Abra o PR** com a base e o formato do GIT-FLOW.md.
 
-7. **Mova o issue para `awaiting-pr-review`**, trocando o label de estado na
-   mesma operacao (ver `issue-labeling`). Crie o label antes, se nao existir:
+7. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
 
    ```bash
    gh label create awaiting-pr-review --color 5319E7 \
      --description "Implementacao concluida pelo agente; PR aberto e pronto para analise" 2>/dev/null || true
-   gh issue edit $issue --add-label awaiting-pr-review --remove-label ready-for-agent
    ```
 
-8. **Comente no issue:**
+   - Pontual ou PR do pai: troque `ready-for-agent` por `awaiting-pr-review`
+     no issue alvo, na mesma operacao.
+   - Sub-task: aplique `awaiting-pr-review` na sub-task. O pai continua
+     `ready-for-agent`.
+
+8. **Comente no issue da unidade:**
 
    ```markdown
    ## Implement
@@ -146,22 +171,28 @@ vias, nesta ordem de preferencia:
    manualmente (feche e reabra o PR, ou dispare o workflow de CI).
    ```
 
-O implement esta completo quando existe um PR aberto da branch da issue para
-a base certa, cujo corpo comeca com `Closes #$issue`, cujo diff cobre todos os
-criterios de aceite do corpo do issue com teste na fronteira de cada um, cuja
-verificacao esta verde (ou declarada ausente, com motivo), e o issue esta com
-`awaiting-pr-review` no lugar de `ready-for-agent` e tem o comentario com o
-link. O merge do PR fecha o issue.
+   Sub-task: comente tambem no pai, em uma linha: "#<sub> em revisao no
+   <url>. Depois do merge, comente `/implement` aqui para a proxima."
+
+A rodada esta completa quando existe exatamente um PR novo da branch da
+unidade para a base do GIT-FLOW.md, cujo corpo comeca com `Closes #<unidade>`,
+cujo diff cobre todos os criterios de aceite da unidade com teste na
+fronteira de cada um, cuja verificacao esta verde (ou declarada ausente, com
+motivo), e a unidade esta com `awaiting-pr-review` e o comentario com o link.
+Os outros fins validos sao: comentario explicando por que nao ha unidade
+disponivel, ou handoff com `awaiting-reply`.
 
 ## Fora de escopo
 
 - Fazer merge, aprovar ou iterar em PR ja existente.
 - Commit ou push direto na `main` ou na branch de integracao.
-- Alterar labels, titulo ou corpo do issue. Excecoes: trocar
-  `ready-for-agent` por `awaiting-pr-review` ao abrir o PR (passo 7) e aplicar
-  `awaiting-reply` ao encerrar com handoff (`issue-async-first`).
+- Mais de um PR por rodada.
+- Alterar labels, titulo ou corpo de issues. Excecoes: os labels do passo 7,
+  fechar sub-task integrada (passo 2) e aplicar `awaiting-reply` ao encerrar
+  com handoff.
 - Substituir o CI do PR: a verificacao local e o primeiro filtro; o CI
   continua sendo o juiz final.
 - Redesenhar o plano: fronteiras e escopo vem do brief. Discordou? Handoff,
   nao improviso.
-- Issues `ready-for-human` — nelas o agente no maximo orienta.
+- Issues `ready-for-human` e sub-tasks humanas: nelas o agente no maximo
+  orienta.
