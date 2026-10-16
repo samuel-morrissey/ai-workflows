@@ -1,7 +1,7 @@
 name: Issue Break Down
 
 # Workflow reutilizavel de quebra em sub-tasks. Chamado pelo router.yml quando
-# o label `need-break-down` e aplicado a um issue ou quando um humano comenta
+# o label `needs-break-down` e aplicado a um issue ou quando um humano comenta
 # em issue que carrega esse label. A rodada cria as sub-tasks ligadas ao pai e
 # o entrega em ready-for-*, ou para em pergunta (awaiting-reply). Os guardas
 # estao no router; ver README.md.
@@ -75,8 +75,8 @@ jobs:
             --max-turns 100
 
       # Rede de seguranca: se a rodada terminou e o issue continua em
-      # `need-break-down`, a rodada parou em pergunta. Garante o awaiting-reply, caso
-      # a skill nao o tenha aplicado. O `need-break-down` fica: e ele que faz o
+      # `needs-break-down`, a rodada parou em pergunta. Garante o awaiting-reply, caso
+      # a skill nao o tenha aplicado. O `needs-break-down` fica: e ele que faz o
       # proximo comentario humano disparar nova rodada.
       - name: Garantir awaiting-reply se a rodada parou em pergunta
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
@@ -87,7 +87,7 @@ jobs:
           INFO=$(gh issue view "$NUMBER" --json state,labels)
           STATE=$(jq -r '.state' <<<"$INFO")
           LABELS=$(jq -r '.labels[].name' <<<"$INFO")
-          if [ "$STATE" = "OPEN" ] && grep -Fqx 'need-break-down' <<<"$LABELS" && ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+          if [ "$STATE" = "OPEN" ] && grep -Fqx 'needs-break-down' <<<"$LABELS" && ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
             gh label create awaiting-reply --color C5DEF5 \
               --description "Aguardando resposta humana" 2>/dev/null || true
             gh issue edit "$NUMBER" --add-label awaiting-reply

@@ -39,8 +39,8 @@ on:
         required: true
 
 jobs:
-  # Triagem: label `need-triage` aplicado, ou comentario humano em issue que
-  # ainda carrega `need-triage` (resposta a um handoff).
+  # Triagem: label `needs-triage` aplicado, ou comentario humano em issue que
+  # ainda carrega `needs-triage` (resposta a um handoff).
   # - `!github.event.issue.pull_request` — issue_comment tambem dispara em
   #   comentario de PR, e triagem de PR esta fora de escopo;
   # - `comment.user.type != 'Bot'` — so comentario humano reativa a triagem;
@@ -49,35 +49,35 @@ jobs:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
-       github.event.label.name == 'need-triage' &&
+       github.event.label.name == 'needs-triage' &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
-       contains(join(github.event.issue.labels.*.name, ','), 'need-triage') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'needs-triage') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: caravelasistemas/ai-workflows/.github/workflows/issue-triage.yml@main
     secrets: inherit
 
-  # Refinamento: label `need-refinement` aplicado, ou comentario humano em issue
-  # que carrega `need-refinement` (resposta a uma rodada de perguntas).
+  # Refinamento: label `needs-refinement` aplicado, ou comentario humano em issue
+  # que carrega `needs-refinement` (resposta a uma rodada de perguntas).
   # Mesmos guardas da triagem.
   issue-refinement:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
-       github.event.label.name == 'need-refinement' &&
+       github.event.label.name == 'needs-refinement' &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
-       contains(join(github.event.issue.labels.*.name, ','), 'need-refinement') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'needs-refinement') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: caravelasistemas/ai-workflows/.github/workflows/issue-refinement.yml@main
     secrets: inherit
 
-  # Quebra em sub-tasks: label `need-break-down` aplicado, ou comentario
-  # humano em issue que carrega `need-break-down`. Quando a etapa anterior
+  # Quebra em sub-tasks: label `needs-break-down` aplicado, ou comentario
+  # humano em issue que carrega `needs-break-down`. Quando a etapa anterior
   # aplica o label pelo token do workflow, o GitHub nao dispara evento: o
   # proximo comentario humano e o "vai".
   # Mesmos guardas da triagem.
@@ -85,12 +85,12 @@ jobs:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
-       github.event.label.name == 'need-break-down' &&
+       github.event.label.name == 'needs-break-down' &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
-       contains(join(github.event.issue.labels.*.name, ','), 'need-break-down') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'needs-break-down') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: caravelasistemas/ai-workflows/.github/workflows/issue-break-down.yml@main
     secrets: inherit
