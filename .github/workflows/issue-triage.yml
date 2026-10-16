@@ -1,7 +1,7 @@
 name: Issue Triage
 
 # Workflow reutilizavel de triagem. Chamado pelo router.yml quando o label
-# `need-triage` e aplicado a um issue ou quando um humano comenta em issue que
+# `needs-triage` e aplicado a um issue ou quando um humano comenta em issue que
 # ainda carrega esse label (resposta a um handoff). Os guardas estao no
 # router; ver README.md.
 
@@ -73,13 +73,13 @@ jobs:
             --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Read,Grep,Glob,Skill,TodoWrite"
             --max-turns 50
 
-      # A skill troca need-triage pelo label de estado ao concluir. Este passo
+      # A skill troca needs-triage pelo label de estado ao concluir. Este passo
       # e a rede de seguranca: se o issue saiu da triagem (fechado ou com outro
-      # label de estado) e ainda carrega need-triage, remove. Se nao saiu
-      # (handoff aguardando resposta humana), mantem — e o need-triage que faz
+      # label de estado) e ainda carrega needs-triage, remove. Se nao saiu
+      # (handoff aguardando resposta humana), mantem — e o needs-triage que faz
       # o proximo comentario humano disparar nova rodada — e garante o
       # awaiting-reply, caso a skill nao o tenha aplicado.
-      - name: Remover need-triage se a triagem concluiu
+      - name: Remover needs-triage se a triagem concluiu
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,13 +88,13 @@ jobs:
           INFO=$(gh issue view "$NUMBER" --json state,labels)
           STATE=$(jq -r '.state' <<<"$INFO")
           LABELS=$(jq -r '.labels[].name' <<<"$INFO")
-          if ! grep -Fqx 'need-triage' <<<"$LABELS"; then
+          if ! grep -Fqx 'needs-triage' <<<"$LABELS"; then
             exit 0
           fi
-          if [ "$STATE" = "CLOSED" ] || grep -Eqx 'need-(discovery|refinement|break-down)|ready-for-(agent|human)|wontfix' <<<"$LABELS"; then
-            gh issue edit "$NUMBER" --remove-label need-triage
+          if [ "$STATE" = "CLOSED" ] || grep -Eqx 'needs-(discovery|refinement|break-down)|ready-for-(agent|human)|wontfix' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label needs-triage
           else
-            echo "::notice::Triagem em handoff: need-triage mantido em #$NUMBER para a proxima rodada."
+            echo "::notice::Triagem em handoff: needs-triage mantido em #$NUMBER para a proxima rodada."
             if ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
               gh label create awaiting-reply --color C5DEF5 \
                 --description "Aguardando resposta humana" 2>/dev/null || true

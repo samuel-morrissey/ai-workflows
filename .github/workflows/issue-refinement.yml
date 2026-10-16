@@ -1,10 +1,10 @@
 name: Issue Refinement
 
 # Workflow reutilizavel de refinamento. Chamado pelo router.yml quando o label
-# `need-refinement` e aplicado a um issue ou quando um humano comenta em issue
+# `needs-refinement` e aplicado a um issue ou quando um humano comenta em issue
 # que carrega esse label (resposta a uma rodada de perguntas). Cada rodada
 # termina em perguntas (awaiting-reply) ou no comentario de refinamento, com
-# o issue em need-break-down. Os guardas estao no router; ver README.md.
+# o issue em needs-break-down. Os guardas estao no router; ver README.md.
 
 on:
   workflow_call:
@@ -75,8 +75,8 @@ jobs:
             --max-turns 80
 
       # Rede de seguranca: se a rodada terminou e o issue continua em
-      # `need-refinement`, a rodada parou em pergunta. Garante o awaiting-reply, caso
-      # a skill nao o tenha aplicado. O `need-refinement` fica: e ele que faz o
+      # `needs-refinement`, a rodada parou em pergunta. Garante o awaiting-reply, caso
+      # a skill nao o tenha aplicado. O `needs-refinement` fica: e ele que faz o
       # proximo comentario humano disparar nova rodada.
       - name: Garantir awaiting-reply se a rodada parou em pergunta
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
@@ -87,7 +87,7 @@ jobs:
           INFO=$(gh issue view "$NUMBER" --json state,labels)
           STATE=$(jq -r '.state' <<<"$INFO")
           LABELS=$(jq -r '.labels[].name' <<<"$INFO")
-          if [ "$STATE" = "OPEN" ] && grep -Fqx 'need-refinement' <<<"$LABELS" && ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+          if [ "$STATE" = "OPEN" ] && grep -Fqx 'needs-refinement' <<<"$LABELS" && ! grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
             gh label create awaiting-reply --color C5DEF5 \
               --description "Aguardando resposta humana" 2>/dev/null || true
             gh issue edit "$NUMBER" --add-label awaiting-reply

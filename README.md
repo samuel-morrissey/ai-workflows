@@ -8,15 +8,15 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 
 | Etapa | Dispara quando | Workflow |
 | --- | --- | --- |
-| Triagem | o label `need-triage` entra no issue, ou uma pessoa comenta num issue que ainda tem `need-triage` | `issue-triage.yml` |
-| Refinamento | o label `need-refinement` entra no issue, ou uma pessoa comenta num issue que tem `need-refinement` | `issue-refinement.yml` |
-| Quebra em sub-tasks | o label `need-break-down` entra no issue, ou uma pessoa comenta num issue que tem `need-break-down` | `issue-break-down.yml` |
+| Triagem | o label `needs-triage` entra no issue, ou uma pessoa comenta num issue que ainda tem `needs-triage` | `issue-triage.yml` |
+| Refinamento | o label `needs-refinement` entra no issue, ou uma pessoa comenta num issue que tem `needs-refinement` | `issue-refinement.yml` |
+| Quebra em sub-tasks | o label `needs-break-down` entra no issue, ou uma pessoa comenta num issue que tem `needs-break-down` | `issue-break-down.yml` |
 | Implementação | uma pessoa comenta `/implement` num issue com `ready-for-agent` | `issue-remote-implement.yml` |
 | Fechar sub-task | um PR é mergeado numa branch que não é a padrão (a branch do pai). Fecha os issues do `Closes` do corpo, porque o GitHub só faz isso sozinho na branch padrão | `pr-merged.yml` |
 
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos.
 
-Quando uma etapa troca o label sozinha (ex.: o refinamento termina e põe `need-break-down`), o GitHub não dispara a etapa seguinte. Comente no issue para ela rodar. Esse comentário é o seu "pode seguir".
+Quando uma etapa troca o label sozinha (ex.: o refinamento termina e põe `needs-break-down`), o GitHub não dispara a etapa seguinte. Comente no issue para ela rodar. Esse comentário é o seu "pode seguir".
 
 Quando o `/implement` termina e abre o PR, o issue troca `ready-for-agent` por `awaiting-pr-review`: a implementação acabou e o PR está pronto para análise. Um novo `/implement` nesse issue não dispara nada.
 
@@ -33,13 +33,13 @@ Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é
 
 | Labels no issue | Quer dizer |
 | --- | --- |
-| `need-triage` + `awaiting-reply` | esperando você responder |
-| `need-triage` + `work-in-progress` | Claude trabalhando agora |
-| `need-triage` sozinho | esperando a triagem rodar |
+| `needs-triage` + `awaiting-reply` | esperando você responder |
+| `needs-triage` + `work-in-progress` | Claude trabalhando agora |
+| `needs-triage` sozinho | esperando a triagem rodar |
 | `ready-for-agent` sozinho | esperando alguém comentar `/implement` |
 | `ready-for-agent` + `work-in-progress` | Claude implementando agora |
-| `need-refinement` + `awaiting-reply` | perguntas do refinamento esperando você |
-| `need-break-down` sozinho | comente no issue para quebrar em sub-tasks |
+| `needs-refinement` + `awaiting-reply` | perguntas do refinamento esperando você |
+| `needs-break-down` sozinho | comente no issue para quebrar em sub-tasks |
 | `awaiting-pr-review` | PR aberto, esperando revisão e merge |
 
 Comentários de bots e de PRs não disparam nada.
@@ -78,13 +78,13 @@ Comentários de bots e de PRs não disparam nada.
 
 3. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
-Os labels do fluxo (`need-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam o `work-in-progress`.
+Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam o `work-in-progress`.
 
 ## Testar
 
-1. Abra um issue de teste e coloque o label `need-triage`.
+1. Abra um issue de teste e coloque o label `needs-triage`.
 2. Abra a aba **Actions**. O workflow **AI** roda o job **issue-triage**, e o issue ganha `work-in-progress` enquanto ele roda.
-3. No fim, o issue recebe um label de estado (`need-*` ou `ready-for-*`) ou um comentário com perguntas. Se responder às perguntas no issue, a triagem roda de novo.
+3. No fim, o issue recebe um label de estado (`needs-*` ou `ready-for-*`) ou um comentário com perguntas. Se responder às perguntas no issue, a triagem roda de novo.
 
 Problemas comuns:
 
