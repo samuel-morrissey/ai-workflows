@@ -1,6 +1,6 @@
 ---
 name: issue-labeling
-description: Vocabulario canonico do fluxo de issues - tipos (MAP, SPEC, SUB-TASK e os pontuais BUG/FEAT/REFACTOR/DOCS/INFRA/TASK), labels de estado (need-*, ready-for-*, awaiting-pr-review, wontfix), label de trabalho (work-in-progress) e regras de transicao. Use ao aplicar, trocar ou interpretar um label ou prefixo de tipo em um issue.
+description: Vocabulario canonico do fluxo de issues - tipos (MAP, SPEC, SUB-TASK e os pontuais BUG/FEAT/REFACTOR/DOCS/INFRA/TASK), labels de estado (needs-*, ready-for-*, awaiting-pr-review, wontfix), label de trabalho (work-in-progress) e regras de transicao. Use ao aplicar, trocar ou interpretar um label ou prefixo de tipo em um issue.
 ---
 
 # Labeling
@@ -41,10 +41,10 @@ O estado e um **label** e diz o **proximo passo** da issue.
 
 | Label | Significado | Proximo passo | Cor |
 |---|---|---|---|
-| `need-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` |
-| `need-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` |
-| `need-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: cada comentario humano dispara a proxima | `FBCA04` |
-| `need-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` |
+| `needs-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` |
+| `needs-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` |
+| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: cada comentario humano dispara a proxima | `FBCA04` |
+| `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` |
 | `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` |
 | `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois comenta `/implement` no pai | `5319E7` |
@@ -76,9 +76,9 @@ estado vigente, como o `work-in-progress`.
 
 Lendo os labels juntos:
 
-- `need-triage` + `awaiting-reply` — esperando o humano responder;
-- `need-triage` + `work-in-progress` — worker atuando agora;
-- `need-triage` sozinho — esperando a triagem rodar.
+- `needs-triage` + `awaiting-reply` — esperando o humano responder;
+- `needs-triage` + `work-in-progress` — worker atuando agora;
+- `needs-triage` sozinho — esperando a triagem rodar.
 
 ## Pai e sub-tasks
 
@@ -110,7 +110,7 @@ Lendo os labels de um pai:
 1. **Um label de estado por vez.** Ao mover a issue de estagio, remova o label
    de estado atual e aplique o novo na mesma operacao.
 2. **O fluxo so anda para frente:**
-   `need-triage → need-discovery → need-refinement → need-break-down →
+   `needs-triage → needs-discovery → needs-refinement → needs-break-down →
    ready-for-* → awaiting-pr-review` e, por fim, issue fechada (merge do PR ou
    fechamento manual). `awaiting-pr-review` so vem de `ready-for-agent` (ou,
    numa sub-task, de nenhum label): e a `issue-remote-implement` que o aplica
@@ -125,7 +125,7 @@ Lendo os labels de um pai:
    tabela e o significado como descricao:
 
    ```bash
-   gh label create "need-discovery" --color FBCA04 \
+   gh label create "needs-discovery" --color FBCA04 \
      --description "Falta descobrir os limites do que se quer construir"
    ```
 
