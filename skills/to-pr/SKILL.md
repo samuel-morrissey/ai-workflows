@@ -33,13 +33,15 @@ State the resolved pair back to the user in one line before doing anything else,
 
 1. **Read the range.** `git log <base>..<head>` and `git diff <base>...<head> --stat`, then read the diff itself for anything you cannot describe from the stat alone. Done when every commit in the range is accounted for in your understanding — not just the ones with clear messages. While reading, collect every issue or ticket reference you find — see **Linking issues and tickets** below.
 
-2. **Match the house style.** Read the last handful of merged PR titles and bodies (`gh pr list --state merged --limit 10 --json title,body`). Follow the conventions you find — title format, section headings. Absent any signal, default to Conventional Commits for the title (`feat: `, `fix: `, `chore: `…) and the format in [`TEMPLATE.md`](TEMPLATE.md). Language stays Brazilian Portuguese regardless; if the merged PRs are written in another language, say so in one line when you present the draft, so the user can redirect you.
+2. **Match the house style for the title.** Read the last handful of merged PR titles (`gh pr list --state merged --limit 10 --json title`) and follow the title format you find. Absent any signal, default to Conventional Commits (`feat: `, `fix: `, `chore: `…). The body's sections come from [`TEMPLATE.md`](TEMPLATE.md) alone, whatever the merged PRs look like. Language stays Brazilian Portuguese regardless; if the merged PRs are written in another language, say so in one line when you present the draft, so the user can redirect you.
 
-3. **Write the draft.** Read [`TEMPLATE.md`](TEMPLATE.md) and follow it — format, section tests, and the exhaustiveness bar over the diff. Put the collected references in the body the way **Linking issues and tickets** says.
+3. **Produce the evidence.** Run what proves the change: the test file the range touches, the command the change affects, the endpoint it adds. Keep the output as it came out, trimmed to the lines that show the before/after. Done when you hold a before and an after for the **Evidências** section, or know exactly why none is executable.
 
-4. **Print and ask.** Show the resolved base/head and the full draft in the chat, then ask whether to open the PR with it. Stop there until the user answers.
+4. **Write the draft.** Read [`TEMPLATE.md`](TEMPLATE.md) and follow it — the fixed section set, each section's test and declaration, and the exhaustiveness bar over the diff. Put the collected references in the body the way **Linking issues and tickets** says.
 
-5. **Push and open** — only after a yes. Push `head` if the remote lacks it or is behind, then `gh pr create --base <base> --head <head>`. Pass the body via `--body-file` with a temp file — heredocs and inline quoting mangle multi-line markdown. Print the resulting URL, and confirm the PR is linked to every issue or ticket it references (see **Linking issues and tickets**).
+5. **Print and ask.** Show the resolved base/head and the full draft in the chat, then ask whether to open the PR with it. Stop there until the user answers.
+
+6. **Push and open** — only after a yes. Push `head` if the remote lacks it or is behind, then `gh pr create --base <base> --head <head>`. Pass the body via `--body-file` with a temp file — heredocs and inline quoting mangle multi-line markdown. Print the resulting URL, and confirm the PR is linked to every issue or ticket it references (see **Linking issues and tickets**).
 
 ## Linking issues and tickets
 
@@ -65,7 +67,7 @@ A PR that resolves or relates to an issue or ticket gets **linked** to it whenev
 
 2. **Check ownership.** Compare the PR's author login with the authenticated account (`gh api user --jq .login`).
 
-3. **Write the draft** the same way as the create branch — house-style check included, format from [`TEMPLATE.md`](TEMPLATE.md). Keep every issue or ticket link the current body already has, and add the ones the range references but the body misses.
+3. **Write the draft** the same way as the create branch — title style, evidence run, and the fixed format from [`TEMPLATE.md`](TEMPLATE.md). Keep every issue or ticket link the current body already has, and add the ones the range references but the body misses.
 
 4. **Print and ask.** Show the full draft in the chat, then:
    - **The PR is the user's** → ask whether to apply it with `gh pr edit`. Apply only after a yes.

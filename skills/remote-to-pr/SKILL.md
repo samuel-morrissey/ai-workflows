@@ -12,9 +12,14 @@ formato na `to-pr`? Vale aqui na proxima execucao, sem tocar neste arquivo.
 ## Passos
 
 1. **Invoque a skill `to-pr`** e siga o ramo *create* dela por inteiro:
-   leitura do range, estilo da casa, `TEMPLATE.md`, regra de ghostwriter e
-   barra de exaustividade sobre o diff. As substituicoes abaixo valem por
-   cima dela, e so elas.
+   leitura do range, estilo da casa, evidencias, `TEMPLATE.md`, regra de
+   ghostwriter e barra de exaustividade sobre o diff. As substituicoes
+   abaixo valem por cima dela, e so elas.
+
+   As **Evidencias** vem da verificacao que quem chamou ja rodou (na
+   `issue-remote-implement`, a bateria do passo 5): cole a saida dessa
+   rodada, o teste que falhava e agora passa. Rode de novo so o que falta
+   para fechar o par antes/depois.
 
 2. **Base e head vem de quem chamou.** Quem chama ja definiu a base pela
    `issue-git-flow`. Use o par recebido, sem resolver pela branch padrao.
