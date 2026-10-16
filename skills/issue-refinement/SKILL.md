@@ -1,6 +1,6 @@
 ---
 name: issue-refinement
-description: Refinamento assincrono de um issue need-refinement - investiga o codigo, pergunta em rodadas pelo issue (grilling) ate a fronteira de decisoes esvaziar, registra o refinamento em comentario e entrega o issue em need-break-down.
+description: Refinamento assincrono de um issue needs-refinement - investiga o codigo, pergunta em rodadas pelo issue (grilling) ate a fronteira de decisoes esvaziar, registra o refinamento em comentario e entrega o issue em needs-break-down.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
@@ -19,7 +19,7 @@ o issue e a unica memoria. Cada rodada termina de um de dois jeitos:
 
 - **pergunta**: um comentario com a proxima fronteira de perguntas, e a
   rodada para;
-- **refinamento**: o comentario final, e o issue vai para `need-break-down`.
+- **refinamento**: o comentario final, e o issue vai para `needs-break-down`.
 
 Siga estas skills:
 
@@ -45,7 +45,7 @@ issue.
 
    Se o comando falhar, reporte o erro exato e pare.
 
-   Apto exige titulo `[SPEC]` e label `need-refinement`. Fora disso, comente o
+   Apto exige titulo `[SPEC]` e label `needs-refinement`. Fora disso, comente o
    estado atual e pare (o fluxo so anda para frente).
 
 2. **Reconstrua o estado da conversa.** Ela vive nos comentarios:
@@ -99,15 +99,15 @@ issue.
    O "Decidido ate aqui" e acumulado de proposito: a proxima rodada le so
    ele, sem reconstruir a conversa inteira. Depois de postar, aplique
    `awaiting-reply` (ver `issue-async-first`). O label de estado continua
-   `need-refinement`. Fim da rodada.
+   `needs-refinement`. Fim da rodada.
 
 6. **Fronteira vazia: escreva o refinamento.** Comente com o formato da
    secao "Refinamento", troque o label e pare:
 
    ```bash
-   gh label create need-break-down --color FBCA04 \
+   gh label create needs-break-down --color FBCA04 \
      --description "Escopo entendido, falta quebrar em sub-tasks" 2>/dev/null || true
-   gh issue edit $issue --add-label need-break-down --remove-label need-refinement
+   gh issue edit $issue --add-label needs-break-down --remove-label needs-refinement
    ```
 
    Prioridade decidida pelo humano vira o label `priority` na mesma operacao.
@@ -117,8 +117,8 @@ issue.
 A rodada esta completa quando o issue tem um comentario novo desta rodada e
 esta em exatamente um destes estados:
 
-- `need-refinement` + `awaiting-reply`, com a rodada de perguntas postada;
-- `need-break-down`, com o comentario `## Refinamento` postado.
+- `needs-refinement` + `awaiting-reply`, com a rodada de perguntas postada;
+- `needs-break-down`, com o comentario `## Refinamento` postado.
 
 ## Refinamento
 

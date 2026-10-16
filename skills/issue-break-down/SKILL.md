@@ -1,6 +1,6 @@
 ---
 name: issue-break-down
-description: Quebra um issue need-break-down em sub-tasks - fatias verticais que vao para producao sozinhas, cada uma com brief e criterios de aceite, ligadas ao pai como sub-issues com bloqueios nativos, e entrega o pai em ready-for-agent ou ready-for-human.
+description: Quebra um issue needs-break-down em sub-tasks - fatias verticais que vao para producao sozinhas, cada uma com brief e criterios de aceite, ligadas ao pai como sub-issues com bloqueios nativos, e entrega o pai em ready-for-agent ou ready-for-human.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
@@ -39,7 +39,7 @@ issue.
    gh api "repos/{owner}/{repo}/issues/$issue/sub_issues" --jq '.[].number'
    ```
 
-   Apto exige label `need-break-down` e nenhuma sub-issue ainda. Fora disso,
+   Apto exige label `needs-break-down` e nenhuma sub-issue ainda. Fora disso,
    comente o estado atual e pare. Isso evita duplicar sub-tasks numa rodada
    repetida.
 
@@ -78,7 +78,7 @@ issue.
 
    Ficou uma decisao de produto que o escopo nao cobre? Ela e impeditiva:
    pergunte seguindo `grilling` e `issue-async-first`, aplique `awaiting-reply`
-   e pare sem criar sub-task. O label continua `need-break-down`.
+   e pare sem criar sub-task. O label continua `needs-break-down`.
 
 4. **Crie as sub-tasks**, na ordem de execucao. Titulo `[SUB-TASK] <o que a
    fatia entrega>`. O corpo segue o brief completo do AGENT-BRIEF.md, trocando
@@ -116,7 +116,7 @@ issue.
      AGENT-BRIEF.md).
 
    ```bash
-   gh issue edit $issue --add-label ready-for-agent --remove-label need-break-down
+   gh issue edit $issue --add-label ready-for-agent --remove-label needs-break-down
    ```
 
    Comente no pai:
@@ -139,7 +139,7 @@ issue.
 7. Responda com a URL do comentario e a lista de sub-tasks.
 
 A quebra esta completa quando o pai tem `ready-for-*` no lugar de
-`need-break-down`, toda sub-task esta ligada a ele como sub-issue na ordem de
+`needs-break-down`, toda sub-task esta ligada a ele como sub-issue na ordem de
 execucao, todo bloqueio real esta marcado como dependencia nativa, toda
 secao do escopo esta coberta por ao menos uma sub-task, e o comentario
 `## Quebra` esta postado.

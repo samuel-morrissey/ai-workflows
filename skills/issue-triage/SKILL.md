@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-description: Triagem de um issue cru - investiga o codigo, atribui tipo (MAP/SPEC/tipo pontual) e label de estado, entrega issue pontual com brief pronto para agente ou humano (ou need-break-down quando grande demais para uma sessao unica) e MAP/SPEC com leitura de codigo para a proxima etapa, ou fecha como wontfix se ja rejeitado ou ja implementado.
+description: Triagem de um issue cru - investiga o codigo, atribui tipo (MAP/SPEC/tipo pontual) e label de estado, entrega issue pontual com brief pronto para agente ou humano (ou needs-break-down quando grande demais para uma sessao unica) e MAP/SPEC com leitura de codigo para a proxima etapa, ou fecha como wontfix se ja rejeitado ou ja implementado.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
@@ -21,7 +21,7 @@ codigo, atribui **tipo + label de estado** e registra o que descobriu.
   e `ready-for-agent` ou `ready-for-human` — pronto para `/issue-remote-implement` ou
   execucao humana.
 - Pontual **grande demais para uma sessao unica** (de agente ou de trabalho
-  humano) sai com `need-break-down` e leitura de codigo — pronto para
+  humano) sai com `needs-break-down` e leitura de codigo — pronto para
   `/issue-break-down`.
 - `[MAP]`/`[SPEC]` saem com uma **leitura de codigo** em comentario —
   pre-digestao superficial para `/issue-discovery` ou `/issue-refinement`.
@@ -58,14 +58,14 @@ issue.
    sua vez, se investiga no checkout (passo 3).
 
    Se o titulo ja tem prefixo de tipo ou o issue ja tem label de estado
-   posterior a `need-triage` (`need-discovery`, `need-refinement`,
-   `need-break-down`, `ready-for-*`, `awaiting-pr-review`, `wontfix`), ele ja
+   posterior a `needs-triage` (`needs-discovery`, `needs-refinement`,
+   `needs-break-down`, `ready-for-*`, `awaiting-pr-review`, `wontfix`), ele ja
    foi triado: comente informando o estado atual e pare (o fluxo so anda
    para frente).
 
-   `need-triage` e o label de entrada: quem o aplica e um humano, e e esta
+   `needs-triage` e o label de entrada: quem o aplica e um humano, e e esta
    skill quem o remove ao concluir. Em todo `--add-label` abaixo, inclua
-   `--remove-label need-triage` na mesma operacao (regra 1 da `issue-labeling`).
+   `--remove-label needs-triage` na mesma operacao (regra 1 da `issue-labeling`).
 
 2. **Procure precedente `wontfix`:**
 
@@ -83,7 +83,7 @@ issue.
    **Por que:** <motivo em uma ou duas frases>
    ```
 
-   Depois aplique o label `wontfix` (removendo `need-triage`) e feche o issue.
+   Depois aplique o label `wontfix` (removendo `needs-triage`) e feche o issue.
    Fim da triagem.
 
 3. **Investigue o codigo.** O checkout do repositorio esta disponivel: use
@@ -99,8 +99,8 @@ issue.
 
    | Natureza | Sinal caracteristico | Resultado |
    |---|---|---|
-   | Nebulosa | Nao se sabe o que se pretende desenvolver; ideia sem arestas | `[MAP]` + `need-discovery` — passo 5 |
-   | Definida, porem ampla | Complexa, mas ja se sabe o que se quer | `[SPEC]` + `need-refinement` — passo 5 |
+   | Nebulosa | Nao se sabe o que se pretende desenvolver; ideia sem arestas | `[MAP]` + `needs-discovery` — passo 5 |
+   | Definida, porem ampla | Complexa, mas ja se sabe o que se quer | `[SPEC]` + `needs-refinement` — passo 5 |
    | Pontual | Alteracao bem delimitada (bug, feature pequena, docs, infra…) | tipo pontual + brief completo — passo 6 |
 
    Se o corpo do issue nao da elementos para escolher entre as tres naturezas,
@@ -112,7 +112,7 @@ issue.
 
    ```bash
    gh issue edit $issue --title "[TIPO] titulo original" \
-     --add-label "need-..." --remove-label need-triage
+     --add-label "needs-..." --remove-label needs-triage
    ```
 
    Depois comente, incluindo a leitura de codigo do passo 3 no formato do
@@ -122,7 +122,7 @@ issue.
    ## Triagem
 
    **Tipo:** `[MAP]` ou `[SPEC]`
-   **Estado:** `need-discovery` ou `need-refinement`
+   **Estado:** `needs-discovery` ou `needs-refinement`
    **Por que:** <uma ou duas frases>
    **Proximo passo:** `/issue-discovery` ou `/issue-refinement`
 
@@ -149,11 +149,11 @@ issue.
 
       ```bash
       gh issue edit $issue --title "[TIPO] titulo original" \
-        --add-label need-break-down --remove-label need-triage
+        --add-label needs-break-down --remove-label needs-triage
       ```
 
       Comente como no passo 5 (incluindo a leitura de codigo), com
-      **Estado:** `need-break-down` e **Proximo passo:** `/issue-break-down`.
+      **Estado:** `needs-break-down` e **Proximo passo:** `/issue-break-down`.
       Fim da triagem — o brief e trabalho do `/issue-break-down`, nao desta skill.
 
    4. Sobrou lacuna que so o humano responde (escolha de produto, prioridade,
@@ -181,7 +181,7 @@ issue.
 
       ```bash
       gh issue edit $issue --title "[TIPO] titulo claro" \
-        --add-label "ready-for-..." --remove-label need-triage
+        --add-label "ready-for-..." --remove-label needs-triage
       ```
 
    7. Comente:
@@ -206,15 +206,15 @@ issue.
 
 A triagem esta completa quando o issue esta em exatamente um destes estados:
 
-- `[MAP]`/`[SPEC]` + um label `need-*` (sem `need-triage`) + comentario com
+- `[MAP]`/`[SPEC]` + um label `needs-*` (sem `needs-triage`) + comentario com
   justificativa e leitura de codigo;
-- tipo pontual + um label `ready-for-*` (sem `need-triage`) + brief no corpo
+- tipo pontual + um label `ready-for-*` (sem `needs-triage`) + brief no corpo
   + comentario de justificativa;
-- tipo pontual + `need-break-down` (sem `need-triage`) + comentario com
+- tipo pontual + `needs-break-down` (sem `needs-triage`) + comentario com
   justificativa e leitura de codigo — grande demais para uma sessao unica;
 - fechado como `wontfix` (precedente ou ja implementado);
 - comentario de perguntas aguardando resposta humana, sem tipo, ainda com
-  `need-triage` e com `awaiting-reply` — o `need-triage` faz a resposta
+  `needs-triage` e com `awaiting-reply` — o `needs-triage` faz a resposta
   humana disparar nova rodada, e o `awaiting-reply` mostra que a vez e do
   humano.
 
