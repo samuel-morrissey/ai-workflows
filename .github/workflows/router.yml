@@ -44,7 +44,11 @@ on:
 
 jobs:
   # Triagem: label `needs-triage` aplicado, ou comentario humano em issue que
-  # ainda carrega `needs-triage` (resposta a um handoff).
+  # ainda carrega `needs-triage` (resposta a um handoff). Tambem roda quando
+  # um humano aplica `wontfix` ou `deferred`: a skill completa o fechamento
+  # (tira o estado anterior, fecha e comenta o motivo), com ou sem comentario
+  # humano. Label aplicado pelo token do workflow nao gera evento, entao a
+  # propria skill fechando nao dispara nova rodada.
   # - `!github.event.issue.pull_request` — issue_comment tambem dispara em
   #   comentario de PR, e triagem de PR esta fora de escopo;
   # - `comment.user.type != 'Bot'` — so comentario humano reativa a triagem;
@@ -53,7 +57,9 @@ jobs:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
-       github.event.label.name == 'needs-triage' &&
+       (github.event.label.name == 'needs-triage' ||
+        github.event.label.name == 'wontfix' ||
+        github.event.label.name == 'deferred') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
