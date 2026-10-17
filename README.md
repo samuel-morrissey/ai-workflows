@@ -8,7 +8,7 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 
 | Etapa | Dispara quando | Workflow |
 | --- | --- | --- |
-| Triagem | o label `needs-triage` entra no issue, ou uma pessoa comenta num issue que ainda tem `needs-triage` | `issue-triage.yml` |
+| Triagem | o label `needs-triage` entra no issue, ou uma pessoa comenta num issue que ainda tem `needs-triage`. Também quando uma pessoa coloca `wontfix` ou `deferred`: a triagem fecha o issue e comenta o motivo | `issue-triage.yml` |
 | Refinamento | o label `needs-refinement` entra no issue, ou uma pessoa comenta num issue que tem `needs-refinement` | `issue-refinement.yml` |
 | Quebra em sub-tasks | o label `needs-break-down` entra no issue, ou uma pessoa comenta num issue que tem `needs-break-down` | `issue-break-down.yml` |
 | Implementação | uma pessoa comenta `/implement` num issue com `ready-for-agent` | `issue-remote-implement.yml` |
@@ -41,8 +41,12 @@ Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é
 | `needs-refinement` + `awaiting-reply` | perguntas do refinamento esperando você |
 | `needs-break-down` sozinho | comente no issue para quebrar em sub-tasks |
 | `awaiting-pr-review` | PR aberto, esperando revisão e merge |
+| `wontfix` | fechado: não será feito. Um pedido igual é fechado como `wontfix` de novo |
+| `deferred` | fechado: despriorizado. Pode ser reaberto; um pedido igual cita este issue e segue o fluxo |
 
 Comentários de bots e de PRs não disparam nada.
+
+Para tirar um issue do fluxo, coloque `wontfix` (não será feito) ou `deferred` (não agora). Comentar o motivo é opcional: a triagem roda, tira o label de estado anterior, fecha o issue e registra o motivo. Para retomar um `deferred`, reabra o issue, tire `deferred` e coloque de volta o label de estado que o comentário de fechamento registrou. Um `priority` colocado por você marca o issue como prioritário dentro do estado dele; as etapas também o colocam quando você decide a prioridade numa resposta.
 
 ## Configuração da organização (uma vez só)
 
@@ -80,7 +84,7 @@ O que precisa existir é o secret `CLAUDE_CODE_OAUTH_TOKEN` no lado do chamador.
 
 3. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
-Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam o `work-in-progress`.
+Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`, `deferred`, `priority`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam o `work-in-progress`.
 
 ## Testar
 
