@@ -16,10 +16,16 @@ formato na `to-pr`? Vale aqui na proxima execucao, sem tocar neste arquivo.
    ghostwriter e barra de exaustividade sobre o diff. As substituicoes
    abaixo valem por cima dela, e so elas.
 
-   As **Evidencias** vem da verificacao que quem chamou ja rodou (na
-   `issue-remote-implement`, a bateria do passo 5): cole a saida dessa
-   rodada, o teste que falhava e agora passa. Rode de novo so o que falta
-   para fechar o par antes/depois.
+   A **Qualidade de codigo** vem da verificacao que quem chamou ja rodou
+   (na `issue-remote-implement`, a bateria do passo 5): um comando por
+   linha, com o resultado dessa rodada. Nao rode a bateria de novo. Nada
+   rodou? Use a declaracao da secao, com o motivo que quem chamou deu.
+
+   As **Evidencias** seguem o criterio da `to-pr`: comparacao antes/depois
+   no nivel do usuario e/ou visual, nunca a saida da bateria. Sem tela nem
+   navegador no fluxo remoto, escolha o melhor tipo que o ambiente captura
+   (saida real de CLI, resposta de endpoint, trecho do documento antes e
+   depois, benchmark, diagrama) ou use a declaracao, com o motivo.
 
 2. **Base e head vem de quem chamou.** Quem chama ja definiu a base pela
    `issue-git-flow`. Use o par recebido, sem resolver pela branch padrao.
