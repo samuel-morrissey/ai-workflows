@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   ai:
-    uses: caravelasistemas/ai-workflows/.github/workflows/router.yml@main
+    uses: samuel-morrissey/ai-workflows/.github/workflows/router.yml@main
     # Dois inputs, um comando por linha cada, usados pela etapa
     # issue-remote-implement:
     #

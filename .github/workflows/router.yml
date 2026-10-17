@@ -56,7 +56,7 @@ jobs:
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'needs-triage') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
-    uses: caravelasistemas/ai-workflows/.github/workflows/issue-triage.yml@main
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-triage.yml@main
     secrets: inherit
 
   # Refinamento: label `needs-refinement` aplicado, ou comentario humano em issue
@@ -73,7 +73,7 @@ jobs:
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'needs-refinement') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
-    uses: caravelasistemas/ai-workflows/.github/workflows/issue-refinement.yml@main
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-refinement.yml@main
     secrets: inherit
 
   # Quebra em sub-tasks: label `needs-break-down` aplicado, ou comentario
@@ -92,7 +92,7 @@ jobs:
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'needs-break-down') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
-    uses: caravelasistemas/ai-workflows/.github/workflows/issue-break-down.yml@main
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
     secrets: inherit
 
   # Implementacao: comentario humano contendo `/implement` em issue com
@@ -106,7 +106,7 @@ jobs:
       contains(github.event.comment.body, '/implement') &&
       contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
-    uses: caravelasistemas/ai-workflows/.github/workflows/issue-remote-implement.yml@main
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-remote-implement.yml@main
     with:
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
@@ -121,4 +121,4 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true &&
       github.event.pull_request.base.ref != github.event.repository.default_branch
-    uses: caravelasistemas/ai-workflows/.github/workflows/pr-merged.yml@main
+    uses: samuel-morrissey/ai-workflows/.github/workflows/pr-merged.yml@main
