@@ -46,4 +46,8 @@ jobs:
     #   quality_checks: |
     #     npm run typecheck
     #     npm test
-    secrets: inherit
+    # Passado pelo nome, e nao por `secrets: inherit`: o inherit so repassa
+    # secret de organizacao quando o reutilizavel esta no mesmo dono. Um
+    # consumidor em outra organizacao ficaria sem o secret.
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
