@@ -38,7 +38,7 @@ A mensagem vai no canal do contexto em que voce esta:
 
    ```bash
    gh label create awaiting-reply --color C5DEF5 \
-     --description "Aguardando resposta humana" 2>/dev/null || true
+     --description "Rodada encerrada com pergunta impeditiva; aguarda resposta humana" 2>/dev/null || true
    gh issue edit <numero> --add-label awaiting-reply   # em PR: gh pr edit
    ```
 

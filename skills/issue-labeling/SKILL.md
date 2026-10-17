@@ -37,18 +37,19 @@ ultimo recurso, nunca a primeira opcao.
 
 ## Labels de estado
 
-O estado e um **label** e diz o **proximo passo** da issue.
+O estado e um **label** e diz o **proximo passo** da issue. **Cor** e
+**Descricao** sao os valores canonicos para criar o label (ver regra 5).
 
-| Label | Significado | Proximo passo | Cor |
-|---|---|---|---|
-| `needs-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` |
-| `needs-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` |
-| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: cada comentario humano dispara a proxima | `FBCA04` |
-| `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` |
-| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` |
-| `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` |
-| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois comenta `/implement` no pai | `5319E7` |
-| `wontfix` | Nao sera feito. Terminal: a issue e fechada com esse label | — | `FFFFFF` |
+| Label | Significado | Proximo passo | Cor | Descricao |
+|---|---|---|---|---|
+| `needs-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` | Issue crua aguardando triagem |
+| `needs-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` | Falta descobrir os limites do que se quer construir |
+| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: cada comentario humano dispara a proxima | `FBCA04` | Falta lapidar requisitos ou esclarecer a solicitacao |
+| `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` | Escopo entendido, falta quebrar em sub-tasks |
+| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` | Pronto para o agente executar |
+| `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` | Unidade executavel exclusivamente humana; o agente so orienta |
+| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois comenta `/implement` no pai | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
+| `wontfix` | Nao sera feito. Terminal: a issue e fechada com esse label | — | `FFFFFF` | Nao sera feito |
 
 ## Label de trabalho
 
@@ -56,9 +57,9 @@ O estado e um **label** e diz o **proximo passo** da issue.
 um worker esta atuando nela **agora**. Por isso convive com o label de estado
 vigente, assim como o `awaiting-reply` (ver "Label de espera").
 
-| Label | Significado | Quem aplica e remove | Cor |
-|---|---|---|---|
-| `work-in-progress` | Worker em execucao nesta issue | O workflow do worker, no inicio e no fim da execucao — nenhuma skill o troca | `D93F0B` |
+| Label | Significado | Quem aplica e remove | Cor | Descricao |
+|---|---|---|---|---|
+| `work-in-progress` | Worker em execucao nesta issue | O workflow do worker, no inicio e no fim da execucao — nenhuma skill o troca | `D93F0B` | Worker em execucao nesta issue |
 
 Issue com `work-in-progress` nao dispara outro worker: os gatilhos dos
 workflows chamadores filtram por ele, e o workflow reutilizavel confere de
@@ -70,9 +71,9 @@ novo antes de comecar (guarda de concorrencia).
 pergunta impeditiva e que a vez agora e de um humano. Convive com o label de
 estado vigente, como o `work-in-progress`.
 
-| Label | Significado | Quem aplica e remove | Cor |
-|---|---|---|---|
-| `awaiting-reply` | Rodada encerrada com pergunta impeditiva; aguarda resposta humana | Aplica: a skill que posta o handoff, conforme a `issue-async-first`. Remove: o workflow, no inicio da proxima rodada | `C5DEF5` |
+| Label | Significado | Quem aplica e remove | Cor | Descricao |
+|---|---|---|---|---|
+| `awaiting-reply` | Rodada encerrada com pergunta impeditiva; aguarda resposta humana | Aplica: a skill que posta o handoff, conforme a `issue-async-first`. Remove: o workflow, no inicio da proxima rodada | `C5DEF5` | Rodada encerrada com pergunta impeditiva; aguarda resposta humana |
 
 Lendo os labels juntos:
 
@@ -121,8 +122,10 @@ Lendo os labels de um pai:
    issue ja no estado que a proxima skill espera.
 4. **`wontfix` fecha.** Aplique o label e feche a issue no mesmo passo, com um
    comentario explicando o motivo e vinculando precedentes.
-5. **Label inexistente no repositorio: crie antes de aplicar.** Use a cor da
-   tabela e o significado como descricao:
+5. **Label inexistente no repositorio: crie antes de aplicar.** Use a **Cor**
+   e a **Descricao** da linha do label na tabela, exatamente — nunca um texto
+   escrito a mao. Vale tambem para todo `gh label create` escrito em outra
+   skill:
 
    ```bash
    gh label create "needs-discovery" --color FBCA04 \
@@ -130,7 +133,8 @@ Lendo os labels de um pai:
    ```
 
    `gh issue edit --add-label` falha se o label nao existe — criar primeiro
-   evita perder a rodada.
+   evita perder a rodada. Label que ja existe com cor ou descricao diferentes
+   nao e editado: a padronizacao vale para a criacao.
 6. **`work-in-progress` e `awaiting-reply` ficam fora destas regras.** Nao
    sao labels de estado — ver as secoes "Label de trabalho" e "Label de
    espera" acima. Nenhum dos dois conta como label de estado nem e trocado
