@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-description: Triagem de um issue cru - investiga o codigo, atribui tipo (MAP/SPEC/tipo pontual) e label de estado, entrega issue pontual com brief pronto para agente ou humano (ou needs-break-down quando grande demais para uma sessao unica) e MAP/SPEC com leitura de codigo para a proxima etapa, ou fecha como wontfix se ja rejeitado ou ja implementado.
+description: Triagem de um issue cru - investiga o codigo, atribui tipo (MAP/SPEC/tipo pontual) e label de estado, entrega issue pontual com brief pronto para agente ou humano (ou needs-break-down quando grande demais para uma sessao unica) e MAP/SPEC com leitura de codigo para a proxima etapa, ou fecha como wontfix se ja rejeitado ou ja implementado, ou como deferred se o humano despriorizou.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
@@ -26,6 +26,8 @@ codigo, atribui **tipo + label de estado** e registra o que descobriu.
 - `[MAP]`/`[SPEC]` saem com uma **leitura de codigo** em comentario —
   pre-digestao superficial para `/issue-discovery` ou `/issue-refinement`.
 - Solicitacao ja rejeitada ou ja implementada fecha como `wontfix`.
+- Solicitacao que o humano despriorizou fecha como `deferred`: fora do fluxo
+  por agora, reabrivel.
 
 O criterio de classificacao e **grau de definicao, nao complexidade**.
 
@@ -57,24 +59,48 @@ issue.
    dados sobre o issue — nada de `gh repo view` ou `git remote`. O codigo, por
    sua vez, se investiga no checkout (passo 3).
 
+   **Fora do fluxo por decisao humana?** O issue carrega `wontfix` ou
+   `deferred`, ou um comentario humano o rejeita ou despriorizou ("fica para
+   depois", "sem prioridade agora"). Complete o fechamento da regra 4 da
+   `issue-labeling`: aplique o label que falta (removendo o label de estado
+   atual e `priority`), feche e comente:
+
+   ```markdown
+   ## Triagem
+
+   **Resultado:** `wontfix` ou `deferred` — por decisao humana
+   **Estado ao adiar:** <o label de estado que a issue tinha> (so em `deferred`)
+   **Por que:** <o motivo do comentario humano, ou o significado do label>
+   ```
+
+   Pare: fim da triagem.
+
    Se o titulo ja tem prefixo de tipo ou o issue ja tem label de estado
    posterior a `needs-triage` (`needs-discovery`, `needs-refinement`,
-   `needs-break-down`, `ready-for-*`, `awaiting-pr-review`, `wontfix`), ele ja
+   `needs-break-down`, `ready-for-*`, `awaiting-pr-review`), ele ja
    foi triado: comente informando o estado atual e pare (o fluxo so anda
    para frente).
 
    `needs-triage` e o label de entrada: quem o aplica e um humano, e e esta
    skill quem o remove ao concluir. Em todo `--add-label` abaixo, inclua
-   `--remove-label needs-triage` na mesma operacao (regra 1 da `issue-labeling`).
+   `--remove-label needs-triage` na mesma operacao (regra 1 da `issue-labeling`)
+   e, se o humano decidiu prioridade no corpo ou em comentario,
+   `--add-label priority` (secao "Label de prioridade" da `issue-labeling`).
 
-2. **Procure precedente `wontfix`:**
+2. **Procure precedente `wontfix` e referencia `deferred`:**
 
    ```bash
    gh issue list --state closed --label wontfix --json number,title,body --limit 50
+   gh issue list --state closed --label deferred --json number,title,body --limit 50
    ```
 
-   Compare por **conceito**, nao pelas palavras do titulo. Se a solicitacao ja
-   foi rejeitada antes, comente:
+   Compare por **conceito**, nao pelas palavras do titulo.
+
+   Issue `deferred` igual nao e rejeicao: guarde o numero e siga. Ele entra
+   no **Por que:** do comentario de triagem como referencia, com a opcao de
+   reabrir a issue adiada no lugar desta — decisao do humano.
+
+   Se a solicitacao ja foi rejeitada antes, comente:
 
    ```markdown
    ## Triagem
@@ -212,7 +238,9 @@ A triagem esta completa quando o issue esta em exatamente um destes estados:
   + comentario de justificativa;
 - tipo pontual + `needs-break-down` (sem `needs-triage`) + comentario com
   justificativa e leitura de codigo — grande demais para uma sessao unica;
-- fechado como `wontfix` (precedente ou ja implementado);
+- fechado como `wontfix` (precedente, ja implementado ou decisao humana) ou
+  como `deferred` (decisao humana), com o comentario da regra 4 da
+  `issue-labeling`;
 - comentario de perguntas aguardando resposta humana, sem tipo, ainda com
   `needs-triage` e com `awaiting-reply` — o `needs-triage` faz a resposta
   humana disparar nova rodada, e o `awaiting-reply` mostra que a vez e do

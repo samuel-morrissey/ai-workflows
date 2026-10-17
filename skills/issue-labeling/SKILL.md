@@ -1,6 +1,6 @@
 ---
 name: issue-labeling
-description: Vocabulario canonico do fluxo de issues - tipos (MAP, SPEC, SUB-TASK e os pontuais BUG/FEAT/REFACTOR/DOCS/INFRA/TASK), labels de estado (needs-*, ready-for-*, awaiting-pr-review, wontfix), label de trabalho (work-in-progress) e regras de transicao. Use ao aplicar, trocar ou interpretar um label ou prefixo de tipo em um issue.
+description: Vocabulario canonico do fluxo de issues - tipos (MAP, SPEC, SUB-TASK e os pontuais BUG/FEAT/REFACTOR/DOCS/INFRA/TASK), labels de estado (needs-*, ready-for-*, awaiting-pr-review, wontfix, deferred), labels de trabalho, espera e prioridade (work-in-progress, awaiting-reply, priority) e regras de transicao. Use ao aplicar, trocar ou interpretar um label ou prefixo de tipo em um issue.
 ---
 
 # Labeling
@@ -49,7 +49,8 @@ O estado e um **label** e diz o **proximo passo** da issue. **Cor** e
 | `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` | Pronto para o agente executar |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` | Unidade executavel exclusivamente humana; o agente so orienta |
 | `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois comenta `/implement` no pai | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
-| `wontfix` | Nao sera feito. Terminal: a issue e fechada com esse label | — | `FFFFFF` | Nao sera feito |
+| `wontfix` | Nao sera feito: rejeitado ou ja implementado. Terminal: a issue e fechada com esse label e vale como precedente de rejeicao | — | `FFFFFF` | Nao sera feito |
+| `deferred` | Despriorizado: nao sera feito agora. Terminal como `wontfix`, mas a issue vale como referencia, nunca como precedente, e pode voltar | Nenhum. Reabrir e decisao humana (regra 4) | `CFD3D7` | Despriorizado: nao agora, pode voltar |
 
 ## Label de trabalho
 
@@ -80,6 +81,18 @@ Lendo os labels juntos:
 - `needs-triage` + `awaiting-reply` — esperando o humano responder;
 - `needs-triage` + `work-in-progress` — worker atuando agora;
 - `needs-triage` sozinho — esperando a triagem rodar.
+
+## Label de prioridade
+
+`priority` tambem nao e estado: diz que o humano decidiu que esta issue vem
+antes das outras no mesmo estado. Convive com o label de estado vigente.
+
+| Label | Significado | Quem aplica e remove | Cor | Descricao |
+|---|---|---|---|---|
+| `priority` | Prioridade decidida pelo humano; esta issue vem antes das demais no mesmo estado | Aplica: um humano, ou a skill que troca o label de estado, na mesma operacao, quando o humano decidiu prioridade (no corpo, em comentario ou em resposta a pergunta). Remove: um humano, ou a skill que aplica `deferred` | `B60205` | Prioridade decidida pelo humano |
+
+Prioridade e decisao de produto: nenhuma skill a infere. Sem decisao humana
+registrada no issue, sem label.
 
 ## Pai e sub-tasks
 
@@ -115,13 +128,30 @@ Lendo os labels de um pai:
    ready-for-* → awaiting-pr-review` e, por fim, issue fechada (merge do PR ou
    fechamento manual). `awaiting-pr-review` so vem de `ready-for-agent` (ou,
    numa sub-task, de nenhum label): e a `issue-remote-implement` que o aplica
-   ao abrir o PR. Correcao de
+   ao abrir o PR. `wontfix` e `deferred` podem vir de qualquer estagio:
+   tirar a issue do fluxo e decisao humana a qualquer momento (regra 4).
+   Correcao de
    classificacao ou problema pos-merge vira **issue nova** vinculada — o label
    de uma issue existente permanece no estagio em que esta.
 3. **Quem troca o label e a skill que conclui o estagio.** Cada skill entrega a
    issue ja no estado que a proxima skill espera.
-4. **`wontfix` fecha.** Aplique o label e feche a issue no mesmo passo, com um
-   comentario explicando o motivo e vinculando precedentes.
+4. **`wontfix` e `deferred` fecham.** Os dois sao terminais: aplique o label
+   (removendo o label de estado anterior e o `priority`, se houver) e feche a
+   issue no mesmo passo, com um comentario que explica o motivo. A diferenca
+   esta no que a issue fechada vale depois:
+
+   | | `wontfix` | `deferred` |
+   |---|---|---|
+   | Motivo | Rejeitado, ou ja implementado | Despriorizado: nao agora, talvez depois |
+   | O comentario registra | Os precedentes | O estado em que a issue estava ao adiar |
+   | Vale como | Precedente: pedido igual fecha como `wontfix` | Referencia: pedido igual cita a issue e segue o fluxo normal |
+   | Volta? | Nao | Sim: o humano reabre, remove `deferred` e reaplica o estado registrado |
+
+   Um humano pode aplicar qualquer um dos dois direto na issue, com ou sem
+   comentario. A skill que ler a issue nesse estado completa o fechamento:
+   remove o label de estado anterior e o `priority`, fecha se ainda esta
+   aberta e comenta o motivo (citando o comentario humano, se houver) e, em
+   `deferred`, o estado ao adiar. Depois para: a issue esta fora do fluxo.
 5. **Label inexistente no repositorio: crie antes de aplicar.** Use a **Cor**
    e a **Descricao** da linha do label na tabela, exatamente — nunca um texto
    escrito a mao. Vale tambem para todo `gh label create` escrito em outra
@@ -135,9 +165,10 @@ Lendo os labels de um pai:
    `gh issue edit --add-label` falha se o label nao existe — criar primeiro
    evita perder a rodada. Label que ja existe com cor ou descricao diferentes
    nao e editado: a padronizacao vale para a criacao.
-6. **`work-in-progress` e `awaiting-reply` ficam fora destas regras.** Nao
-   sao labels de estado — ver as secoes "Label de trabalho" e "Label de
-   espera" acima. Nenhum dos dois conta como label de estado nem e trocado
-   junto com ele. Nenhuma skill aplica ou remove `work-in-progress`; o
-   `awaiting-reply` so e aplicado pela skill que encerra a rodada com
-   pergunta impeditiva.
+6. **`work-in-progress`, `awaiting-reply` e `priority` ficam fora destas
+   regras.** Nao sao labels de estado — ver as secoes "Label de trabalho",
+   "Label de espera" e "Label de prioridade" acima. Nenhum dos tres conta
+   como label de estado nem e trocado junto com ele. Nenhuma skill aplica ou
+   remove `work-in-progress`; o `awaiting-reply` so e aplicado pela skill que
+   encerra a rodada com pergunta impeditiva; o `priority` segue a secao
+   "Label de prioridade".

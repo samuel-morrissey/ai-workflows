@@ -67,6 +67,9 @@ vias, nesta ordem de preferencia:
    Apto exige label `ready-for-agent`. `[SUB-TASK]` nunca e alvo: comente
    apontando o pai e pare. Fora disso, comente o estado atual e pare.
 
+   Issue com `wontfix` ou `deferred`: complete o fechamento da regra 4 da
+   `issue-labeling` e pare.
+
    Leia tambem os comentarios: handoffs e respostas humanas de rodadas
    anteriores valem. O corpo e lido **agora**: se o humano editou o brief
    antes de comentar `/implement`, vale a versao editada.
