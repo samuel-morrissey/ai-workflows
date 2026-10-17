@@ -12,6 +12,10 @@ name: AI Router
 # `./.github/workflows/...`: em chamada aninhada o caminho local resolve
 # contra o repositorio do chamador de cima, nao contra este.
 #
+# O secret vai pelo nome a cada etapa, e nao por `secrets: inherit`: quando o
+# chamador de cima esta em outro dono, o inherit nao repassa o secret nem
+# aqui, e a etapa falha com "Secret ... is required, but not provided".
+#
 # O que NAO da para mover para ca (regra do GitHub): `on:` e `permissions:`
 # ficam no chamador. Por isso o ai.yml ja nasce com todos os gatilhos
 # e com a uniao das permissoes que as etapas pedem.
@@ -57,7 +61,8 @@ jobs:
        contains(join(github.event.issue.labels.*.name, ','), 'needs-triage') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-triage.yml@main
-    secrets: inherit
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # Refinamento: label `needs-refinement` aplicado, ou comentario humano em issue
   # que carrega `needs-refinement` (resposta a uma rodada de perguntas).
@@ -74,7 +79,8 @@ jobs:
        contains(join(github.event.issue.labels.*.name, ','), 'needs-refinement') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-refinement.yml@main
-    secrets: inherit
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # Quebra em sub-tasks: label `needs-break-down` aplicado, ou comentario
   # humano em issue que carrega `needs-break-down`. Quando a etapa anterior
@@ -93,7 +99,8 @@ jobs:
        contains(join(github.event.issue.labels.*.name, ','), 'needs-break-down') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
-    secrets: inherit
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # Implementacao: comentario humano contendo `/implement` em issue com
   # `ready-for-agent`. Aplicar o label nao inicia nada — e o humano quem da o
@@ -110,7 +117,8 @@ jobs:
     with:
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
-    secrets: inherit
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # PR mergeado numa branch que nao e a padrao (sub-task na branch de
   # integracao do pai): fecha os issues do `Closes`, que o GitHub ignora fora
