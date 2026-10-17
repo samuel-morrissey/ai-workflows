@@ -35,7 +35,9 @@ State the resolved pair back to the user in one line before doing anything else,
 
 2. **Match the house style for the title.** Read the last handful of merged PR titles (`gh pr list --state merged --limit 10 --json title`) and follow the title format you find. Absent any signal, default to Conventional Commits (`feat: `, `fix: `, `chore: `…). The body's sections come from [`TEMPLATE.md`](TEMPLATE.md) alone, whatever the merged PRs look like. Language stays Brazilian Portuguese regardless; if the merged PRs are written in another language, say so in one line when you present the draft, so the user can redirect you.
 
-3. **Produce the evidence.** Run what proves the change: the test file the range touches, the command the change affects, the endpoint it adds. Keep the output as it came out, trimmed to the lines that show the before/after. Done when you hold a before and an after for the **Evidências** section, or know exactly why none is executable.
+3. **Produce the evidence.** Two separate collections:
+   - **Evidências** — show what changed for the user, before and after. Decide from the nature of the repository and of the range which kind shows it best (screenshot, video, architecture diagram, benchmark, CLI output or endpoint response as the user sees it, document excerpt, usage example — see the **Evidências** test in [`TEMPLATE.md`](TEMPLATE.md) for the open list), then capture the *before* from `<base>` and the *after* from `<head>` the same way. Keep it as it came out, trimmed to what shows the difference. Done when you hold a real before and after, or know exactly why the change has nothing user-facing to compare.
+   - **Qualidade de código** — run the repository's automated checks against `<head>` (lint, typecheck, the tests the range touches or the suite, build) and keep each command with its result. Done when you know which checks ran and how each ended, or why none could run.
 
 4. **Write the draft.** Read [`TEMPLATE.md`](TEMPLATE.md) and follow it — the fixed section set, each section's test and declaration, and the exhaustiveness bar over the diff. Put the collected references in the body the way **Linking issues and tickets** says.
 
@@ -67,7 +69,7 @@ A PR that resolves or relates to an issue or ticket gets **linked** to it whenev
 
 2. **Check ownership.** Compare the PR's author login with the authenticated account (`gh api user --jq .login`).
 
-3. **Write the draft** the same way as the create branch — title style, evidence run, and the fixed format from [`TEMPLATE.md`](TEMPLATE.md). Keep every issue or ticket link the current body already has, and add the ones the range references but the body misses.
+3. **Write the draft** the same way as the create branch — title style, both evidence collections (user-level **Evidências** and the **Qualidade de código** checks), and the fixed format from [`TEMPLATE.md`](TEMPLATE.md). Keep every issue or ticket link the current body already has, and add the ones the range references but the body misses.
 
 4. **Print and ask.** Show the full draft in the chat, then:
    - **The PR is the user's** → ask whether to apply it with `gh pr edit`. Apply only after a yes.
