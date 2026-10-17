@@ -48,7 +48,7 @@ Comentários de bots e de PRs não disparam nada.
 
 Este repositório é público. Qualquer repositório, de qualquer conta ou organização, pode chamar os workflows daqui sem liberação de acesso.
 
-O que precisa existir é o secret `CLAUDE_CODE_OAUTH_TOKEN` no lado do chamador. O workflow reutilizável roda no contexto do repositório que chama, e `secrets: inherit` repassa os secrets dele. Gere o token com `claude setup-token` e cadastre:
+O que precisa existir é o secret `CLAUDE_CODE_OAUTH_TOKEN` no lado do chamador. O workflow reutilizável roda no contexto do repositório que chama, e o `ai.yml` passa o secret pelo nome. Não use `secrets: inherit` no chamador: o GitHub só repassa secret de organização por `inherit` quando o reutilizável está no mesmo dono, e um consumidor em outra organização falha com "Secret CLAUDE_CODE_OAUTH_TOKEN is required, but not provided while calling". Gere o token com `claude setup-token` e cadastre:
 
 - **Numa organização** (ex.: `caravelasistemas`), um secret de organização atende todos os repositórios dela:
 
@@ -91,6 +91,7 @@ Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiti
 Problemas comuns:
 
 - **Erro de token:** o secret não chega ao repositório. Veja a configuração da organização.
+- **`Secret CLAUDE_CODE_OAUTH_TOKEN is required, but not provided while calling`:** o `ai.yml` usa `secrets: inherit` e o repositório está em outra organização. Passe o secret pelo nome, como no `ai.yml` daqui.
 - **Erro ao buscar o workflow (`failed to fetch workflow` ou parecido, ou a execução falha em 0s):** o `uses` do `ai.yml` aponta para um caminho que não existe. Confira que ele aponta para `samuel-morrissey/ai-workflows/...@main`.
 - **Todos os jobs aparecem como "skipped":** o evento não bateu com nenhuma etapa. Um label colocado antes do `ai.yml` existir não conta: tire o label e coloque de novo.
 
