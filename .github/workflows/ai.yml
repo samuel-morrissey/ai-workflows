@@ -1,0 +1,42 @@
+name: AI
+
+# Chamador dos fluxos de IA, copiado de samuel-morrissey/ai-workflows (passo a
+# passo no README.md de la).
+#
+# As regras (qual evento aciona qual etapa, guardas, labels) moram no
+# router.yml de samuel-morrissey/ai-workflows. Este arquivo so declara o que o
+# GitHub exige que fique no chamador: gatilhos (`on:`) e permissoes.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [closed]
+
+# Uniao das permissoes pedidas pelas etapas. Um reutilizavel nunca recebe mais
+# do que o chamador concede, por isso todas ficam aqui.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  ai:
+    uses: samuel-morrissey/ai-workflows/.github/workflows/router.yml@main
+    # Dois inputs, um comando por linha cada, usados pela etapa
+    # issue-remote-implement:
+    #
+    # - setup_commands: preparacao do ambiente, rodada pelo workflow antes de
+    #   chamar o agente. Comando que falha interrompe o job. Vazio: nada roda.
+    #   Precisa de uma versao especifica de runtime? Resolva aqui; mudanca de
+    #   PATH so chega ao agente se gravada em $GITHUB_PATH.
+    # - quality_checks: verificacao rodada pelo agente antes de abrir o PR.
+    #   Vazio: o PR sai declarando que nao houve verificacao.
+    #
+    # Este repositorio so tem skills em markdown e os manifestos do plugin,
+    # sem build nem testes, por isso vai sem os dois.
+    secrets: inherit
