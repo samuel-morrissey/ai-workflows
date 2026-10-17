@@ -4,7 +4,7 @@ description: Quebra um issue needs-break-down em sub-tasks - fatias verticais qu
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue create:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Read Grep Glob
+allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue create:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Read Grep Glob
 ---
 
 # Break down
@@ -42,6 +42,9 @@ issue.
    Apto exige label `needs-break-down` e nenhuma sub-issue ainda. Fora disso,
    comente o estado atual e pare. Isso evita duplicar sub-tasks numa rodada
    repetida.
+
+   Issue com `wontfix` ou `deferred`: complete o fechamento da regra 4 da
+   `issue-labeling` e pare.
 
    A fonte do escopo depende do tipo:
 

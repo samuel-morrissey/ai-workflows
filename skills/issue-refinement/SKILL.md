@@ -4,7 +4,7 @@ description: Refinamento assincrono de um issue needs-refinement - investiga o c
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Bash(git show:*) Read Grep Glob
+allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Bash(git show:*) Read Grep Glob
 ---
 
 # Refinement
@@ -47,6 +47,9 @@ issue.
 
    Apto exige titulo `[SPEC]` e label `needs-refinement`. Fora disso, comente o
    estado atual e pare (o fluxo so anda para frente).
+
+   Issue com `wontfix` ou `deferred`: complete o fechamento da regra 4 da
+   `issue-labeling` e pare.
 
 2. **Reconstrua o estado da conversa.** Ela vive nos comentarios:
 
@@ -110,7 +113,8 @@ issue.
    gh issue edit $issue --add-label needs-break-down --remove-label needs-refinement
    ```
 
-   Prioridade decidida pelo humano vira o label `priority` na mesma operacao.
+   Prioridade decidida pelo humano vira o label `priority` na mesma operacao
+   (secao "Label de prioridade" da `issue-labeling`).
 
 7. Responda com a URL do comentario postado e o estado do issue.
 
