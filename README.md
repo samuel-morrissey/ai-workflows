@@ -46,21 +46,23 @@ Comentários de bots e de PRs não disparam nada.
 
 ## Configuração da organização (uma vez só)
 
-1. **Liberar os workflows para a organização.** Este repositório é privado, e um repositório privado não compartilha workflows por padrão:
+Este repositório é público. Qualquer repositório, de qualquer conta ou organização, pode chamar os workflows daqui sem liberação de acesso.
 
-   ```
-   gh api -X PUT repos/caravelasistemas/ai-workflows/actions/permissions/access -f access_level=organization
-   ```
+O que precisa existir é o secret `CLAUDE_CODE_OAUTH_TOKEN` no lado do chamador. O workflow reutilizável roda no contexto do repositório que chama, e `secrets: inherit` repassa os secrets dele. Gere o token com `claude setup-token` e cadastre:
 
-   Ou pela tela: Settings → Actions → General → Access → "Accessible from repositories in the 'caravelasistemas' organization".
+- **Numa organização** (ex.: `caravelasistemas`), um secret de organização atende todos os repositórios dela:
 
-2. **Secret `CLAUDE_CODE_OAUTH_TOKEN` na organização.** Gere o token com `claude setup-token` e cadastre:
+  ```
+  gh secret set CLAUDE_CODE_OAUTH_TOKEN --org caravelasistemas --visibility all
+  ```
 
-   ```
-   gh secret set CLAUDE_CODE_OAUTH_TOKEN --org caravelasistemas --visibility all
-   ```
+  Se o secret estiver com acesso só para alguns repositórios, inclua cada repositório novo em Settings da org → Secrets and variables → Actions → `CLAUDE_CODE_OAUTH_TOKEN` → Repository access.
 
-   Se o secret estiver com acesso só para alguns repositórios, inclua cada repositório novo em Settings da org → Secrets and variables → Actions → `CLAUDE_CODE_OAUTH_TOKEN` → Repository access.
+- **Numa conta pessoal**, não existe secret de conta. Cadastre o secret em cada repositório, inclusive neste, porque o `ai.yml` daqui roda nos issues deste repositório:
+
+  ```
+  gh secret set CLAUDE_CODE_OAUTH_TOKEN -R samuel-morrissey/ai-workflows
+  ```
 
 ## Configurar um repositório
 
@@ -68,7 +70,7 @@ Comentários de bots e de PRs não disparam nada.
 
    ```
    mkdir -p .github/workflows
-   gh api repos/caravelasistemas/ai-workflows/contents/.github/workflows/ai.yml -q .content | base64 -d > .github/workflows/ai.yml
+   gh api repos/samuel-morrissey/ai-workflows/contents/.github/workflows/ai.yml -q .content | base64 -d > .github/workflows/ai.yml
    ```
 
 2. Ajuste os inputs no fim do arquivo. Descomente o bloco `with:` e preencha os dois, um comando por linha:
@@ -88,8 +90,8 @@ Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiti
 
 Problemas comuns:
 
-- **Erro de token:** o secret não chega ao repositório. Veja o passo 2 da configuração da organização.
-- **Erro ao buscar o workflow (`failed to fetch workflow` ou parecido):** falta liberar o acesso. Veja o passo 1 da configuração da organização.
+- **Erro de token:** o secret não chega ao repositório. Veja a configuração da organização.
+- **Erro ao buscar o workflow (`failed to fetch workflow` ou parecido, ou a execução falha em 0s):** o `uses` do `ai.yml` aponta para um caminho que não existe. Confira que ele aponta para `samuel-morrissey/ai-workflows/...@main`.
 - **Todos os jobs aparecem como "skipped":** o evento não bateu com nenhuma etapa. Um label colocado antes do `ai.yml` existir não conta: tire o label e coloque de novo.
 
 ## Como funciona
@@ -98,4 +100,4 @@ Problemas comuns:
 - `router.yml`: um job por etapa. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela. Mudar uma regra aqui muda para todos os repositórios.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, roda o Claude com a skill da etapa (do marketplace `samuel-morrissey/claude-marketplace`) e tira o label no fim.
 
-Os `uses` apontam para `caravelasistemas/ai-workflows/...@main`, e não para `./.github/workflows/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.
+Os `uses` apontam para `samuel-morrissey/ai-workflows/...@main`, e não para `./.github/workflows/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.
