@@ -1,8 +1,8 @@
 name: Issue Refinement
 
-# Workflow reutilizavel de refinamento. Chamado pelo router.yml quando o label
-# `needs-refinement` e aplicado a um issue ou quando um humano comenta em issue
-# que carrega esse label (resposta a uma rodada de perguntas). Cada rodada
+# Workflow reutilizavel de refinamento. Chamado pelo router.yml quando um
+# humano aplica `needs-refinement`, aplica `go` em issue com esse label, ou
+# responde a uma rodada de perguntas (`needs-refinement` + `awaiting-reply`). Cada rodada
 # termina em perguntas (awaiting-reply) ou no comentario de refinamento, com
 # o issue em needs-break-down. Os guardas estao no router; ver README.md.
 
@@ -52,10 +52,19 @@ jobs:
           gh label create work-in-progress --color D93F0B \
             --description "Worker em execucao nesta issue" 2>/dev/null || true
           gh issue edit "$NUMBER" --add-label work-in-progress
+          LABELS=$(gh issue view "$NUMBER" --json labels -q '.labels[].name')
           # Nova rodada = o humano respondeu: sai o sinal de espera. Se a
           # rodada parar em outra pergunta, a skill aplica de novo.
-          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+          if grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
             gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
+          # O `go` e consumido: a rodada comecou, e o label fica livre para o
+          # humano aplicar de novo na etapa seguinte. Criado aqui para ja
+          # existir no repositorio quando o humano for procura-lo.
+          gh label create go --color 3FB950 \
+            --description "Pode seguir: roda a etapa do estado atual" 2>/dev/null || true
+          if grep -Fqx 'go' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label go
           fi
 
       - uses: anthropics/claude-code-action@v1
@@ -95,9 +104,18 @@ jobs:
 
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker
       # que o aplicou (skip vazio), para nao apagar o label de outro worker.
+      # Um `go` que chegou durante a rodada tambem sai: o evento dele foi
+      # pulado pelo guarda de concorrencia, e um label que ja esta no issue
+      # nao pode ser aplicado de novo. O humano aplica outro quando quiser a
+      # proxima etapa.
       - name: Remover work-in-progress
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.target.outputs.number }}
-        run: gh issue edit "$NUMBER" --remove-label work-in-progress
+        run: |
+          gh issue edit "$NUMBER" --remove-label work-in-progress
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'go'; then
+            echo "::notice::go chegou durante a rodada em #$NUMBER e foi descartado; aplique de novo para a proxima etapa."
+            gh issue edit "$NUMBER" --remove-label go
+          fi

@@ -8,6 +8,22 @@ name: AI Router
 #
 # Job que nao passa no `if` e pulado sem consumir runner.
 #
+# Dois sinais humanos movem o fluxo:
+#
+# - o label `go`: "pode seguir". A etapa e a do label de estado que o issue
+#   carrega (needs-triage → triagem, needs-refinement → refinamento,
+#   needs-break-down → quebra, ready-for-agent → implementacao). Issue sem
+#   label de estado vai para a triagem. E o unico sinal que inicia a
+#   implementacao, e o que destrava um estado aplicado por token de workflow
+#   ou de agente (label aplicado por token nao gera evento). A etapa consome
+#   o `go` ao comecar, para ele poder ser aplicado de novo na seguinte.
+# - um comentario humano, so em issue com `awaiting-reply`: e a resposta a
+#   uma pergunta, e retoma a etapa do estado atual. Sem `awaiting-reply`,
+#   comentario nao dispara nada.
+#
+# Um label de estado aplicado por humano (`needs-triage`, `needs-refinement`,
+# `needs-break-down`) tambem dispara a etapa dele, sem precisar de `go`.
+#
 # Os destinos sao referenciados pelo caminho completo (@main), nao por
 # `./.github/workflows/...`: em chamada aninhada o caminho local resolve
 # contra o repositorio do chamador de cima, nao contra este.
@@ -19,6 +35,12 @@ name: AI Router
 # O que NAO da para mover para ca (regra do GitHub): `on:` e `permissions:`
 # ficam no chamador. Por isso o ai.yml ja nasce com todos os gatilhos
 # e com a uniao das permissoes que as etapas pedem.
+#
+# Guardas comuns a todos os jobs de issue:
+# - sem work-in-progress — outro worker ja esta atuando no issue;
+# - `!github.event.issue.pull_request` — issue_comment tambem dispara em
+#   comentario de PR, e PR esta fora de escopo;
+# - `comment.user.type != 'Bot'` — so comentario humano conta como resposta.
 
 on:
   workflow_call:
@@ -43,82 +65,103 @@ on:
         required: true
 
 jobs:
-  # Triagem: label `needs-triage` aplicado, ou comentario humano em issue que
-  # ainda carrega `needs-triage` (resposta a um handoff). Tambem roda quando
-  # um humano aplica `wontfix` ou `deferred`: a skill completa o fechamento
-  # (tira o estado anterior, fecha e comenta o motivo), com ou sem comentario
-  # humano. Label aplicado pelo token do workflow nao gera evento, entao a
-  # propria skill fechando nao dispara nova rodada.
-  # - `!github.event.issue.pull_request` — issue_comment tambem dispara em
-  #   comentario de PR, e triagem de PR esta fora de escopo;
-  # - `comment.user.type != 'Bot'` — so comentario humano reativa a triagem;
-  # - sem work-in-progress — outro worker ja esta atuando no issue.
+  # Triagem:
+  # - `needs-triage` aplicado por humano;
+  # - `go` em issue aberto com `needs-triage` ou sem nenhum label de estado
+  #   (issue criado por agente, cujo `needs-triage` nao gerou evento; a etapa
+  #   aplica o `needs-triage` que faltar);
+  # - `wontfix` ou `deferred` aplicado por humano: a skill completa o
+  #   fechamento (tira o estado anterior, fecha e comenta o motivo). Label
+  #   aplicado pelo token do workflow nao gera evento, entao a propria skill
+  #   fechando nao dispara nova rodada;
+  # - resposta humana a um handoff (`needs-triage` + `awaiting-reply`).
   issue-triage:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress') &&
        (github.event.label.name == 'needs-triage' ||
         github.event.label.name == 'wontfix' ||
-        github.event.label.name == 'deferred') &&
-       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
+        github.event.label.name == 'deferred' ||
+        (github.event.label.name == 'go' &&
+         github.event.issue.state == 'open' &&
+         (contains(join(github.event.issue.labels.*.name, ','), 'needs-triage') ||
+          (!contains(join(github.event.issue.labels.*.name, ','), 'needs-') &&
+           !contains(join(github.event.issue.labels.*.name, ','), 'ready-for-') &&
+           !contains(join(github.event.issue.labels.*.name, ','), 'awaiting-pr-review')))))) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'needs-triage') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-triage.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-  # Refinamento: label `needs-refinement` aplicado, ou comentario humano em issue
-  # que carrega `needs-refinement` (resposta a uma rodada de perguntas).
-  # Mesmos guardas da triagem.
+  # Refinamento: `needs-refinement` aplicado por humano, `go` em issue com
+  # `needs-refinement`, ou resposta humana a uma rodada de perguntas
+  # (`needs-refinement` + `awaiting-reply`).
   issue-refinement:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
-       github.event.label.name == 'needs-refinement' &&
-       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress') &&
+       (github.event.label.name == 'needs-refinement' ||
+        (github.event.label.name == 'go' &&
+         github.event.issue.state == 'open' &&
+         contains(join(github.event.issue.labels.*.name, ','), 'needs-refinement')))) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'needs-refinement') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-refinement.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-  # Quebra em sub-tasks: label `needs-break-down` aplicado, ou comentario
-  # humano em issue que carrega `needs-break-down`. Quando a etapa anterior
-  # aplica o label pelo token do workflow, o GitHub nao dispara evento: o
-  # proximo comentario humano e o "vai".
-  # Mesmos guardas da triagem.
+  # Quebra em sub-tasks: `needs-break-down` aplicado por humano, `go` em issue
+  # com `needs-break-down` (o caminho normal: a etapa anterior aplicou o
+  # estado pelo token do workflow, sem evento), ou resposta humana a uma
+  # pergunta (`needs-break-down` + `awaiting-reply`).
   issue-break-down:
     if: >
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
-       github.event.label.name == 'needs-break-down' &&
-       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress') &&
+       (github.event.label.name == 'needs-break-down' ||
+        (github.event.label.name == 'go' &&
+         github.event.issue.state == 'open' &&
+         contains(join(github.event.issue.labels.*.name, ','), 'needs-break-down')))) ||
       (github.event_name == 'issue_comment' &&
        !github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
        contains(join(github.event.issue.labels.*.name, ','), 'needs-break-down') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-  # Implementacao: comentario humano contendo `/implement` em issue com
-  # `ready-for-agent`. Aplicar o label nao inicia nada — e o humano quem da o
-  # "vai" comentando.
+  # Implementacao: `go` em issue aberto com `ready-for-agent`, ou resposta
+  # humana a um handoff da implementacao (`ready-for-agent` +
+  # `awaiting-reply`). Aplicar `ready-for-agent` nao inicia nada — e o
+  # humano quem da o "vai" com o `go`.
   issue-remote-implement:
     if: >
-      github.event_name == 'issue_comment' &&
-      !github.event.issue.pull_request &&
-      github.event.comment.user.type != 'Bot' &&
-      contains(github.event.comment.body, '/implement') &&
-      contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
-      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
+      (github.event_name == 'issues' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'go' &&
+       github.event.issue.state == 'open' &&
+       contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       github.event.comment.user.type != 'Bot' &&
+       contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply') &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-remote-implement.yml@main
     with:
       setup_commands: ${{ inputs.setup_commands }}
