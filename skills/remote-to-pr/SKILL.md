@@ -1,6 +1,6 @@
 ---
 name: remote-to-pr
-description: Abre um PR em fluxo remoto e assincrono, sem ninguem para responder - segue a to-pr inteira (formato, estilo da casa, vinculos) e abre direto, sem perguntar. Use para abrir PR dentro de um workflow, como no /implement.
+description: Abre um PR em fluxo remoto e assincrono, sem ninguem para responder - segue a to-pr inteira (formato, estilo da casa, vinculos) e abre direto, sem perguntar. Use para abrir PR dentro de um workflow, como na issue-remote-implement.
 ---
 
 # Remote to PR

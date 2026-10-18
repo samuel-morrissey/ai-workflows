@@ -20,8 +20,8 @@ O nome e `<tipo>-<numero>`, com o prefixo de tipo do titulo em minusculas:
 | Pai com sub-tasks (**branch de integracao**) | `<tipo>-<pai>` | branch padrao |
 | Sub-task | `sub-task-<numero>` | a branch de integracao do pai |
 
-A branch de integracao nasce da branch padrao no primeiro `/implement` do
-pai e e publicada antes da primeira sub-task. Ela recebe os merges das
+A branch de integracao nasce da branch padrao na primeira rodada de
+implementacao do pai e e publicada antes da primeira sub-task. Ela recebe os merges das
 sub-tasks e nada mais: commit direto nela ou na branch padrao nao existe.
 
 Toda branch nova nasce da ponta atualizada da sua base:
@@ -73,5 +73,5 @@ continua sem fechar o issue.
 | Issue | Fecha quando | Quem fecha |
 |---|---|---|
 | Pontual | o PR entra na branch padrao | o GitHub, pelo `Closes` |
-| Sub-task | o PR entra na branch de integracao | o workflow que escuta PR mergeado, pelo `Closes` do corpo; o `/implement` seguinte do pai fecha o que tiver sobrado |
+| Sub-task | o PR entra na branch de integracao | o workflow que escuta PR mergeado, pelo `Closes` do corpo; a rodada de implementacao seguinte do pai fecha o que tiver sobrado |
 | Pai | o PR dele entra na branch padrao | o GitHub, pelo `Closes` |

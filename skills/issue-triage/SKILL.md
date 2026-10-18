@@ -219,13 +219,13 @@ issue.
       **Estado:** `ready-for-agent` ou `ready-for-human`
       **Por que:** <uma ou duas frases, incluindo a escolha do executor>
       **Seams:** <as fronteiras dos criterios de aceite, em uma linha>
-      **Proximo passo:** comente `/implement` para o agente implementar, ou execucao humana
-      **Antes do `/implement`:** discordou de fronteira, criterio ou escopo?
+      **Proximo passo:** aplique o label `go` para o agente implementar, ou execucao humana
+      **Antes do `go`:** discordou de fronteira, criterio ou escopo?
       Edite o brief no corpo — o implement le o corpo na hora de rodar.
       ```
 
       O `ready-for-agent` **nao** inicia a implementacao: quem da o "vai" e
-      o humano, comentando `/implement`. O intervalo entre os dois e a
+      o humano, aplicando o label `go`. O intervalo entre os dois e a
       confirmacao das seams.
 
 7. Responda ao usuario com a classificacao aplicada e a URL do issue.
