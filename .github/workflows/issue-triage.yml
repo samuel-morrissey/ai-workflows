@@ -1,10 +1,10 @@
 name: Issue Triage
 
-# Workflow reutilizavel de triagem. Chamado pelo router.yml quando o label
-# `needs-triage` e aplicado a um issue, quando um humano comenta em issue que
-# ainda carrega esse label (resposta a um handoff) ou quando um humano aplica
-# `wontfix` ou `deferred` (a skill completa o fechamento). Os guardas estao no
-# router; ver README.md.
+# Workflow reutilizavel de triagem. Chamado pelo router.yml quando um humano
+# aplica `needs-triage`, aplica `go` em issue com `needs-triage` ou sem label
+# de estado, responde a um handoff (`needs-triage` + `awaiting-reply`) ou
+# aplica `wontfix` ou `deferred` (a skill completa o fechamento). Os guardas
+# estao no router; ver README.md.
 
 on:
   workflow_call:
@@ -52,10 +52,26 @@ jobs:
           gh label create work-in-progress --color D93F0B \
             --description "Worker em execucao nesta issue" 2>/dev/null || true
           gh issue edit "$NUMBER" --add-label work-in-progress
+          LABELS=$(gh issue view "$NUMBER" --json labels -q '.labels[].name')
           # Nova rodada = o humano respondeu: sai o sinal de espera. Se a
           # rodada parar em outra pergunta, a skill aplica de novo.
-          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+          if grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
             gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
+          # O `go` e consumido: a rodada comecou, e o label fica livre para o
+          # humano aplicar de novo na etapa seguinte. Criado aqui para ja
+          # existir no repositorio quando o humano for procura-lo.
+          gh label create go --color 3FB950 \
+            --description "Pode seguir: roda a etapa do estado atual" 2>/dev/null || true
+          if grep -Fqx 'go' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label go
+          fi
+          # `go` em issue sem label de estado (criado por agente, por exemplo):
+          # a triagem e a etapa de entrada, e a skill espera o needs-triage.
+          if ! grep -Eq '^(needs-|ready-for-|awaiting-pr-review|wontfix|deferred)' <<<"$LABELS"; then
+            gh label create needs-triage --color FBCA04 \
+              --description "Issue crua aguardando triagem" 2>/dev/null || true
+            gh issue edit "$NUMBER" --add-label needs-triage
           fi
 
       - uses: anthropics/claude-code-action@v1
@@ -106,9 +122,18 @@ jobs:
 
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker
       # que o aplicou (skip vazio), para nao apagar o label de outro worker.
+      # Um `go` que chegou durante a rodada tambem sai: o evento dele foi
+      # pulado pelo guarda de concorrencia, e um label que ja esta no issue
+      # nao pode ser aplicado de novo. O humano aplica outro quando quiser a
+      # proxima etapa.
       - name: Remover work-in-progress
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.target.outputs.number }}
-        run: gh issue edit "$NUMBER" --remove-label work-in-progress
+        run: |
+          gh issue edit "$NUMBER" --remove-label work-in-progress
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'go'; then
+            echo "::notice::go chegou durante a rodada em #$NUMBER e foi descartado; aplique de novo para a proxima etapa."
+            gh issue edit "$NUMBER" --remove-label go
+          fi
