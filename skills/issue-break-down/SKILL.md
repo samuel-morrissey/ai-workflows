@@ -11,8 +11,8 @@ allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue create:
 
 Transforma um issue de escopo entendido em **sub-tasks**: cada uma vira um
 PR, cabe numa sessao de agente e pode ir para producao sozinha. O pai vira o
-alvo do `/implement`, que executa as sub-tasks uma a uma, na ordem dos
-bloqueios.
+alvo da implementacao (label `go` no pai), que executa as sub-tasks uma a
+uma, na ordem dos bloqueios.
 
 Siga estas skills:
 
@@ -91,8 +91,8 @@ issue.
    Parte de #<pai> (<secoes do refinamento que esta fatia cobre, com link>).
    ```
 
-   Sub-task nasce **sem label de estado**. Quem marca o progresso dela e o
-   `/implement` (ver `issue-labeling`).
+   Sub-task nasce **sem label de estado**. Quem marca o progresso dela e a
+   implementacao (ver `issue-labeling`).
 
    ```bash
    gh issue create --title "[SUB-TASK] ..." --body-file - <<'EOF'
@@ -109,7 +109,7 @@ issue.
    gh api --method POST "repos/{owner}/{repo}/issues/<sub>/dependencies/blocked_by" -F issue_id=$(id <bloqueador>)
    ```
 
-   Adicione as sub-issues na ordem de execucao: o `/implement` desempata por
+   Adicione as sub-issues na ordem de execucao: a implementacao desempata por
    essa ordem.
 
 6. **Entregue o pai pronto para executar.** O label vai no **pai**:
@@ -133,9 +133,9 @@ issue.
    | 2 | #<n> <titulo curto> | #<n> |
 
    **Por que nessa ordem:** <o que cada bloqueio protege, em uma ou duas frases>
-   **Proximo passo:** comente `/implement` neste issue. O agente pega a
+   **Proximo passo:** aplique o label `go` neste issue. O agente pega a
    primeira sub-task sem bloqueio e abre o PR dela.
-   **Antes do `/implement`:** discordou de uma fatia? Edite o corpo da
+   **Antes do `go`:** discordou de uma fatia? Edite o corpo da
    sub-task. O implement le o corpo na hora de rodar.
    ```
 

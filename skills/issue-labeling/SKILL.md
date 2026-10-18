@@ -44,11 +44,11 @@ O estado e um **label** e diz o **proximo passo** da issue. **Cor** e
 |---|---|---|---|---|
 | `needs-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` | Issue crua aguardando triagem |
 | `needs-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` | Falta descobrir os limites do que se quer construir |
-| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: cada comentario humano dispara a proxima | `FBCA04` | Falta lapidar requisitos ou esclarecer a solicitacao |
+| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: `go` dispara a primeira; cada resposta humana a uma pergunta dispara a proxima | `FBCA04` | Falta lapidar requisitos ou esclarecer a solicitacao |
 | `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` | Escopo entendido, falta quebrar em sub-tasks |
-| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano comenta `/implement` (skill `issue-remote-implement`) | `0E8A16` | Pronto para o agente executar |
+| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano aplica o label `go` (skill `issue-remote-implement`) | `0E8A16` | Pronto para o agente executar |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` | Unidade executavel exclusivamente humana; o agente so orienta |
-| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois comenta `/implement` no pai | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
+| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois aplica `go` no pai | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
 | `wontfix` | Nao sera feito: rejeitado ou ja implementado. Terminal: a issue e fechada com esse label e vale como precedente de rejeicao | — | `FFFFFF` | Nao sera feito |
 | `deferred` | Despriorizado: nao sera feito agora. Terminal como `wontfix`, mas a issue vale como referencia, nunca como precedente, e pode voltar | Nenhum. Reabrir e decisao humana (regra 4) | `CFD3D7` | Despriorizado: nao agora, pode voltar |
 
@@ -66,6 +66,18 @@ Issue com `work-in-progress` nao dispara outro worker: os gatilhos dos
 workflows chamadores filtram por ele, e o workflow reutilizavel confere de
 novo antes de comecar (guarda de concorrencia).
 
+## Label de partida
+
+`go` tambem nao e estado: e o "pode seguir" do humano. O estado diz em que
+etapa a issue esta; o `go` diz que a etapa desse estado pode rodar agora. E o
+unico sinal que inicia a implementacao, e o que destrava um estado aplicado
+por token de workflow ou de agente (label aplicado por token nao gera
+evento). Issue sem label de estado com `go` vai para a triagem.
+
+| Label | Significado | Quem aplica e remove | Cor | Descricao |
+|---|---|---|---|---|
+| `go` | Pode seguir: roda a etapa do estado atual | Aplica: um humano. Remove: o workflow, ao comecar a rodada — nenhuma skill o toca | `3FB950` | Pode seguir: roda a etapa do estado atual |
+
 ## Label de espera
 
 `awaiting-reply` tambem nao e estado: diz que a ultima rodada terminou em uma
@@ -78,9 +90,10 @@ estado vigente, como o `work-in-progress`.
 
 Lendo os labels juntos:
 
-- `needs-triage` + `awaiting-reply` — esperando o humano responder;
+- `needs-triage` + `awaiting-reply` — esperando o humano responder; a
+  resposta dispara a proxima rodada;
 - `needs-triage` + `work-in-progress` — worker atuando agora;
-- `needs-triage` sozinho — esperando a triagem rodar.
+- `needs-triage` sozinho — esperando `go` para a triagem rodar.
 
 ## Label de prioridade
 
@@ -101,8 +114,7 @@ como sub-issues nativas do GitHub, com bloqueios como dependencias nativas
 (`blocked_by`). Os labels se dividem assim:
 
 - **O pai carrega o estado.** Sai da quebra com `ready-for-*` e fica nele
-  enquanto as sub-tasks andam. O `/implement` e comentado no pai, nunca na
-  sub-task.
+  enquanto as sub-tasks andam. O `go` e aplicado no pai, nunca na sub-task.
 - **A sub-task nasce sem label de estado.** "Pode ser feita agora" se le dos
   bloqueios, nao de label: e a primeira sub-task aberta, na ordem das
   sub-issues, sem bloqueio aberto e sem PR em revisao.
@@ -115,8 +127,8 @@ como sub-issues nativas do GitHub, com bloqueios como dependencias nativas
 Lendo os labels de um pai:
 
 - pai `ready-for-agent` + sub-task `awaiting-pr-review`: PR da sub-task
-  esperando revisao e merge; depois, `/implement` no pai;
-- pai `ready-for-agent` sem sub-task em revisao: comente `/implement` no pai;
+  esperando revisao e merge; depois, `go` no pai;
+- pai `ready-for-agent` sem sub-task em revisao: aplique `go` no pai;
 - pai `awaiting-pr-review`: PR final esperando revisao e merge na `main`.
 
 ## Regras

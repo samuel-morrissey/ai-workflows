@@ -10,10 +10,10 @@ allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit
 # Implement
 
 Cada rodada termina em **no maximo um PR aberto**. O merge e a revisao nao
-sao daqui: o humano revisa, faz o merge e comenta `/implement` de novo para a
+sao daqui: o humano revisa, faz o merge e aplica o label `go` de novo para a
 proxima rodada.
 
-O alvo do `/implement` e sempre o issue com `ready-for-agent`:
+O alvo da rodada e sempre o issue com `ready-for-agent` que recebeu o `go`:
 
 - **pontual sem sub-tasks**: a rodada implementa o proprio issue;
 - **pai com sub-tasks**: a rodada escolhe o que fazer, entre a proxima
@@ -29,12 +29,12 @@ redesenha o plano: transforma o brief em codigo verificado.
 Travou em algo que so o humano resolve (decisao de produto que o brief nao
 cobre, acesso faltando, verificacao que nao fica verde dentro do escopo)?
 Siga as skills `grilling` e `issue-async-first`: handoff completo no issue
-alvo do `/implement`, `awaiting-reply` aplicado, e encerre sem abrir PR.
-Termine a mensagem com: "responda e comente `/implement` aqui para retomar".
+alvo, `awaiting-reply` aplicado, e encerre sem abrir PR. Termine a mensagem
+com: "responda aqui para retomar: a resposta ja dispara a proxima rodada".
 
 ## Argumento
 
-`$issue` — o numero do issue que recebeu o `/implement`.
+`$issue` — o numero do issue que recebeu o `go`.
 
 Se `$issue` estiver vazio, **pare e informe** que a skill precisa do numero do
 issue.
@@ -72,7 +72,7 @@ vias, nesta ordem de preferencia:
 
    Leia tambem os comentarios: handoffs e respostas humanas de rodadas
    anteriores valem. O corpo e lido **agora**: se o humano editou o brief
-   antes de comentar `/implement`, vale a versao editada.
+   antes de aplicar o `go`, vale a versao editada.
 
    Sem sub-issues, e um **pontual**: a unidade da rodada e o proprio issue.
    Siga para o passo 3. Com sub-issues, siga para o passo 2.
@@ -177,7 +177,7 @@ vias, nesta ordem de preferencia:
    ```
 
    Sub-task: comente tambem no pai, em uma linha: "#<sub> em revisao no
-   <url>. Depois do merge, comente `/implement` aqui para a proxima."
+   <url>. Depois do merge, aplique `go` aqui para a proxima."
 
 A rodada esta completa quando existe exatamente um PR novo da branch da
 unidade para a base da `issue-git-flow`, cujo corpo comeca pelas linhas de
