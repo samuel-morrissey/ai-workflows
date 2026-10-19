@@ -1,6 +1,6 @@
 ---
 name: issue-remote-implement
-description: Implementa um issue ready-for-agent - num pontual, abre o PR dele; num pai com sub-tasks, fecha as ja integradas e abre o PR da proxima sub-task sem bloqueio, ou o PR do pai quando todas fecharam. Desenvolve test-first nos criterios de aceite e roda as verificacoes de qualidade. Verificacao vermelha nao vira PR.
+description: Implementa um issue do fluxo em uma rodada que termina em um PR - num pontual ready-for-agent, o PR dele para a branch padrao; numa [SUB-TASK] despachada pelo workflow (modo sub-task), o PR da camada dela na stack do pai. Desenvolve test-first nos criterios de aceite e roda as verificacoes de qualidade. Verificacao vermelha nao vira PR. Num pai com sub-tasks quem orquestra e o workflow, nao esta skill.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
@@ -10,14 +10,21 @@ allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit
 # Implement
 
 Cada rodada termina em **no maximo um PR aberto**. O merge e a revisao nao
-sao daqui: o humano revisa, faz o merge e aplica o label `go` de novo para a
-proxima rodada.
+sao daqui: o humano revisa e faz o merge.
 
-O alvo da rodada e sempre o issue com `ready-for-agent` que recebeu o `go`:
+A unidade da rodada e sempre um issue so, de dois tipos:
 
-- **pontual sem sub-tasks**: a rodada implementa o proprio issue;
-- **pai com sub-tasks**: a rodada escolhe o que fazer, entre a proxima
-  sub-task sem bloqueio e o PR do pai.
+- **pontual** (`ready-for-agent`, sem sub-issues): a rodada implementa o
+  proprio issue, com PR para a branch padrao;
+- **sub-task** (`[SUB-TASK]`, em **modo sub-task**): a rodada implementa a
+  sub-task como mais uma camada da stack do pai, com PR para a branch da
+  camada de baixo.
+
+Um **pai com sub-tasks nunca e alvo desta skill**: quem escolhe a proxima
+sub-task, despacha cada uma numa run propria e empilha os PRs e o workflow
+(`issue-remote-implement.yml`, o planner, e `issue-sub-task.yml`, o worker,
+em `samuel-morrissey/ai-workflows`). Esta skill so ve uma sub-task de cada
+vez.
 
 Branch, base, vinculo e fechamento seguem a skill `issue-git-flow`. Invoque-a
 antes do passo 2. O texto do PR e da skill `remote-to-pr`.
@@ -34,10 +41,38 @@ com: "responda aqui para retomar: a resposta ja dispara a proxima rodada".
 
 ## Argumento
 
-`$issue` — o numero do issue que recebeu o `go`.
+`$issue` — o numero do issue alvo: o pontual que recebeu o `go`, ou a
+sub-task que o workflow despachou.
 
 Se `$issue` estiver vazio, **pare e informe** que a skill precisa do numero do
 issue.
+
+## Modo sub-task
+
+O workflow que despacha uma sub-task avisa pelo system prompt, numa frase
+que comeca por **"Modo sub-task:"**, e traz dois fatos que voce **usa como
+estao, sem recalcular**:
+
+- o **pai** (`#<pai>`);
+- a **base**: a branch de onde `sub-task-<numero>` nasce e para onde o PR
+  aponta. E o topo atual da stack do pai (a branch do PR aberto mais alto)
+  ou a branch padrao, quando a sua camada e a primeira.
+
+O que muda em relacao ao pontual, e so isso:
+
+- a branch nasce de `origin/<base>`, nao da branch padrao, e o PR tem base
+  `<base>`;
+- as linhas de vinculo do PR sao `Closes #<sub-task>` e `Parte de #<pai>`;
+- o label `awaiting-pr-review` vai na sub-task; o pai nao muda;
+- o comentario de fim de rodada vai so na sub-task: o status do pai e um
+  comentario do planner, atualizado por ele a cada rodada;
+- o empilhamento no stack do GitHub e do planner, depois que o PR existe.
+  Nao crie nem altere stack, e nunca troque a base de um PR ja empilhado: o
+  GitHub recusa.
+
+Uma `[SUB-TASK]` **sem** o aviso de modo sub-task nao e alvo: comente que a
+sub-task roda pelo workflow (label `go` nela, ou `go` no pai para a cadeia
+inteira) e pare.
 
 ## Verificacao de qualidade
 
@@ -60,66 +95,45 @@ vias, nesta ordem de preferencia:
 
    ```bash
    gh issue view $issue --json number,title,body,labels,state,url,comments
-   gh api "repos/{owner}/{repo}/issues/$issue/sub_issues" \
-     --jq '.[] | {number, title, state, labels: [.labels[].name]}'
+   gh api "repos/{owner}/{repo}/issues/$issue/sub_issues" --jq 'length'
    ```
 
-   Apto exige label `ready-for-agent`. `[SUB-TASK]` nunca e alvo: comente
-   apontando o pai e pare. Fora disso, comente o estado atual e pare.
+   - **Pontual:** apto exige label `ready-for-agent`, issue aberto e
+     nenhuma sub-issue. Com sub-issues e um pai: comente que a
+     implementacao de um pai e orquestrada pelo workflow (basta o `go` no
+     pai) e pare.
+   - **Sub-task:** apto exige titulo `[SUB-TASK]`, issue aberto e o aviso de
+     modo sub-task no system prompt. Ja existe PR aberto da branch
+     `sub-task-$issue`? Comente apontando-o e pare: esta skill nao itera em
+     PR existente.
+   - Fora disso, comente o estado atual e pare.
 
    Issue com `wontfix` ou `deferred`: complete o fechamento da regra 4 da
    `issue-labeling` e pare.
 
    Leia tambem os comentarios: handoffs e respostas humanas de rodadas
    anteriores valem. O corpo e lido **agora**: se o humano editou o brief
-   antes de aplicar o `go`, vale a versao editada.
+   antes de aplicar o `go`, vale a versao editada. Numa sub-task, o pai e
+   contexto: leia o brief dele e o comentario `## Quebra` para entender onde
+   a sua fatia entra, sem ampliar o escopo dela.
 
-   Sem sub-issues, e um **pontual**: a unidade da rodada e o proprio issue.
-   Siga para o passo 3. Com sub-issues, siga para o passo 2.
+   Os criterios de aceite da rodada vem do corpo do issue alvo.
 
-2. **Pai: escolha a unidade da rodada.**
-
-   1. **Feche as sub-tasks ja integradas.** O workflow de PR mergeado ja as
-      fecha no merge; este passo e a rede de seguranca. Para cada sub-task
-      aberta, procure PR mergeado que a feche:
-
-      ```bash
-      gh pr list --state merged --search "Closes #<sub>" --json number,baseRefName
-      ```
-
-      PR mergeado na branch de integracao do pai: feche a sub-task com
-      `gh issue close <sub> --comment "Integrada em <branch> pelo #<pr>."`.
-
-   2. **Todas fechadas:** a unidade e o **PR do pai**. Se ja existe PR aberto
-      da branch de integracao, comente apontando-o e pare. Senao, rode a
-      verificacao (passo 5) na branch de integracao atualizada e siga para o
-      passo 6.
-
-   3. **Senao, escolha a proxima sub-task.** E a primeira, na ordem das
-      sub-issues, que esta aberta, sem `awaiting-pr-review` (sem PR
-      esperando revisao), sem bloqueio aberto e cujo brief nao diz
-      **Executor: humano**:
-
-      ```bash
-      gh api "repos/{owner}/{repo}/issues/<sub>/dependencies/blocked_by" --jq '.[] | {number, state}'
-      ```
-
-   4. **Nenhuma disponivel:** comente no pai o que esta esperando (PRs em
-      revisao, bloqueios, sub-tasks humanas) e pare. E espera de revisao, nao
-      pergunta: sem `awaiting-reply`.
-
-   Os criterios de aceite da rodada vem do corpo da sub-task escolhida.
-
-3. **Crie a branch** conforme a `issue-git-flow`. Sub-task: garanta antes a branch
-   de integracao do pai, criando e publicando se nao existir. Garanta
-   identidade de commit antes do primeiro commit:
+2. **Crie a branch** conforme a `issue-git-flow`: pontual nasce da branch
+   padrao; sub-task nasce da base do modo sub-task. Garanta identidade de
+   commit antes do primeiro commit:
 
    ```bash
    git config user.name "claude"
    git config user.email "noreply@anthropic.com"
    ```
 
-4. **Implemente, test-first, um criterio de aceite por vez.** Os criterios da
+   Branch remota com o mesmo nome e sem PR aberto e sobra de uma rodada
+   anterior (PR fechado sem merge, run interrompida): a sua branch nova a
+   substitui no push, com `git push --force-with-lease -u origin <branch>`.
+   Branch de outra pessoa nao existe nesse nome: o nome e do fluxo.
+
+3. **Implemente, test-first, um criterio de aceite por vez.** Os criterios da
    unidade sao o contrato, e cada um nomeia a fronteira (seam) onde o
    comportamento se observa: funcao publica, endpoint, comando, tela. Para
    cada criterio:
@@ -135,9 +149,10 @@ vias, nesta ordem de preferencia:
    casos voce para para perguntar: a fronteira e fato do codigo, nao decisao.
 
    Commits pequenos com mensagem clara. Estilo: o codigo novo le como o
-   codigo ao redor.
+   codigo ao redor. Numa sub-task, o codigo das camadas de baixo ja esta na
+   sua branch: construa em cima dele, nao o reescreva.
 
-5. **Verifique.** Antes de abrir o PR, rode a bateria completa dos comandos
+4. **Verifique.** Antes de abrir o PR, rode a bateria completa dos comandos
    da secao "Verificacao de qualidade", uma vez, ao final. Resultado:
 
    - **Verde:** siga para o PR.
@@ -149,22 +164,23 @@ vias, nesta ordem de preferencia:
 
    PR com verificacao vermelha nao existe nesta skill.
 
-6. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
-   unidade) e a base da `issue-git-flow`.
+5. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
+   unidade) e a base da `issue-git-flow` (branch padrao no pontual; a base
+   do modo sub-task na sub-task).
 
-7. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
+6. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
 
    ```bash
    gh label create awaiting-pr-review --color 5319E7 \
      --description "Implementacao concluida pelo agente; PR aberto e pronto para analise" 2>/dev/null || true
    ```
 
-   - Pontual ou PR do pai: troque `ready-for-agent` por `awaiting-pr-review`
-     no issue alvo, na mesma operacao.
-   - Sub-task: aplique `awaiting-pr-review` na sub-task. O pai continua
-     `ready-for-agent`.
+   - Pontual: troque `ready-for-agent` por `awaiting-pr-review` no issue
+     alvo, na mesma operacao.
+   - Sub-task: aplique `awaiting-pr-review` na sub-task. O pai nao muda:
+     quem o move e o planner, quando toda sub-task tiver PR.
 
-8. **Comente no issue da unidade:**
+7. **Comente no issue da unidade:**
 
    ```markdown
    ## Implement
@@ -176,26 +192,26 @@ vias, nesta ordem de preferencia:
    manualmente (feche e reabra o PR, ou dispare o workflow de CI).
    ```
 
-   Sub-task: comente tambem no pai, em uma linha: "#<sub> em revisao no
-   <url>. Depois do merge, aplique `go` aqui para a proxima."
+   Numa sub-task, acrescente uma linha: "Camada da stack de #<pai>, sobre
+   `<base>`. O planner empilha e segue para a proxima." Nao comente no pai.
 
 A rodada esta completa quando existe exatamente um PR novo da branch da
 unidade para a base da `issue-git-flow`, cujo corpo comeca pelas linhas de
 vinculo dela, vinculado ao issue da unidade pela API (aparece em
-*Development* do issue), cujo diff cobre todos os criterios de aceite da unidade com teste na
-fronteira de cada um, cuja verificacao esta verde (ou declarada ausente, com
-motivo), e a unidade esta com `awaiting-pr-review` e o comentario com o link.
-Os outros fins validos sao: comentario explicando por que nao ha unidade
-disponivel, ou handoff com `awaiting-reply`.
+*Development* do issue), cujo diff cobre todos os criterios de aceite da
+unidade com teste na fronteira de cada um, cuja verificacao esta verde (ou
+declarada ausente, com motivo), e a unidade esta com `awaiting-pr-review` e o
+comentario com o link. O outro fim valido e o handoff com `awaiting-reply`.
 
 ## Fora de escopo
 
 - Fazer merge, aprovar ou iterar em PR ja existente.
-- Commit ou push direto na `main` ou na branch de integracao.
+- Commit ou push direto na branch padrao ou na branch de outra camada.
 - Mais de um PR por rodada.
-- Alterar labels, titulo ou corpo de issues. Excecoes: os labels do passo 7,
-  fechar sub-task integrada (passo 2) e aplicar `awaiting-reply` ao encerrar
-  com handoff.
+- Escolher a proxima sub-task, despachar outra rodada, criar ou alterar
+  stack, trocar a base de um PR: tudo isso e do workflow.
+- Alterar labels, titulo ou corpo de issues. Excecoes: os labels do passo 6
+  e aplicar `awaiting-reply` ao encerrar com handoff.
 - Substituir o CI do PR: a verificacao local e o primeiro filtro; o CI
   continua sendo o juiz final.
 - Redesenhar o plano: fronteiras e escopo vem do brief. Discordou? Handoff,
