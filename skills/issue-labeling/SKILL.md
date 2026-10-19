@@ -46,9 +46,9 @@ O estado e um **label** e diz o **proximo passo** da issue. **Cor** e
 | `needs-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` | Falta descobrir os limites do que se quer construir |
 | `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: `go` dispara a primeira; cada resposta humana a uma pergunta dispara a proxima | `FBCA04` | Falta lapidar requisitos ou esclarecer a solicitacao |
 | `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` | Escopo entendido, falta quebrar em sub-tasks |
-| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma | Humano aplica o label `go` (skill `issue-remote-implement`) | `0E8A16` | Pronto para o agente executar |
+| `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma, em cadeia, empilhando os PRs | Humano aplica o label `go` (skill `issue-remote-implement` no pontual; o planner do workflow num pai) | `0E8A16` | Pronto para o agente executar |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` | Unidade executavel exclusivamente humana; o agente so orienta |
-| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Em sub-task, depois aplica `go` no pai | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
+| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Numa sub-task, o PR e uma camada da stack do pai: revisa-se a stack de baixo para cima | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
 | `wontfix` | Nao sera feito: rejeitado ou ja implementado. Terminal: a issue e fechada com esse label e vale como precedente de rejeicao | — | `FFFFFF` | Nao sera feito |
 | `deferred` | Despriorizado: nao sera feito agora. Terminal como `wontfix`, mas a issue vale como referencia, nunca como precedente, e pode voltar | Nenhum. Reabrir e decisao humana (regra 4) | `CFD3D7` | Despriorizado: nao agora, pode voltar |
 
@@ -60,11 +60,14 @@ vigente, assim como o `awaiting-reply` (ver "Label de espera").
 
 | Label | Significado | Quem aplica e remove | Cor | Descricao |
 |---|---|---|---|---|
-| `work-in-progress` | Worker em execucao nesta issue | O workflow do worker, no inicio e no fim da execucao — nenhuma skill o troca | `D93F0B` | Worker em execucao nesta issue |
+| `work-in-progress` | Worker em execucao nesta issue. Num pai com sub-tasks: a cadeia de sub-tasks esta rodando (ou esperando resposta numa sub-task) | O workflow do worker, no inicio e no fim da execucao — nenhuma skill o troca. Num pai, o planner o aplica no `go` e o tira quando a cadeia completa ou para | `D93F0B` | Worker em execucao nesta issue |
 
 Issue com `work-in-progress` nao dispara outro worker: os gatilhos dos
 workflows chamadores filtram por ele, e o workflow reutilizavel confere de
-novo antes de comecar (guarda de concorrencia).
+novo antes de comecar (guarda de concorrencia). Num pai, o label atravessa
+varias runs: fica entre uma sub-task e a seguinte e enquanto uma sub-task
+espera resposta humana. Para abandonar uma cadeia, o humano tira o label na
+mao.
 
 ## Label de partida
 
@@ -72,7 +75,9 @@ novo antes de comecar (guarda de concorrencia).
 etapa a issue esta; o `go` diz que a etapa desse estado pode rodar agora. E o
 unico sinal que inicia a implementacao, e o que destrava um estado aplicado
 por token de workflow ou de agente (label aplicado por token nao gera
-evento). Issue sem label de estado com `go` vai para a triagem.
+evento). Issue sem label de estado com `go` vai para a triagem, com uma
+excecao: `[SUB-TASK]` nao tem label de estado por desenho, e o `go` nela
+roda so ela (ver "Pai e sub-tasks").
 
 | Label | Significado | Quem aplica e remove | Cor | Descricao |
 |---|---|---|---|---|
@@ -111,25 +116,36 @@ registrada no issue, sem label.
 
 A `issue-break-down` transforma um issue em **pai** de `[SUB-TASK]`s, ligadas
 como sub-issues nativas do GitHub, com bloqueios como dependencias nativas
-(`blocked_by`). Os labels se dividem assim:
+(`blocked_by`). A implementacao de um pai e uma **cadeia**: o workflow
+implementa as sub-tasks uma por vez, cada uma numa run, e empilha os PRs
+numa stack do GitHub (ver `issue-git-flow`). Os labels se dividem assim:
 
 - **O pai carrega o estado.** Sai da quebra com `ready-for-*` e fica nele
-  enquanto as sub-tasks andam. O `go` e aplicado no pai, nunca na sub-task.
-- **A sub-task nasce sem label de estado.** "Pode ser feita agora" se le dos
-  bloqueios, nao de label: e a primeira sub-task aberta, na ordem das
-  sub-issues, sem bloqueio aberto e sem PR em revisao.
-- **A sub-task so ganha `awaiting-pr-review`,** quando o PR dela (para a
-  branch de integracao do pai) fica pronto. O merge desse PR a fecha (ver
-  `issue-git-flow`).
-- **O pai so ganha `awaiting-pr-review`** quando todas as sub-tasks estao
-  fechadas e o PR dele, da branch de integracao para a `main`, fica pronto.
+  enquanto as sub-tasks andam. Um `go` no pai inicia a cadeia inteira; o
+  pai ganha `work-in-progress` enquanto ela roda.
+- **A sub-task nasce sem label de estado.** A ordem vem dos bloqueios e da
+  ordem das sub-issues; a proxima e a primeira sem PR cujos bloqueadores ja
+  tem PR ou fecharam. Um bloqueio so diz quem vem antes: cada camada enxerga
+  o codigo de todas as anteriores, sem esperar merge.
+- **A sub-task ganha `awaiting-pr-review`** quando o PR dela abre. Ganha
+  `awaiting-reply` quando a rodada dela para numa pergunta; a resposta roda
+  a sub-task de novo e a cadeia segue.
+- **`go` numa sub-task roda so ela**, como mais uma camada da stack. Nao
+  roda sub-task com PR aberto, humana ou bloqueada por outra ainda sem PR.
+- **O pai ganha `awaiting-pr-review`** quando toda sub-task tem PR: a stack
+  esta completa, o topo carrega `Closes #<pai>` e o `work-in-progress` sai.
+  O merge do topo fecha o pai.
 
 Lendo os labels de um pai:
 
-- pai `ready-for-agent` + sub-task `awaiting-pr-review`: PR da sub-task
-  esperando revisao e merge; depois, `go` no pai;
-- pai `ready-for-agent` sem sub-task em revisao: aplique `go` no pai;
-- pai `awaiting-pr-review`: PR final esperando revisao e merge na `main`.
+- pai `ready-for-agent` sozinho: aplique `go` para iniciar (ou retomar) a
+  cadeia;
+- pai `ready-for-agent` + `work-in-progress`: cadeia rodando. Se uma
+  sub-task esta com `awaiting-reply`, a cadeia espera a resposta nela;
+- pai `awaiting-pr-review`: stack completa, esperando revisao e merge.
+
+O comentario de status do planner, no pai, mostra a camada, o PR e o estado
+de cada sub-task e por que a cadeia parou, quando parou.
 
 ## Regras
 
@@ -139,8 +155,8 @@ Lendo os labels de um pai:
    `needs-triage → needs-discovery → needs-refinement → needs-break-down →
    ready-for-* → awaiting-pr-review` e, por fim, issue fechada (merge do PR ou
    fechamento manual). `awaiting-pr-review` so vem de `ready-for-agent` (ou,
-   numa sub-task, de nenhum label): e a `issue-remote-implement` que o aplica
-   ao abrir o PR. `wontfix` e `deferred` podem vir de qualquer estagio:
+   numa sub-task, de nenhum label): a `issue-remote-implement` o aplica ao
+   abrir o PR, e o planner o aplica no pai quando a stack completa. `wontfix` e `deferred` podem vir de qualquer estagio:
    tirar a issue do fluxo e decisao humana a qualquer momento (regra 4).
    Correcao de
    classificacao ou problema pos-merge vira **issue nova** vinculada — o label
