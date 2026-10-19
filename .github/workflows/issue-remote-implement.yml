@@ -1,10 +1,31 @@
 name: Issue Remote Implement
 
 # Workflow reutilizavel de implementacao. Chamado pelo router.yml quando um
-# humano aplica o label `go` em issue com ready-for-agent, ou responde a um
-# handoff da implementacao (ready-for-agent + awaiting-reply). Os guardas
-# estao no router; o chamador do consumidor e o .github/workflows/ai.yml
-# (ver README.md).
+# humano aplica o label `go` em issue com ready-for-agent, responde a um
+# handoff da implementacao (ready-for-agent + awaiting-reply), ou quando o
+# worker de uma sub-task devolve o controle ao pai (repository_dispatch
+# `ai-implement`). Os guardas estao no router; o chamador do consumidor e o
+# .github/workflows/ai.yml (ver README.md).
+#
+# Dois alvos, decididos pelas sub-issues do issue:
+#
+# - **pontual** (sem sub-issues): roda o agente com a skill
+#   issue-remote-implement, que abre o PR do issue para a branch padrao;
+#
+# - **pai com sub-tasks**: nao roda agente. Este workflow e o **planner da
+#   cadeia**: empilha num stack do GitHub os PRs das sub-tasks ja abertos,
+#   escolhe a proxima sub-task pela ordem dos bloqueios e despacha o worker
+#   dela (issue-sub-task.yml) por repository_dispatch `ai-sub-task`. O worker
+#   devolve o controle aqui no fim, e o planner segue ate toda sub-task ter
+#   PR. Uma sub-task por vez (modo serial): cada camada nasce da anterior, e
+#   por isso as bases ja chegam encadeadas como o stack exige.
+#
+#   O `work-in-progress` no pai marca que a cadeia esta rodando: entra com o
+#   `go`, fica entre as rodadas (inclusive enquanto uma sub-task espera
+#   resposta humana) e sai quando a cadeia completa ou para. Enquanto ele
+#   esta la, o router nao aceita outro `go` no pai. Um `go` numa sub-task
+#   roda so ela; o planner, chamado de volta, so empilha e atualiza o status
+#   quando o pai nao esta em cadeia.
 
 on:
   workflow_call:
@@ -19,7 +40,9 @@ on:
           agente. Vazio: nenhum comando roda e o fluxo segue igual. Escolher a
           versao do runtime esta fora do escopo deste input — quem precisa
           resolve no proprio setup (mudanca de PATH ou de variavel so chega ao
-          agente se gravada em $GITHUB_PATH / $GITHUB_ENV).
+          agente se gravada em $GITHUB_PATH / $GITHUB_ENV). Num pai com
+          sub-tasks este workflow nao roda agente: quem usa os dois inputs e o
+          worker de cada sub-task (issue-sub-task.yml).
         type: string
         required: false
         default: ""
@@ -33,6 +56,14 @@ on:
         type: string
         required: false
         default: ""
+      ai_workflows_ref:
+        description: >-
+          Ref de samuel-morrissey/ai-workflows de onde baixar o planner
+          (scripts/sub_tasks.py). O padrao, `main`, e o que todo consumidor
+          usa; outro valor serve para testar uma branch deste repositorio.
+        type: string
+        required: false
+        default: main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -51,21 +82,55 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Resolver numero do issue
+      # Alvo: o issue do evento (`go` ou comentario humano) ou o pai do payload
+      # (worker devolvendo o controle). Fora de "aberto com ready-for-agent"
+      # nao ha o que fazer. Com sub-issues e um pai; sem, um pontual.
+      - name: Resolver alvo
         id: target
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
           EVENT_NUMBER: ${{ github.event.issue.number }}
+          PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}
         run: |
-          if [ -z "$EVENT_NUMBER" ]; then
-            echo "::error::Evento sem issue: dispare o workflow chamador em um comentario de issue."
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            NUMBER="$PAYLOAD_NUMBER"; SOURCE=chain
+          else
+            NUMBER="$EVENT_NUMBER"; SOURCE=human
+          fi
+          if [ -z "$NUMBER" ]; then
+            echo "::error::Evento sem issue: dispare o workflow chamador em um evento de issue ou com client_payload.issue."
             exit 1
           fi
-          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          INFO=$(gh issue view "$NUMBER" --json state,labels)
+          STATE=$(jq -r '.state' <<<"$INFO")
+          LABELS=$(jq -r '.labels[].name' <<<"$INFO")
+          if [ "$STATE" != "OPEN" ] || ! grep -Fqx 'ready-for-agent' <<<"$LABELS"; then
+            echo "::notice::Issue #$NUMBER nao esta aberto com ready-for-agent; nada a fazer."
+            echo "kind=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          COUNT=$(gh api "repos/$GH_REPO/issues/$NUMBER/sub_issues?per_page=100" --jq 'length')
+          if [ "$COUNT" -gt 0 ]; then
+            echo "kind=pai" >> "$GITHUB_OUTPUT"
+            echo "::notice::#$NUMBER e um pai com $COUNT sub-tasks: planner da cadeia."
+          else
+            echo "kind=pontual" >> "$GITHUB_OUTPUT"
+            echo "::notice::#$NUMBER e um pontual: roda o agente."
+          fi
+
+      # ----------------------------------------------------------------------
+      # Pontual: uma rodada do agente, como sempre foi.
+      # ----------------------------------------------------------------------
 
       # Guarda de concorrencia (fluxo-de-issues.md §2.4): issue com
       # work-in-progress ja tem um worker atuando — encerra sem falhar.
       - name: Aplicar work-in-progress
         id: wip
+        if: steps.target.outputs.kind == 'pontual'
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.target.outputs.number }}
@@ -98,7 +163,7 @@ jobs:
       # so alimenta os dois, sem abrir Bash(*) para o agente.
       - name: Preparar verificacao de qualidade
         id: quality
-        if: steps.wip.outputs.skip != 'true'
+        if: steps.target.outputs.kind == 'pontual' && steps.wip.outputs.skip != 'true'
         env:
           QUALITY_CHECKS: ${{ inputs.quality_checks }}
         run: |
@@ -125,7 +190,7 @@ jobs:
       # prefixo novo na allowlist), e nao o agente. Nada deste input vaza para
       # --allowed-tools ou para o system prompt.
       - name: Preparar ambiente do consumidor
-        if: steps.wip.outputs.skip != 'true'
+        if: steps.target.outputs.kind == 'pontual' && steps.wip.outputs.skip != 'true'
         env:
           SETUP_COMMANDS: ${{ inputs.setup_commands }}
         run: |
@@ -147,7 +212,7 @@ jobs:
           fi
 
       - uses: anthropics/claude-code-action@v1
-        if: steps.wip.outputs.skip != 'true'
+        if: steps.target.outputs.kind == 'pontual' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -161,9 +226,8 @@ jobs:
           # A allowlist espelha o frontmatter da skill issue-remote-implement (git para
           # branch/commit/push, gh pr para abrir o PR, gh issue edit e gh label
           # create para trocar ready-for-agent por awaiting-pr-review ao abrir o
-          # PR e para o awaiting-reply do handoff, gh api para ler sub-issues e
-          # bloqueios de um pai, gh issue close para fechar a sub-task ja
-          # integrada, gh pr edit para a remote-to-pr corrigir o vinculo do PR,
+          # PR e para o awaiting-reply do handoff, gh api para ler issue e
+          # sub-issues, gh pr edit para a remote-to-pr corrigir o vinculo do PR,
           # Edit/Write para mudar codigo; Skill libera issue-git-flow,
           # remote-to-pr, to-pr, labeling, grilling e async-first)
           # mais os prefixos derivados de quality_checks.
@@ -180,7 +244,7 @@ jobs:
       # nao pode ser aplicado de novo. O humano aplica outro quando quiser a
       # proxima etapa.
       - name: Remover work-in-progress
-        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        if: always() && steps.target.outputs.kind == 'pontual' && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.target.outputs.number }}
@@ -190,3 +254,165 @@ jobs:
             echo "::notice::go chegou durante a rodada em #$NUMBER e foi descartado; aplique de novo para a proxima etapa."
             gh issue edit "$NUMBER" --remove-label go
           fi
+
+      # ----------------------------------------------------------------------
+      # Pai com sub-tasks: planner da cadeia. Sem agente: so gh e o script.
+      # ----------------------------------------------------------------------
+
+      # O planner (scripts/sub_tasks.py deste repositorio) e a unica fonte da
+      # ordem das camadas, da proxima sub-task e do stack. Baixado da ref
+      # informada (main, por padrao), fora do workspace do consumidor.
+      - name: Baixar o planner
+        if: steps.target.outputs.kind == 'pai'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ai_workflows_ref }}
+        run: |
+          gh api "repos/samuel-morrissey/ai-workflows/contents/scripts/sub_tasks.py?ref=$REF" \
+            -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/sub_tasks.py"
+
+      # `go` humano: entra na cadeia (work-in-progress no pai) e consome o
+      # `go` e o `awaiting-reply`. Worker devolvendo o controle: a cadeia
+      # esta rodando se o pai ainda tem work-in-progress. Um `go` que ficou
+      # preso no pai durante a cadeia tambem sai aqui.
+      - name: Entrar na cadeia
+        id: chain
+        if: steps.target.outputs.kind == 'pai'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+          SOURCE: ${{ steps.target.outputs.source }}
+        run: |
+          LABELS=$(gh issue view "$NUMBER" --json labels -q '.labels[].name')
+          gh label create go --color 3FB950 \
+            --description "Pode seguir: roda a etapa do estado atual" 2>/dev/null || true
+          if grep -Fqx 'go' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label go
+          fi
+          if grep -Fqx 'work-in-progress' <<<"$LABELS"; then
+            if [ "$SOURCE" = "human" ]; then
+              echo "::notice::A cadeia de #$NUMBER ja esta rodando (work-in-progress). Encerrando."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "chain=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SOURCE" = "human" ]; then
+            gh label create work-in-progress --color D93F0B \
+              --description "Worker em execucao nesta issue" 2>/dev/null || true
+            gh issue edit "$NUMBER" --add-label work-in-progress
+            if grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+              gh issue edit "$NUMBER" --remove-label awaiting-reply
+            fi
+            echo "chain=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::#$NUMBER nao esta em cadeia: so empilha e atualiza o status."
+            echo "chain=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Empilha os PRs abertos que ainda estao fora do stack (dois ou mais) e
+      # le o plano: ordem, proxima, espera, stack. Falha ao empilhar (cadeia
+      # de bases quebrada, API indisponivel) nao derruba o job: vira motivo de
+      # parada no passo seguinte.
+      - name: Planejar e empilhar
+        id: plan
+        if: steps.target.outputs.kind == 'pai' && steps.chain.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          STACK_ERROR=""
+          if OUT=$(python3 -I "$RUNNER_TEMP/sub_tasks.py" stack "$NUMBER" 2>&1); then
+            echo "stack: $OUT"
+          else
+            STACK_ERROR="$OUT"
+            echo "::warning::stack: $OUT"
+          fi
+          PLAN=$(python3 -I "$RUNNER_TEMP/sub_tasks.py" plan "$NUMBER")
+          echo "$PLAN" | jq '{next, wait, complete, base, stack}'
+          {
+            echo "next=$(jq -r '.next // empty' <<<"$PLAN")"
+            echo "complete=$(jq -r '.complete' <<<"$PLAN")"
+            echo "wait_kind=$(jq -r '.wait.kind' <<<"$PLAN")"
+            echo "wait_note=$(jq -r '.wait.note' <<<"$PLAN")"
+            echo "stack_error=$STACK_ERROR"
+          } >> "$GITHUB_OUTPUT"
+
+      # A decisao, em ordem:
+      # 1. nao conseguiu empilhar: para a cadeia e explica;
+      # 2. pai fora da cadeia (worker de um `go` num filho): so o status;
+      # 3. o worker despachado pela cadeia voltou sem PR e sem pergunta: para
+      #    a cadeia com o link da run, para alguem olhar o log;
+      # 4. toda sub-task tem PR: `Closes #<pai>` no topo, pai em
+      #    awaiting-pr-review, cadeia completa;
+      # 5. ha proxima: despacha o worker dela;
+      # 6. espera: resposta humana ou worker em execucao mantem a cadeia
+      #    (work-in-progress fica); sub-task humana ou bloqueio externo param
+      #    a cadeia (`go` retoma).
+      # O comentario de status no pai e um so, atualizado a cada rodada.
+      - name: Decidir e agir
+        if: steps.target.outputs.kind == 'pai' && steps.chain.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.target.outputs.number }}
+          CHAIN: ${{ steps.chain.outputs.chain }}
+          FROM: ${{ github.event.client_payload.from }}
+          OUTCOME: ${{ github.event.client_payload.outcome }}
+          FROM_SOURCE: ${{ github.event.client_payload.source }}
+          FROM_RUN: ${{ github.event.client_payload.run }}
+          NEXT: ${{ steps.plan.outputs.next }}
+          COMPLETE: ${{ steps.plan.outputs.complete }}
+          WAIT_KIND: ${{ steps.plan.outputs.wait_kind }}
+          WAIT_NOTE: ${{ steps.plan.outputs.wait_note }}
+          STACK_ERROR: ${{ steps.plan.outputs.stack_error }}
+        run: |
+          PLANNER="$RUNNER_TEMP/sub_tasks.py"
+          status() { python3 -I "$PLANNER" status "$NUMBER" --chain "$1" --note "$2"; }
+          leave_chain() {
+            if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+              gh issue edit "$NUMBER" --remove-label work-in-progress
+            fi
+          }
+          if [ -n "$STACK_ERROR" ]; then
+            leave_chain
+            status "parada" "Nao consegui empilhar os PRs: ${STACK_ERROR} Corrija e aplique \`go\` aqui para retomar."
+            exit 0
+          fi
+          if [ "$CHAIN" != "true" ]; then
+            status "nao iniciada: aplique \`go\` aqui para o agente seguir pelas sub-tasks que faltam" "$WAIT_NOTE"
+            exit 0
+          fi
+          if [ "$FROM_SOURCE" = "chain" ] && { [ "$OUTCOME" = "none" ] || [ "$OUTCOME" = "skipped" ]; }; then
+            leave_chain
+            status "parada" "A rodada de #${FROM} terminou sem PR e sem pergunta (run https://github.com/${GH_REPO}/actions/runs/${FROM_RUN}). Veja o log, corrija o que for preciso e aplique \`go\` aqui para retomar."
+            exit 0
+          fi
+          if [ "$COMPLETE" = "true" ]; then
+            python3 -I "$PLANNER" finish "$NUMBER"
+            gh label create awaiting-pr-review --color 5319E7 \
+              --description "Implementacao concluida pelo agente; PR aberto e pronto para analise" 2>/dev/null || true
+            gh issue edit "$NUMBER" --add-label awaiting-pr-review --remove-label ready-for-agent
+            leave_chain
+            status "completa" "Toda sub-task tem PR. Revise a stack de baixo para cima e faca o merge pela interface do GitHub; o merge do topo fecha este issue."
+            exit 0
+          fi
+          if [ -n "$NEXT" ]; then
+            gh api --method POST "repos/$GH_REPO/dispatches" \
+              -f event_type=ai-sub-task \
+              -F "client_payload[issue]=$NEXT" \
+              -F "client_payload[parent]=$NUMBER"
+            status "rodando" "#${NEXT} despachada para o agente."
+            exit 0
+          fi
+          case "$WAIT_KIND" in
+            handoff|running)
+              status "esperando" "$WAIT_NOTE"
+              ;;
+            *)
+              leave_chain
+              status "parada" "$WAIT_NOTE"
+              ;;
+          esac

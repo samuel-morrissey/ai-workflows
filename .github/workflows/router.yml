@@ -24,6 +24,15 @@ name: AI Router
 # Um label de estado aplicado por humano (`needs-triage`, `needs-refinement`,
 # `needs-break-down`) tambem dispara a etapa dele, sem precisar de `go`.
 #
+# Um terceiro sinal e interno: `repository_dispatch`. Num pai com sub-tasks a
+# implementacao e uma cadeia de runs (planner do pai -> worker da sub-task ->
+# planner do pai -> ...), e cada elo chama o seguinte com esse evento, criado
+# com o GITHUB_TOKEN (e, com workflow_dispatch, a unica excecao a regra de
+# que evento criado pelo token nao dispara workflow). Dois tipos:
+# `ai-implement` (payload: issue = o pai) chama o planner; `ai-sub-task`
+# (payload: issue = a sub-task) chama o worker. O `go` numa `[SUB-TASK]` e
+# o comentario humano respondendo ao handoff dela tambem vao para o worker.
+#
 # Os destinos sao referenciados pelo caminho completo (@main), nao por
 # `./.github/workflows/...`: em chamada aninhada o caminho local resolve
 # contra o repositorio do chamador de cima, nao contra este.
@@ -60,6 +69,14 @@ on:
         type: string
         required: false
         default: ""
+      ai_workflows_ref:
+        description: >-
+          Repassado ao implement e ao worker de sub-task: ref deste
+          repositorio de onde baixar o planner (scripts/sub_tasks.py). So
+          muda para testar uma branch daqui.
+        type: string
+        required: false
+        default: main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -69,7 +86,8 @@ jobs:
   # - `needs-triage` aplicado por humano;
   # - `go` em issue aberto com `needs-triage` ou sem nenhum label de estado
   #   (issue criado por agente, cujo `needs-triage` nao gerou evento; a etapa
-  #   aplica o `needs-triage` que faltar);
+  #   aplica o `needs-triage` que faltar). `[SUB-TASK]` nao conta: ela nao tem
+  #   label de estado por desenho, e o `go` nela vai para o worker;
   # - `wontfix` ou `deferred` aplicado por humano: a skill completa o
   #   fechamento (tira o estado anterior, fecha e comenta o motivo). Label
   #   aplicado pelo token do workflow nao gera evento, entao a propria skill
@@ -86,7 +104,8 @@ jobs:
         (github.event.label.name == 'go' &&
          github.event.issue.state == 'open' &&
          (contains(join(github.event.issue.labels.*.name, ','), 'needs-triage') ||
-          (!contains(join(github.event.issue.labels.*.name, ','), 'needs-') &&
+          (!startsWith(github.event.issue.title, '[SUB-TASK]') &&
+           !contains(join(github.event.issue.labels.*.name, ','), 'needs-') &&
            !contains(join(github.event.issue.labels.*.name, ','), 'ready-for-') &&
            !contains(join(github.event.issue.labels.*.name, ','), 'awaiting-pr-review')))))) ||
       (github.event_name == 'issue_comment' &&
@@ -144,12 +163,19 @@ jobs:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-  # Implementacao: `go` em issue aberto com `ready-for-agent`, ou resposta
+  # Implementacao: `go` em issue aberto com `ready-for-agent`, resposta
   # humana a um handoff da implementacao (`ready-for-agent` +
-  # `awaiting-reply`). Aplicar `ready-for-agent` nao inicia nada — e o
-  # humano quem da o "vai" com o `go`.
+  # `awaiting-reply`), ou o worker de uma sub-task devolvendo o controle ao
+  # pai (`repository_dispatch` do tipo `ai-implement`). Aplicar
+  # `ready-for-agent` nao inicia nada — e o humano quem da o "vai" com o
+  # `go`. Num pai com sub-tasks, o work-in-progress fica no pai durante a
+  # cadeia inteira; por isso o guarda vale para o `go`, mas nao para o
+  # dispatch, que e justamente a cadeia continuando. A concorrencia por
+  # issue serializa os planners de um mesmo pai.
   issue-remote-implement:
     if: >
+      (github.event_name == 'repository_dispatch' &&
+       github.event.action == 'ai-implement') ||
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
        github.event.label.name == 'go' &&
@@ -162,16 +188,55 @@ jobs:
        contains(join(github.event.issue.labels.*.name, ','), 'ready-for-agent') &&
        contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply') &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
+    concurrency:
+      group: ai-implement-${{ github.repository }}-${{ github.event.issue.number || github.event.client_payload.issue }}
+      cancel-in-progress: false
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-remote-implement.yml@main
     with:
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
+      ai_workflows_ref: ${{ inputs.ai_workflows_ref }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-  # PR mergeado numa branch que nao e a padrao (sub-task na branch de
-  # integracao do pai): fecha os issues do `Closes`, que o GitHub ignora fora
-  # da branch padrao. Na branch padrao o proprio GitHub fecha.
+  # Sub-task: o planner do pai despachou a proxima (`repository_dispatch` do
+  # tipo `ai-sub-task`), um humano aplicou `go` numa `[SUB-TASK]` aberta (roda
+  # so ela), ou respondeu a um handoff dela (`[SUB-TASK]` + `awaiting-reply`).
+  # Sub-task nao tem label de estado: o que a identifica e o prefixo do
+  # titulo. O worker devolve o controle ao pai no fim.
+  issue-sub-task:
+    if: >
+      (github.event_name == 'repository_dispatch' &&
+       github.event.action == 'ai-sub-task') ||
+      (github.event_name == 'issues' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'go' &&
+       github.event.issue.state == 'open' &&
+       startsWith(github.event.issue.title, '[SUB-TASK]') &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')) ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       github.event.comment.user.type != 'Bot' &&
+       startsWith(github.event.issue.title, '[SUB-TASK]') &&
+       contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply') &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress'))
+    concurrency:
+      group: ai-sub-task-${{ github.repository }}-${{ github.event.issue.number || github.event.client_payload.issue }}
+      cancel-in-progress: false
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-sub-task.yml@main
+    with:
+      setup_commands: ${{ inputs.setup_commands }}
+      quality_checks: ${{ inputs.quality_checks }}
+      ai_workflows_ref: ${{ inputs.ai_workflows_ref }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  # PR mergeado numa branch que nao e a padrao: fecha os issues do `Closes`,
+  # que o GitHub ignora fora da branch padrao. Na branch padrao o proprio
+  # GitHub fecha. Um PR de camada superior de uma stack chega aqui com a base
+  # original (a branch da camada de baixo), mas o GitHub ja fechou os issues
+  # dele ao levar a stack para a branch padrao: o job so tira o
+  # awaiting-pr-review que sobrou.
   pr-merged:
     if: >
       github.event_name == 'pull_request' &&
