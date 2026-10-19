@@ -1,11 +1,12 @@
 name: PR Merged
 
 # Workflow reutilizavel chamado pelo router.yml quando um PR e mergeado numa
-# branch que nao e a padrao (a branch de integracao de um pai com
-# sub-tasks). O GitHub so fecha issue por `Closes #n` em PR para a branch
-# padrao; aqui o workflow faz esse papel: fecha cada issue que o corpo do PR
-# declara com Closes/Fixes/Resolves e tira o awaiting-pr-review. Sem agente:
-# so gh.
+# branch que nao e a padrao. O GitHub so fecha issue por `Closes #n` em PR
+# para a branch padrao; aqui o workflow faz esse papel: fecha cada issue que
+# o corpo do PR declara com Closes/Fixes/Resolves e tira o
+# awaiting-pr-review. Numa stack, as camadas de cima chegam aqui com a base
+# original (a branch da camada de baixo) ja fechadas pelo GitHub: so o label
+# sai. Sem agente: so gh.
 
 on:
   workflow_call:
@@ -33,13 +34,14 @@ jobs:
             exit 0
           fi
           for N in $NUMBERS; do
-            STATE=$(gh issue view "$N" --json state -q .state 2>/dev/null || echo MISSING)
-            if [ "$STATE" != "OPEN" ]; then
-              echo "::notice::#$N esta $STATE; ignorado."
-              continue
+            INFO=$(gh issue view "$N" --json state,labels 2>/dev/null || echo '{"state":"MISSING","labels":[]}')
+            STATE=$(jq -r '.state' <<<"$INFO")
+            if [ "$STATE" = "OPEN" ]; then
+              gh issue close "$N" --comment "Integrada em \`$BASE\` pelo #$PR_NUMBER."
+            else
+              echo "::notice::#$N esta $STATE; so o label sai."
             fi
-            gh issue close "$N" --comment "Integrada em \`$BASE\` pelo #$PR_NUMBER."
-            if gh issue view "$N" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-pr-review'; then
+            if jq -e '.labels[] | select(.name == "awaiting-pr-review")' <<<"$INFO" >/dev/null; then
               gh issue edit "$N" --remove-label awaiting-pr-review
             fi
           done

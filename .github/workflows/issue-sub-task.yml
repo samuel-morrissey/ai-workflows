@@ -1,0 +1,274 @@
+name: Issue Sub-task
+
+# Workflow reutilizavel: worker de UMA sub-task. Chamado pelo router.yml
+# quando:
+# - o planner do pai (issue-remote-implement.yml) despacha a proxima
+#   sub-task por repository_dispatch `ai-sub-task`;
+# - um humano aplica `go` numa `[SUB-TASK]` (resolve so essa sub-task);
+# - um humano responde a um handoff da sub-task (`[SUB-TASK]` +
+#   awaiting-reply).
+#
+# Roda o agente com a skill issue-remote-implement em modo sub-task: a branch
+# `sub-task-<n>` nasce do topo da stack do pai (a branch do PR aberto mais
+# alto, ou a branch padrao) e o PR aponta para essa mesma base. No fim, o
+# worker devolve o controle ao pai por repository_dispatch `ai-implement`,
+# com o resultado da rodada (pr, handoff, none, skipped); o planner do pai
+# decide se a cadeia segue, espera ou para. Ver README.md.
+
+on:
+  workflow_call:
+    inputs:
+      setup_commands:
+        description: >-
+          Comandos de preparacao do ambiente do repositorio consumidor, um por
+          linha. Mesma semantica do input de issue-remote-implement.yml.
+        type: string
+        required: false
+        default: ""
+      quality_checks:
+        description: >-
+          Comandos de verificacao de qualidade do repositorio consumidor, um por
+          linha. Mesma semantica do input de issue-remote-implement.yml.
+        type: string
+        required: false
+        default: ""
+      ai_workflows_ref:
+        description: >-
+          Ref de samuel-morrissey/ai-workflows de onde baixar o planner
+          (scripts/sub_tasks.py). O padrao, `main`, e o que todo consumidor
+          usa; outro valor serve para testar uma branch deste repositorio.
+        type: string
+        required: false
+        default: main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  issue-sub-task:
+    name: Implement Sub-task
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # O planner (scripts/sub_tasks.py deste repositorio) e a unica fonte da
+      # ordem das camadas e da base de cada sub-task. Baixado da ref informada
+      # (main, por padrao), fora do workspace do consumidor para o agente nao
+      # o ver como arquivo do projeto.
+      - name: Baixar o planner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ai_workflows_ref }}
+        run: |
+          gh api "repos/samuel-morrissey/ai-workflows/contents/scripts/sub_tasks.py?ref=$REF" \
+            -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/sub_tasks.py"
+
+      # Alvo: a sub-task do evento (`go` ou comentario) ou do payload do
+      # dispatch. Le o pai, a base e os bloqueios pelo planner. Sub-task que
+      # nao pode rodar (ja tem PR aberto, bloqueada sem PR, humana, sem pai)
+      # encerra com um comentario quando foi um humano que pediu; vinda da
+      # cadeia, so devolve `skipped` ao pai.
+      - name: Resolver alvo
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+          PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}
+        run: |
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            NUMBER="$PAYLOAD_NUMBER"; SOURCE=chain
+          else
+            NUMBER="$EVENT_NUMBER"; SOURCE=human
+          fi
+          if [ -z "$NUMBER" ]; then
+            echo "::error::Evento sem sub-task: dispare o workflow chamador em um evento de issue ou com client_payload.issue."
+            exit 1
+          fi
+          INFO=$(python3 -I "$RUNNER_TEMP/sub_tasks.py" base "$NUMBER")
+          echo "$INFO"
+          IS_SUB=$(jq -r '.is_sub_task' <<<"$INFO")
+          STATE=$(jq -r '.state' <<<"$INFO")
+          PARENT=$(jq -r '.parent // empty' <<<"$INFO")
+          BASE=$(jq -r '.base' <<<"$INFO")
+          OPEN_PR=$(jq -r '.open_pr // empty' <<<"$INFO")
+          HUMAN=$(jq -r '.human' <<<"$INFO")
+          BLOCKED=$(jq -r '.blocked_open | map("#\(.)") | join(", ")' <<<"$INFO")
+          {
+            echo "number=$NUMBER"; echo "source=$SOURCE"; echo "parent=$PARENT"; echo "base=$BASE"
+          } >> "$GITHUB_OUTPUT"
+          say() { [ "$SOURCE" = "human" ] && gh issue comment "$NUMBER" --body "$1" || true; }
+          if [ "$IS_SUB" != "true" ] || [ "$STATE" != "open" ]; then
+            echo "::notice::#$NUMBER nao e uma [SUB-TASK] aberta; nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$PARENT" ]; then
+            say "Esta sub-task nao esta ligada a um pai (sub-issue) e o corpo nao diz \`Parte de #<pai>\`. Ligue ao pai e aplique \`go\` de novo."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -n "$OPEN_PR" ]; then
+            say "Ja existe o PR #$OPEN_PR desta sub-task em revisao. Esta etapa nao itera em PR existente: revise e faca o merge dele, ou feche-o para a sub-task ser refeita."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$HUMAN" = "true" ]; then
+            say "Esta sub-task e humana (\`**Executor:** humano\`): o agente so orienta. Faca a parte dela e aplique \`go\` no pai #$PARENT para a cadeia seguir."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -n "$BLOCKED" ]; then
+            say "Esta sub-task esta bloqueada por $BLOCKED, que ainda nao tem PR nem fechou. Aplique \`go\` no pai #$PARENT para o agente seguir a ordem, ou implemente os bloqueadores antes."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+      # Guarda de concorrencia: sub-task com work-in-progress ja tem um worker
+      # atuando — encerra sem falhar. Consome o `go` e o `awaiting-reply`.
+      - name: Aplicar work-in-progress
+        id: wip
+        if: steps.target.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+            echo "::notice::Sub-task #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh label create work-in-progress --color D93F0B \
+            --description "Worker em execucao nesta issue" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label work-in-progress
+          LABELS=$(gh issue view "$NUMBER" --json labels -q '.labels[].name')
+          if grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
+          gh label create go --color 3FB950 \
+            --description "Pode seguir: roda a etapa do estado atual" 2>/dev/null || true
+          if grep -Fqx 'go' <<<"$LABELS"; then
+            gh issue edit "$NUMBER" --remove-label go
+          fi
+
+      # Mesmo tratamento de quality_checks do issue-remote-implement.yml: cada
+      # linha vira prefixo na allowlist e item do system prompt. Aqui o system
+      # prompt leva tambem o modo sub-task: o pai e a base da branch e do PR.
+      - name: Preparar modo sub-task e verificacao de qualidade
+        id: quality
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        env:
+          QUALITY_CHECKS: ${{ inputs.quality_checks }}
+          NUMBER: ${{ steps.target.outputs.number }}
+          PARENT: ${{ steps.target.outputs.parent }}
+          BASE: ${{ steps.target.outputs.base }}
+        run: |
+          ALLOW=""
+          LIST=""
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
+            ALLOW="${ALLOW},Bash(${line}:*)"
+            LIST="${LIST}${LIST:+ ; }${line}"
+          done <<<"$QUALITY_CHECKS"
+          echo "allow=$ALLOW" >> "$GITHUB_OUTPUT"
+          MODE="Modo sub-task: #${NUMBER} e sub-task do pai #${PARENT}. A branch sub-task-${NUMBER} nasce de origin/${BASE} e o PR tem base ${BASE}; o workflow ja calculou isso pela ordem da stack, nao recalcule."
+          if [ -n "$LIST" ]; then
+            MODE="${MODE} Verificacao de qualidade: o workflow chamador liberou e pede que voce rode, nesta ordem, os comandos: ${LIST}"
+            echo "::notice::quality_checks: ${LIST}"
+          else
+            echo "::notice::Sem quality_checks: a skill segue sem verificacao e declara isso no PR."
+          fi
+          echo "sysprompt=--append-system-prompt \"${MODE}\"" >> "$GITHUB_OUTPUT"
+          echo "::notice::${MODE}"
+
+      - name: Preparar ambiente do consumidor
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        env:
+          SETUP_COMMANDS: ${{ inputs.setup_commands }}
+        run: |
+          set -e
+          RAN=0
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
+            echo "::group::setup: ${line}"
+            eval "$line" </dev/null
+            echo "::endgroup::"
+            RAN=$((RAN + 1))
+          done <<<"$SETUP_COMMANDS"
+          if [ "$RAN" -eq 0 ]; then
+            echo "::notice::Sem setup_commands: nenhum comando de preparacao executado."
+          fi
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/samuel-morrissey/claude-marketplace.git"
+          plugins: "samuel-morrissey-skills@samuel-morrissey-claude-marketplace"
+          prompt: "/samuel-morrissey-skills:issue-remote-implement ${{ steps.target.outputs.number }}"
+          settings: '{"attribution":{"pr":""}}'
+          # A rodada despachada pela cadeia chega com o ator github-actions[bot]
+          # (repository_dispatch criado com o GITHUB_TOKEN), e a action recusa
+          # ator nao humano por padrao. So esse bot e liberado.
+          allowed_bots: "github-actions[bot],github-actions"
+          # Mesma allowlist do issue-remote-implement.yml (a skill e a mesma),
+          # mais os prefixos derivados de quality_checks.
+          claude_args: |
+            --model claude-opus-5-5
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
+            --max-turns 150
+            ${{ steps.quality.outputs.sysprompt }}
+
+      # Fim da rodada, com ou sem falha da action: tira o work-in-progress da
+      # sub-task (so se foi este worker que o aplicou), consome um `go` que
+      # sobrou (o de uma rodada recusada, ou um que chegou no meio), apura o
+      # resultado e devolve o controle ao pai. O WIP sai ANTES do dispatch: o
+      # planner le os labels da sub-task e um WIP atrasado o faria esperar por
+      # um worker que ja acabou.
+      #
+      # Resultado: `pr` (PR aberto da branch sub-task-<n>), `handoff` (parou
+      # em pergunta, awaiting-reply), `none` (acabou sem nenhum dos dois) ou
+      # `skipped` (nao rodou). `source` diz quem pediu a rodada: o planner
+      # (`chain`) ou um humano (`human`).
+      - name: Devolver o controle ao pai
+        if: always() && steps.target.outputs.parent != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.target.outputs.number }}
+          PARENT: ${{ steps.target.outputs.parent }}
+          SOURCE: ${{ steps.target.outputs.source }}
+          SKIPPED: ${{ steps.target.outputs.skip == 'true' || steps.wip.outputs.skip == 'true' }}
+          WIP_MINE: ${{ steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true' }}
+        run: |
+          if [ "$WIP_MINE" = "true" ]; then
+            gh issue edit "$NUMBER" --remove-label work-in-progress
+          fi
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'go'; then
+            echo "::notice::go consumido em #$NUMBER no fim da rodada."
+            gh issue edit "$NUMBER" --remove-label go
+          fi
+          if [ "$SKIPPED" = "true" ]; then
+            OUTCOME=skipped
+          elif [ -n "$(gh pr list --head "sub-task-$NUMBER" --state open --json number -q '.[].number')" ]; then
+            OUTCOME=pr
+          elif gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+            OUTCOME=handoff
+          else
+            OUTCOME=none
+          fi
+          echo "::notice::Resultado de #$NUMBER: $OUTCOME. Devolvendo ao pai #$PARENT."
+          gh api --method POST "repos/$GH_REPO/dispatches" \
+            -f event_type=ai-implement \
+            -F "client_payload[issue]=$PARENT" \
+            -F "client_payload[from]=$NUMBER" \
+            -f "client_payload[outcome]=$OUTCOME" \
+            -f "client_payload[source]=$SOURCE" \
+            -F "client_payload[run]=$GITHUB_RUN_ID"

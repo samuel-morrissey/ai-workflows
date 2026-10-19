@@ -11,10 +11,11 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 | Triagem | o label `go` entra num issue com `needs-triage` ou sem label de estado, ou uma pessoa coloca `needs-triage`. Também quando uma pessoa coloca `wontfix` ou `deferred`: a triagem fecha o issue e comenta o motivo | `issue-triage.yml` |
 | Refinamento | o label `go` entra num issue com `needs-refinement`, ou uma pessoa coloca `needs-refinement` | `issue-refinement.yml` |
 | Quebra em sub-tasks | o label `go` entra num issue com `needs-break-down`, ou uma pessoa coloca `needs-break-down` | `issue-break-down.yml` |
-| Implementação | o label `go` entra num issue com `ready-for-agent` | `issue-remote-implement.yml` |
-| Fechar sub-task | um PR é mergeado numa branch que não é a padrão (a branch do pai). Fecha os issues do `Closes` do corpo, porque o GitHub só faz isso sozinho na branch padrão | `pr-merged.yml` |
+| Implementação | o label `go` entra num issue com `ready-for-agent`. Num pontual, abre o PR dele. Num pai com sub-tasks, é o planner da cadeia: despacha uma sub-task por vez e empilha os PRs numa stack | `issue-remote-implement.yml` |
+| Sub-task | o planner do pai despacha a próxima sub-task, o label `go` entra numa `[SUB-TASK]` (roda só ela), ou uma pessoa responde a uma pergunta dela | `issue-sub-task.yml` |
+| Fechar sub-task | um PR é mergeado numa branch que não é a padrão. Fecha os issues do `Closes` do corpo, porque o GitHub só faz isso sozinho na branch padrão. Numa stack o GitHub já fechou; só o label `awaiting-pr-review` sai | `pr-merged.yml` |
 
-Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos.
+Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos. Num pai com sub-tasks ele fica durante a cadeia inteira (veja abaixo).
 
 ### O label `go`
 
@@ -28,12 +29,23 @@ Quando a implementação termina e abre o PR, o issue troca `ready-for-agent` po
 
 ### Issue com sub-tasks
 
-A quebra cria `[SUB-TASK]`s ligadas ao issue pai, com bloqueios entre elas. O `go` é sempre colocado no **pai**, uma vez por PR:
+A quebra cria `[SUB-TASK]`s ligadas ao issue pai, com bloqueios entre elas. Um único `go` no **pai** resolve todas:
 
-1. Coloque `go` no pai. O agente abre o PR da primeira sub-task sem bloqueio para a branch do pai, e a sub-task ganha `awaiting-pr-review`.
-2. Revise e faça o merge do PR da sub-task.
-3. O merge fecha a sub-task sozinho. Coloque `go` no pai de novo: o agente abre o PR da próxima.
-4. Quando todas fecharem, o próximo `go` abre o PR do pai para a `main`, e o pai ganha `awaiting-pr-review`.
+1. Coloque `go` no pai. O pai ganha `work-in-progress`: a cadeia está rodando.
+2. O agente implementa as sub-tasks **uma por vez**, na ordem dos bloqueios, cada uma numa run própria. A primeira nasce da `main`; cada seguinte nasce da branch da anterior, e o PR dela aponta para essa branch. A sub-task ganha `awaiting-pr-review` quando o PR abre.
+3. A partir do segundo PR, os PRs entram numa [stack do GitHub](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs). O pai recebe um comentário de status, atualizado a cada rodada, com a camada, o PR e o estado de cada sub-task.
+4. Quando toda sub-task tem PR, o PR do topo ganha `Closes #<pai>`, o pai troca `ready-for-agent` por `awaiting-pr-review` e o `work-in-progress` sai.
+5. Revise a stack de baixo para cima e faça o merge pela interface do GitHub. Mergear uma camada do meio leva as de baixo junto; mergear o topo leva tudo. Cada camada que entra na `main` fecha a sub-task dela, e o topo fecha o pai. O GitHub rebaseia as camadas de cima sozinho.
+
+Não existe mais branch de integração nem PR do pai: a stack faz esse papel, e cada camada vai para a `main` por si.
+
+A cadeia para sozinha, e o `work-in-progress` sai do pai, quando a próxima sub-task é humana (`**Executor:** humano` no brief), quando ela está bloqueada por um issue de fora que ainda está aberto, quando uma rodada termina sem PR e sem pergunta (o comentário de status traz o link da run), ou quando os PRs não puderam ser empilhados. Resolva o que parou e coloque `go` no pai de novo: ele retoma de onde estava, porque o planner só olha o que ainda falta.
+
+Quando uma sub-task para numa pergunta, ela ganha `awaiting-reply` e o pai **continua** com `work-in-progress`: a cadeia está esperando você. Responda na sub-task; a resposta roda a sub-task de novo e a cadeia segue. Para abandonar uma cadeia no meio, tire o `work-in-progress` do pai na mão.
+
+`go` numa `[SUB-TASK]` roda só ela: a branch nasce do topo da stack atual e o PR entra na stack, mas o planner não segue para a próxima. Serve para refazer uma sub-task (feche o PR dela antes) ou para andar uma de cada vez. Sub-task que já tem PR aberto, que é humana ou que está bloqueada por outra ainda sem PR não roda; o agente comenta o motivo.
+
+Cada camada da stack precisa da camada de baixo para existir, por isso a ordem é fixa: um bloqueio só diz quem vem antes. Como cada sub-task enxerga o código de todas as anteriores, nenhuma precisa esperar merge para começar.
 
 ### Perguntas e respostas
 
@@ -48,7 +60,9 @@ Comentário só dispara etapa em issue com `awaiting-reply`. Fora disso, comente
 | `needs-triage` sozinho | esperando `go` para a triagem rodar |
 | `ready-for-agent` sozinho | esperando `go` para implementar |
 | `ready-for-agent` + `awaiting-reply` | a implementação parou numa pergunta; responda no issue |
-| `ready-for-agent` + `work-in-progress` | Claude implementando agora |
+| `ready-for-agent` + `work-in-progress` | Claude implementando agora. Num pai com sub-tasks: a cadeia está rodando, ou esperando a resposta de uma sub-task com `awaiting-reply` |
+| `[SUB-TASK]` + `awaiting-pr-review` | PR da sub-task aberto, na stack do pai |
+| `[SUB-TASK]` + `awaiting-reply` | a sub-task parou numa pergunta; responda nela e a cadeia segue |
 | `needs-refinement` + `awaiting-reply` | perguntas do refinamento esperando você |
 | `needs-break-down` sozinho | esperando `go` para quebrar em sub-tasks |
 | `awaiting-pr-review` | PR aberto, esperando revisão e merge |
@@ -93,6 +107,8 @@ O que precisa existir é o secret `CLAUDE_CODE_OAUTH_TOKEN` no lado do chamador.
 
 3. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
+Quando o `ai.yml` daqui ganha um gatilho novo, a cópia de cada repositório precisa ser atualizada (repita o passo 1 e reaplique os inputs). Foi o caso do `repository_dispatch`, que a cadeia de sub-tasks usa: um `ai.yml` sem ele implementa a primeira sub-task e para ali, sem empilhar nem seguir.
+
 Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`, `deferred`, `priority`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam `work-in-progress` e `go`. Como o `go` é você quem coloca, ele só existe depois da primeira etapa rodar no repositório; para tê-lo desde o início, crie antes:
 
 ```
@@ -117,5 +133,6 @@ Problemas comuns:
 - `ai.yml` (em cada repositório): declara os gatilhos (`on:`) e as permissões. O GitHub exige que esses dois fiquem no chamador.
 - `router.yml`: um job por etapa. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do marketplace `samuel-morrissey/claude-marketplace`) e tira o `work-in-progress` no fim.
+- `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 
 Os `uses` apontam para `samuel-morrissey/ai-workflows/...@main`, e não para `./.github/workflows/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.
