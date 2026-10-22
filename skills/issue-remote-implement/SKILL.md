@@ -1,10 +1,10 @@
 ---
 name: issue-remote-implement
-description: Implementa um issue do fluxo em uma rodada que termina em um PR - num pontual ready-for-agent, o PR dele para a branch padrao; numa [SUB-TASK] despachada pelo workflow (modo sub-task), o PR da camada dela na stack do pai. Desenvolve test-first nos criterios de aceite e roda as verificacoes de qualidade. Verificacao vermelha nao vira PR. Num pai com sub-tasks quem orquestra e o workflow, nao esta skill.
+description: Implementa um issue do fluxo em uma rodada que termina em um PR - num pontual ready-for-agent, o PR dele para a branch padrao; numa [SUB-TASK] despachada pelo workflow (modo sub-task), o PR da camada dela na stack do pai. Desenvolve test-first nos criterios de aceite, roda as verificacoes de qualidade e passa por ate duas rodadas de QA independente (issue-qa) antes do PR. Verificacao vermelha nao vira PR. Num pai com sub-tasks quem orquestra e o workflow, nao esta skill.
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit:*) Bash(gh issue close:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr create:*) Bash(gh pr edit:*) Bash(gh pr view:*) Bash(git status:*) Bash(git branch:*) Bash(git checkout:*) Bash(git switch:*) Bash(git fetch:*) Bash(git pull:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git diff:*) Bash(git log:*) Bash(git config:*) Read Grep Glob Edit Write
+allowed-tools: Bash(gh issue view:*) Bash(gh issue comment:*) Bash(gh issue edit:*) Bash(gh issue close:*) Bash(gh label create:*) Bash(gh api:*) Bash(gh pr list:*) Bash(gh pr create:*) Bash(gh pr edit:*) Bash(gh pr view:*) Bash(git status:*) Bash(git branch:*) Bash(git checkout:*) Bash(git switch:*) Bash(git fetch:*) Bash(git pull:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git diff:*) Bash(git log:*) Bash(git config:*) Bash(git worktree:*) Read Grep Glob Edit Write Agent
 ---
 
 # Implement
@@ -27,7 +27,8 @@ em `samuel-morrissey/ai-workflows`). Esta skill so ve uma sub-task de cada
 vez.
 
 Branch, base, vinculo e fechamento seguem a skill `issue-git-flow`. Invoque-a
-antes do passo 2. O texto do PR e da skill `remote-to-pr`.
+antes do passo 2. O texto do PR e da skill `remote-to-pr`. O QA independente
+do passo 5 e da skill `issue-qa`, rodada como subagente.
 
 Decisao a montante, execucao a jusante: o brief ja diz **o que** (criterios
 de aceite) e **onde** (a fronteira em que cada criterio se observa). Voce nao
@@ -88,6 +89,26 @@ vias, nesta ordem de preferencia:
 3. **Nenhum.** Nao achou, ou o ambiente nao deixa rodar: siga sem
    verificacao e **declare isso** no comentario do PR. Nunca afirme que
    verificou o que nao rodou.
+
+## Evidencias e QA
+
+O workflow informa, no system prompt, numa frase que comeca por
+**"Evidencias:"**, tres fatos que voce usa como estao:
+
+- a **pasta de evidencias**: onde toda captura (png, gif, webm, txt) e o
+  relatorio do QA sao gravados. Fica fora do workspace e nunca e commitada;
+- a **publicacao**: a URL base em que cada arquivo da pasta estara publico
+  depois da rodada (bucket), ou o link da run em que a pasta sera anexada
+  como artifact. Com bucket, o PR referencia imagem por
+  `![nome](<url-base>/<arquivo>)`; com artifact, cita o arquivo pelo nome e
+  linka a run;
+- as **ferramentas liberadas** para captura e QA: os prefixos de comando
+  que a allowlist aceita alem de git e gh (ex.: `node`, `npx playwright`,
+  `curl`). Vazio quer dizer que o repositorio consumidor nao liberou nada, e
+  o QA do passo 5 nao roda.
+
+Quem captura evidencia e o QA, nao voce. As Evidencias do PR sao as
+capturas da ultima rodada dele.
 
 ## Passos
 
@@ -155,7 +176,7 @@ vias, nesta ordem de preferencia:
 4. **Verifique.** Antes de abrir o PR, rode a bateria completa dos comandos
    da secao "Verificacao de qualidade", uma vez, ao final. Resultado:
 
-   - **Verde:** siga para o PR.
+   - **Verde:** siga para o QA (passo 5).
    - **Vermelho causado pela sua mudanca:** corrija e rode de novo.
    - **Vermelho fora do escopo da unidade** (ja quebrado antes de voce
      chegar, ou exige decisao que o brief nao cobre): nao abra PR. Faca push
@@ -164,11 +185,69 @@ vias, nesta ordem de preferencia:
 
    PR com verificacao vermelha nao existe nesta skill.
 
-5. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
-   unidade) e a base da `issue-git-flow` (branch padrao no pontual; a base
-   do modo sub-task na sub-task).
+5. **QA independente.** So roda quando o system prompt lista ferramentas
+   liberadas. Sem elas, pule este passo e registre, para o PR: "Sem QA
+   independente: o workflow nao liberou ferramentas de captura
+   (evidence_tools)".
 
-6. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
+   O QA e cego ao diff e julga so os criterios de aceite; voce nao discute
+   com ele. O orcamento e fixo: **duas rodadas**, e nada reabre uma
+   terceira.
+
+   1. **Push da branch**, para o QA poder voltar ao head por nome e para
+      nada se perder.
+   2. **Escreva o roteiro** em `<pasta de evidencias>/como-testar.md`: as
+      secoes *Configurando o ambiente* e *Como testar* exatamente como irao
+      no PR, no formato do `TEMPLATE.md` da `to-pr`. E a unica instrucao que
+      o QA recebe sobre como chegar na funcionalidade.
+   3. **Rodada 1.** Use a ferramenta Agent com o prompt abaixo, preenchido,
+      sem acrescentar nada sobre a implementacao:
+
+      ```
+      Invoque a skill issue-qa e siga-a ate o fim com estes dados:
+      - Issue: #<numero>
+      - Head: <branch> | Base: <base>
+      - Rodada: 1
+      - Roteiro: <pasta>/como-testar.md
+      - Pasta de evidencias: <pasta>
+      - Publicacao: <frase de publicacao do system prompt>
+      - Ferramentas liberadas: <lista do system prompt>
+      Nao leia o diff, os commits nem o codigo-fonte. Devolva so o caminho do relatorio.
+      ```
+
+      Leia `<pasta>/qa-1.md`.
+   4. **Decida pela tabela**, e so por ela:
+      - todo criterio `passou` → siga ao passo 6 com a rodada 1 como
+        evidencia;
+      - **Ambiente falhou** → corrija o roteiro (e o codigo, se o problema e
+        real: um comando que o PR deveria ter criado), uma vez;
+      - algum criterio `falhou` → corrija o codigo como no passo 3
+        (test-first, no criterio reprovado), rode a bateria do passo 4 de
+        novo, commit e push.
+      Observacoes nao reabrem nada.
+   5. **Rodada 2**, com o mesmo prompt, mudando so `Rodada: 2` e lendo o
+      roteiro atualizado. Leia `<pasta>/qa-2.md`. Qualquer resultado encerra
+      o QA.
+   6. **Desfecho da rodada 2:**
+      - todo criterio `passou` → passo 6;
+      - criterio reprovado nas duas rodadas, criterio que passou na 1 e
+        falhou na 2 (regressao), ou Ambiente falhou nas duas → **nao corrija
+        mais**. Siga ao passo 6 e abra o PR mesmo assim: a tabela da rodada 2
+        vai no PR com uma linha "Nao corrigido: <motivo>" por criterio
+        reprovado. Depois do passo 8, faca o handoff da `issue-async-first`
+        no issue alvo, com `awaiting-reply`, dizendo quais criterios ficaram
+        em aberto e o que voce tentou. O humano decide no PR.
+
+   Diante de um criterio reprovado voce tem duas saidas: corrige, ou declara
+   no PR que nao corrigiu e por que. "O QA testou errado" nao e uma
+   terceira: se ele errou, a declaracao fica no PR e o humano ve.
+
+6. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
+   unidade), a base da `issue-git-flow` (branch padrao no pontual; a base
+   do modo sub-task na sub-task) e o caminho do relatorio da ultima rodada
+   do QA (ou o motivo de nao ter rodado).
+
+7. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
 
    ```bash
    gh label create awaiting-pr-review --color 5319E7 \
@@ -180,7 +259,7 @@ vias, nesta ordem de preferencia:
    - Sub-task: aplique `awaiting-pr-review` na sub-task. O pai nao muda:
      quem o move e o planner, quando toda sub-task tiver PR.
 
-7. **Comente no issue da unidade:**
+8. **Comente no issue da unidade:**
 
    ```markdown
    ## Implement
@@ -188,6 +267,7 @@ vias, nesta ordem de preferencia:
    **PR:** <url>
    **Criterios cobertos:** <lista curta mapeando criterio → teste e onde foi coberto>
    **Verificacao:** <comandos rodados e resultado — ou "nenhuma: <motivo>">
+   **QA:** <rodadas e resultado: "1 rodada, todos os criterios passaram" | "2 rodadas, c2 em aberto" — ou "nao rodou: <motivo>">
    **Atencao:** o CI nao roda sozinho em PR aberto pelo agente — de o play
    manualmente (feche e reabra o PR, ou dispare o workflow de CI).
    ```
@@ -200,17 +280,21 @@ unidade para a base da `issue-git-flow`, cujo corpo comeca pelas linhas de
 vinculo dela, vinculado ao issue da unidade pela API (aparece em
 *Development* do issue), cujo diff cobre todos os criterios de aceite da
 unidade com teste na fronteira de cada um, cuja verificacao esta verde (ou
-declarada ausente, com motivo), e a unidade esta com `awaiting-pr-review` e o
-comentario com o link. O outro fim valido e o handoff com `awaiting-reply`.
+declarada ausente, com motivo), cujo QA passou em ate duas rodadas (ou foi
+declarado ausente, ou ficou em aberto com os criterios nomeados no PR e
+handoff no issue), e a unidade esta com `awaiting-pr-review` e o comentario
+com o link. O outro fim valido e o handoff com `awaiting-reply` sem PR.
 
 ## Fora de escopo
 
 - Fazer merge, aprovar ou iterar em PR ja existente.
 - Commit ou push direto na branch padrao ou na branch de outra camada.
 - Mais de um PR por rodada.
+- Terceira rodada de QA, ou replica ao relatorio do QA.
+- Capturar evidencia por conta propria: quem captura e o QA.
 - Escolher a proxima sub-task, despachar outra rodada, criar ou alterar
   stack, trocar a base de um PR: tudo isso e do workflow.
-- Alterar labels, titulo ou corpo de issues. Excecoes: os labels do passo 6
+- Alterar labels, titulo ou corpo de issues. Excecoes: os labels do passo 7
   e aplicar `awaiting-reply` ao encerrar com handoff.
 - Substituir o CI do PR: a verificacao local e o primeiro filtro; o CI
   continua sendo o juiz final.

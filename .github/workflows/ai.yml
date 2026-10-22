@@ -30,16 +30,18 @@ permissions:
 jobs:
   ai:
     uses: samuel-morrissey/ai-workflows/.github/workflows/router.yml@main
-    # Dois inputs, um comando por linha cada, usados pela etapa
-    # issue-remote-implement:
+    # Inputs da etapa issue-remote-implement, um comando por linha cada:
     #
     # - setup_commands: preparacao do ambiente, rodada pelo workflow antes de
     #   chamar o agente. Comando que falha interrompe o job. Vazio: nada roda.
-    #   Precisa de uma versao especifica de runtime? Resolva aqui; mudanca de
-    #   PATH so chega ao agente se gravada em $GITHUB_PATH.
     # - quality_checks: verificacao rodada pelo agente antes de abrir o PR.
     #   Vazio: o PR sai declarando que nao houve verificacao.
+    # - evidence_tools: prefixos de comando liberados para subir o projeto e
+    #   capturar evidencias; liga o QA independente (issue-qa). Vazio: sem QA.
+    # - evidence_bucket / evidence_public_url / evidence_endpoint: bucket S3
+    #   que recebe as evidencias, para renderizarem inline no PR. Vazio:
+    #   artifact da run, so com link.
     #
     # Este repositorio so tem skills em markdown e os manifestos do plugin,
-    # sem build nem testes, por isso vai sem os dois.
+    # sem build, testes nem app para capturar, por isso vai sem todos eles.
     secrets: inherit
