@@ -34,8 +34,8 @@ permissions:
 jobs:
   ai:
     uses: samuel-morrissey/ai-workflows/.github/workflows/router.yml@main
-    # Dois inputs, um comando por linha cada, usados pela etapa
-    # issue-remote-implement:
+    # Inputs da etapa issue-remote-implement (e do worker de sub-task), um
+    # comando por linha cada:
     #
     # - setup_commands: preparacao do ambiente, rodada pelo workflow antes de
     #   chamar o agente. Comando que falha interrompe o job. Vazio: nada roda.
@@ -43,8 +43,14 @@ jobs:
     #   PATH so chega ao agente se gravada em $GITHUB_PATH.
     # - quality_checks: verificacao rodada pelo agente antes de abrir o PR.
     #   Vazio: o PR sai declarando que nao houve verificacao.
+    # - evidence_tools: prefixos de comando que o agente e o QA independente
+    #   podem rodar para subir o projeto e capturar evidencias (prints, GIFs,
+    #   saidas). Liga o QA. Vazio: sem QA, e o PR declara isso.
+    # - evidence_bucket + evidence_public_url (+ evidence_endpoint fora da
+    #   AWS): bucket compativel com S3 que recebe as evidencias, para elas
+    #   renderizarem inline no PR. Vazio: artifact da run, so com link.
     #
-    # Este repositorio nao tem build nem testes, por isso vai sem os dois. No
+    # Este repositorio nao tem build nem testes, por isso vai sem eles. No
     # consumidor, descomente e ajuste:
     # with:
     #   setup_commands: |
@@ -52,8 +58,18 @@ jobs:
     #   quality_checks: |
     #     npm run typecheck
     #     npm test
+    #   evidence_tools: |
+    #     node
+    #     npx playwright
+    #     curl
+    #   evidence_bucket: s3://evidencias-caravela
+    #   evidence_public_url: https://pub-xxxx.r2.dev
+    #   evidence_endpoint: https://<account>.r2.cloudflarestorage.com
     # Passado pelo nome, e nao por `secrets: inherit`: o inherit so repassa
     # secret de organizacao quando o reutilizavel esta no mesmo dono. Um
-    # consumidor em outra organizacao ficaria sem o secret.
+    # consumidor em outra organizacao ficaria sem o secret. Os dois secrets do
+    # bucket sao opcionais: sem eles, as evidencias vao como artifact.
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
+      EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}

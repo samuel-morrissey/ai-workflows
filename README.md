@@ -104,6 +104,8 @@ O que precisa existir é o secret `CLAUDE_CODE_OAUTH_TOKEN` no lado do chamador.
 
    - `setup_commands`: prepara o ambiente do projeto (por exemplo `npm ci`). O **workflow** roda esses comandos, na ordem declarada, antes de chamar o Claude. Sem eles, `quality_checks` roda num checkout sem dependências instaladas. Se um comando falhar, o job para ali e o Claude não é chamado. Precisa de uma versão específica de runtime? Resolva dentro desses comandos, porque o fluxo não escolhe versão. Uma mudança de `PATH` só chega ao Claude se for gravada em `$GITHUB_PATH`. Sem esses comandos, nenhuma preparação roda.
    - `quality_checks`: os comandos de verificação do projeto. O **Claude** roda esses comandos antes de abrir o PR. Sem eles, o PR sai declarando que não houve verificação.
+   - `evidence_tools` (opcional): os prefixos de comando que o agente e o QA independente podem rodar para subir o projeto e capturar evidências (ex.: `node`, `npx playwright`, `curl`, `asciinema`). Liga o QA. Sem ele, o PR sai declarando que não houve QA. Veja [Evidências e QA](#evidências-e-qa).
+   - `evidence_bucket`, `evidence_public_url` e `evidence_endpoint` (opcionais): o bucket compatível com S3 que recebe as evidências, para elas renderizarem inline no PR. Sem bucket, as evidências vão como artifact da run, só com link.
 
 3. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
@@ -114,6 +116,45 @@ Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiti
 ```
 gh label create go --color 3FB950 --description "Pode seguir: roda a etapa do estado atual"
 ```
+
+## Evidências e QA
+
+A seção **Evidências** do PR mostra o antes e o depois no nível de quem usa: print, GIF, saída de comando, resposta de endpoint. No fluxo remoto quem captura não é o agente que implementou, e sim um **QA independente**: a skill `issue-qa`, rodada como subagente antes do PR abrir. Ele recebe só os critérios de aceite do issue, o roteiro de teste que o desenvolvedor escreveu para o PR (Configurando o ambiente e Como testar) e um checkout da branch. Não lê o diff. Executa o roteiro, captura o antes (na base) e o depois (na branch), e devolve uma tabela com um veredito por critério. O PR sai com essa tabela em **Critérios de aceite** e com as capturas em **Evidências**.
+
+O ciclo entre desenvolvedor e QA é limitado por regras fixas: no máximo duas rodadas de QA por run; só critério de aceite reprovado reabre o desenvolvedor (observações não); mesma falha nas duas rodadas, ou regressão entre elas, encerra o ciclo com o PR aberto mesmo assim, a tabela dizendo o que ficou em aberto e `awaiting-reply` no issue. O desenvolvedor não discute com o QA: corrige, ou declara no PR que não corrigiu e por quê. Cada rodada do QA nasce sem memória da anterior.
+
+Tudo isso é **opcional por repositório** e liga pelo input `evidence_tools`:
+
+1. **O que o agente pode rodar** vai em `evidence_tools`, um prefixo por linha. Cada linha vira uma permissão na allowlist, como em `quality_checks`. Para um app web, em geral basta `node` (para um script que sobe o servidor, espera a porta, captura e encerra), `npx playwright` e `curl`. Para um CLI, o próprio binário e, se quiser gravação de terminal, `asciinema` e `agg`. Linhas que citam `playwright`, `ffmpeg`, `asciinema` ou `agg` fazem o workflow instalar essas ferramentas antes de chamar o agente; o runner `ubuntu-latest` já traz Chrome, Chromium e Firefox, e navegador headless não precisa de tela.
+
+2. **Como capturar neste projeto** vai no próprio repositório, numa skill de projeto em `.claude/skills/evidencias/SKILL.md`: qual é a evidência ideal, como subir o app, porta, login de teste, seeds, como obter o antes e o que não fazer. O QA (e a `to-pr`, localmente) lê esse arquivo antes de capturar. Modelo em [`skills/issue-qa/EVIDENCIAS-PROJETO.md`](https://github.com/samuel-morrissey/claude-marketplace/blob/main/skills/issue-qa/EVIDENCIAS-PROJETO.md) no marketplace. Sem a skill, o QA segue um padrão por tipo de projeto (web, API, CLI, documento).
+
+3. **Onde as evidências ficam.** O agente grava tudo numa pasta fora do workspace, que nunca é commitada. Depois da rodada, o workflow publica a pasta:
+
+   - **Com bucket** (`evidence_bucket`, `evidence_public_url` e, fora da AWS, `evidence_endpoint`, mais os secrets `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY`): o workflow envia os arquivos para um prefixo imprevisível (`<repo>/<issue>/<run>-<aleatório>/`) decidido **antes** de chamar o agente, e passa a URL base a ele. Por isso o PR já nasce com as URLs finais e as imagens renderizam inline. Qualquer provedor compatível com S3 serve (S3, Cloudflare R2, MinIO, Backblaze). Configure o bucket com leitura pública e uma regra de ciclo de vida de 90 dias, que reproduz a retenção dos artifacts. Não use URL assinada: ela expira em no máximo 7 dias.
+   - **Sem bucket**, ou quando o upload falha: a pasta vai como artifact `evidencias-<issue>` da run, e o PR linka a run. Artifact não renderiza inline: a URL exige login e devolve um zip. Quando o upload para o bucket falha depois de o PR já ter sido escrito, o workflow troca as URLs do bucket no corpo do PR pelo link da run.
+
+   Exemplo com Cloudflare R2:
+
+   ```yaml
+   with:
+     evidence_tools: |
+       node
+       npx playwright
+       curl
+     evidence_bucket: s3://evidencias
+     evidence_public_url: https://pub-xxxx.r2.dev
+     evidence_endpoint: https://<account-id>.r2.cloudflarestorage.com
+   ```
+
+   ```
+   gh secret set EVIDENCE_ACCESS_KEY_ID --org caravelasistemas --visibility all
+   gh secret set EVIDENCE_SECRET_ACCESS_KEY --org caravelasistemas --visibility all
+   ```
+
+   O `ai.yml` do consumidor precisa repassar os dois secrets pelo nome (a cópia daqui já faz isso). Em repositório privado, só o bucket garante imagem inline: URL de arquivo do próprio repositório não renderiza em corpo de PR, porque o proxy de imagens do GitHub não autentica.
+
+Custo: a run passa a rodar o agente desenvolvedor mais até dois subagentes de QA, cada um subindo o app. Num projeto com banco e seed pesado, meça uma run antes de ligar; o teto de turnos do agente subiu de 150 para 200 por causa do QA. Vídeo: o Playwright grava `.webm`, mas o GitHub só mostra player para vídeo enviado pela interface; o QA converte para GIF com ffmpeg, e o `.webm` fica no bucket ou no artifact.
 
 ## Testar
 
@@ -133,6 +174,7 @@ Problemas comuns:
 - `ai.yml` (em cada repositório): declara os gatilhos (`on:`) e as permissões. O GitHub exige que esses dois fiquem no chamador.
 - `router.yml`: um job por etapa. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do marketplace `samuel-morrissey/claude-marketplace`) e tira o `work-in-progress` no fim.
+- `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas; depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR.
 - `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 
 Os `uses` apontam para `samuel-morrissey/ai-workflows/...@main`, e não para `./.github/workflows/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.
