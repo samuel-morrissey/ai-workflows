@@ -32,6 +32,45 @@ on:
         type: string
         required: false
         default: ""
+      evidence_tools:
+        description: >-
+          Prefixos de comando liberados ao agente para subir o projeto e
+          capturar evidencias, um por linha (ex.: `node`, `npx playwright`,
+          `curl`, `asciinema`). Cada linha vira Bash(<linha>:*) na allowlist e
+          e informada a skill. Liga o QA independente (skill issue-qa, ate
+          duas rodadas antes do PR). Linhas que citam playwright, ffmpeg,
+          asciinema ou agg fazem o workflow instalar essas ferramentas antes
+          de chamar o agente. Vazio: o QA nao roda e o PR declara isso.
+        type: string
+        required: false
+        default: ""
+      evidence_bucket:
+        description: >-
+          Destino das evidencias num bucket compativel com S3, no formato
+          `s3://bucket[/prefixo]`. O workflow envia a pasta de evidencias para
+          la depois da rodada, com as credenciais dos secrets
+          EVIDENCE_ACCESS_KEY_ID e EVIDENCE_SECRET_ACCESS_KEY. Exige
+          evidence_public_url. Vazio, ou upload que falha: as evidencias vao
+          como artifact da run, so com link no PR.
+        type: string
+        required: false
+        default: ""
+      evidence_public_url:
+        description: >-
+          URL publica que corresponde a raiz de evidence_bucket (ex.:
+          `https://pub-xxxx.r2.dev` ou
+          `https://bucket.s3.amazonaws.com/prefixo`). O agente escreve no PR
+          as URLs finais a partir dela antes do upload acontecer.
+        type: string
+        required: false
+        default: ""
+      evidence_endpoint:
+        description: >-
+          Endpoint S3 para provedores fora da AWS (ex.: Cloudflare R2,
+          MinIO). Vazio: AWS.
+        type: string
+        required: false
+        default: ""
       ai_workflows_ref:
         description: >-
           Ref de samuel-morrissey/ai-workflows de onde baixar o planner
@@ -43,6 +82,10 @@ on:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
+      EVIDENCE_ACCESS_KEY_ID:
+        required: false
+      EVIDENCE_SECRET_ACCESS_KEY:
+        required: false
 
 permissions:
   contents: write
@@ -157,11 +200,15 @@ jobs:
       # Mesmo tratamento de quality_checks do issue-remote-implement.yml: cada
       # linha vira prefixo na allowlist e item do system prompt. Aqui o system
       # prompt leva tambem o modo sub-task: o pai e a base da branch e do PR.
-      - name: Preparar modo sub-task e verificacao de qualidade
+      - name: Preparar modo sub-task, verificacao de qualidade e evidencias
         id: quality
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
         env:
           QUALITY_CHECKS: ${{ inputs.quality_checks }}
+          EVIDENCE_TOOLS: ${{ inputs.evidence_tools }}
+          EVIDENCE_BUCKET: ${{ inputs.evidence_bucket }}
+          EVIDENCE_PUBLIC_URL: ${{ inputs.evidence_public_url }}
+          GH_REPO: ${{ github.repository }}
           NUMBER: ${{ steps.target.outputs.number }}
           PARENT: ${{ steps.target.outputs.parent }}
           BASE: ${{ steps.target.outputs.base }}
@@ -174,16 +221,56 @@ jobs:
             ALLOW="${ALLOW},Bash(${line}:*)"
             LIST="${LIST}${LIST:+ ; }${line}"
           done <<<"$QUALITY_CHECKS"
-          echo "allow=$ALLOW" >> "$GITHUB_OUTPUT"
-          MODE="Modo sub-task: #${NUMBER} e sub-task do pai #${PARENT}. A branch sub-task-${NUMBER} nasce de origin/${BASE} e o PR tem base ${BASE}; o workflow ja calculou isso pela ordem da stack, nao recalcule."
+          SUBTASK="Modo sub-task: #${NUMBER} e sub-task do pai #${PARENT}. A branch sub-task-${NUMBER} nasce de origin/${BASE} e o PR tem base ${BASE}; o workflow ja calculou isso pela ordem da stack, nao recalcule."
           if [ -n "$LIST" ]; then
-            MODE="${MODE} Verificacao de qualidade: o workflow chamador liberou e pede que voce rode, nesta ordem, os comandos: ${LIST}"
+            QUALITY="Verificacao de qualidade: o workflow chamador liberou e pede que voce rode, nesta ordem, os comandos: ${LIST}."
             echo "::notice::quality_checks: ${LIST}"
           else
+            QUALITY="Verificacao de qualidade: nenhum comando liberado; siga sem verificacao e declare isso no PR."
             echo "::notice::Sem quality_checks: a skill segue sem verificacao e declara isso no PR."
           fi
-          echo "sysprompt=--append-system-prompt \"${MODE}\"" >> "$GITHUB_OUTPUT"
-          echo "::notice::${MODE}"
+          # Evidencias: pasta fora do workspace, prefixo imprevisivel no bucket e
+          # a frase que diz ao agente onde gravar, como referenciar e o que pode
+          # rodar. As URLs sao decididas AQUI, antes do agente, para o PR ja
+          # sair com elas; o upload acontece depois (passo "Publicar
+          # evidencias"). Sem bucket, o destino e o artifact da run.
+          EV_ALLOW=""
+          EV_LIST=""
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
+            EV_ALLOW="${EV_ALLOW},Bash(${line}:*)"
+            EV_LIST="${EV_LIST}${EV_LIST:+ ; }${line}"
+          done <<<"$EVIDENCE_TOOLS"
+          ALLOW="${ALLOW}${EV_ALLOW}"
+          echo "allow=$ALLOW" >> "$GITHUB_OUTPUT"
+          DIR="$RUNNER_TEMP/evidencias"
+          mkdir -p "$DIR"
+          PREFIX="${GH_REPO}/${NUMBER}/${GITHUB_RUN_ID}-$(openssl rand -hex 6)"
+          RUN_URL="${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+          if [ -n "$EVIDENCE_BUCKET" ] && [ -n "$EVIDENCE_PUBLIC_URL" ]; then
+            MODE=bucket
+            BASE_URL="${EVIDENCE_PUBLIC_URL%/}/${PREFIX}"
+            PUBLISH="Publicacao: depois da rodada cada arquivo dessa pasta estara publico em ${BASE_URL}/<nome-do-arquivo>; referencie imagens no PR como ![nome](${BASE_URL}/<arquivo>) e os demais arquivos como link para essa URL."
+          else
+            MODE=artifact
+            BASE_URL=""
+            PUBLISH="Publicacao: depois da rodada a pasta sera anexada como artifact evidencias-${NUMBER} da run ${RUN_URL}; no PR, linke a run e cite cada arquivo pelo nome (sem renderizacao inline)."
+            [ -n "$EVIDENCE_BUCKET" ] && echo "::warning::evidence_bucket sem evidence_public_url: evidencias vao como artifact."
+          fi
+          if [ -n "$EV_LIST" ]; then
+            TOOLS="Ferramentas liberadas para captura e QA: ${EV_LIST}."
+            echo "::notice::evidence_tools: ${EV_LIST} (publicacao: ${MODE})"
+          else
+            TOOLS="Ferramentas liberadas para captura e QA: nenhuma (o QA independente nao roda; declare isso no PR)."
+            echo "::notice::Sem evidence_tools: o QA independente nao roda."
+          fi
+          EVIDENCE="Evidencias: grave toda captura e o relatorio do QA na pasta ${DIR}, fora do workspace, sem commitar. ${PUBLISH} ${TOOLS}"
+          {
+            echo "dir=$DIR"; echo "prefix=$PREFIX"; echo "mode=$MODE"; echo "base_url=$BASE_URL"; echo "run_url=$RUN_URL"
+          } >> "$GITHUB_OUTPUT"
+          echo "sysprompt=--append-system-prompt \"${SUBTASK} ${QUALITY} ${EVIDENCE}\"" >> "$GITHUB_OUTPUT"
+          echo "::notice::${SUBTASK}"
 
       - name: Preparar ambiente do consumidor
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
@@ -204,6 +291,37 @@ jobs:
             echo "::notice::Sem setup_commands: nenhum comando de preparacao executado."
           fi
 
+      # Ferramentas de captura, instaladas so quando evidence_tools as cita.
+      # Depois do setup do consumidor, para o `npx playwright` usar a versao
+      # do projeto quando ela existe. Falha aqui nao derruba o job: o QA
+      # registra Ambiente falhou e o PR sai declarando.
+      - name: Instalar ferramentas de evidencia
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true' && inputs.evidence_tools != ''
+        env:
+          EVIDENCE_TOOLS: ${{ inputs.evidence_tools }}
+        run: |
+          if grep -qi 'playwright' <<<"$EVIDENCE_TOOLS"; then
+            echo "::group::playwright (chromium)"
+            npx --yes playwright install --with-deps chromium || echo "::warning::Falha ao instalar o Playwright; o QA vai registrar Ambiente falhou."
+            echo "::endgroup::"
+          fi
+          if grep -qiE 'ffmpeg|playwright' <<<"$EVIDENCE_TOOLS" && ! command -v ffmpeg >/dev/null; then
+            echo "::group::ffmpeg"
+            sudo apt-get install -y -qq ffmpeg || echo "::warning::Falha ao instalar o ffmpeg; gravacoes ficam em webm."
+            echo "::endgroup::"
+          fi
+          if grep -qi 'asciinema' <<<"$EVIDENCE_TOOLS" && ! command -v asciinema >/dev/null; then
+            echo "::group::asciinema"
+            sudo apt-get install -y -qq asciinema || echo "::warning::Falha ao instalar o asciinema."
+            echo "::endgroup::"
+          fi
+          if grep -qiw 'agg' <<<"$EVIDENCE_TOOLS" && ! command -v agg >/dev/null; then
+            echo "::group::agg"
+            (curl -fsSL https://github.com/asciinema/agg/releases/latest/download/agg-x86_64-unknown-linux-gnu -o /tmp/agg \
+              && sudo install -m 0755 /tmp/agg /usr/local/bin/agg) || echo "::warning::Falha ao instalar o agg; gravacoes de terminal ficam em .cast."
+            echo "::endgroup::"
+          fi
+
       - uses: anthropics/claude-code-action@v1
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
         env:
@@ -219,12 +337,104 @@ jobs:
           # ator nao humano por padrao. So esse bot e liberado.
           allowed_bots: "github-actions[bot],github-actions"
           # Mesma allowlist do issue-remote-implement.yml (a skill e a mesma),
-          # mais os prefixos derivados de quality_checks.
+          # com git worktree, Agent (QA independente como subagente) e os
+          # prefixos derivados de quality_checks e de evidence_tools.
           claude_args: |
             --model claude-opus-5-5
-            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite${{ steps.quality.outputs.allow }}"
-            --max-turns 150
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Bash(git worktree:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite,Agent${{ steps.quality.outputs.allow }}"
+            --max-turns 200
             ${{ steps.quality.outputs.sysprompt }}
+
+      # Publica o que o agente e o QA gravaram na pasta de evidencias. Com
+      # bucket: envia para o prefixo decidido antes da rodada, de modo que as
+      # URLs ja escritas no PR passem a responder. Sem bucket, ou com upload
+      # que falhou: a pasta vai como artifact da run e, se o PR citava URLs do
+      # bucket, o passo seguinte as troca pelo link da run. Pasta vazia: nada
+      # a fazer. Roda mesmo quando a action falhou, para nao perder captura.
+      - name: Publicar evidencias
+        id: publish
+        if: always() && steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true' && steps.quality.outcome == 'success'
+        env:
+          DIR: ${{ steps.quality.outputs.dir }}
+          MODE: ${{ steps.quality.outputs.mode }}
+          PREFIX: ${{ steps.quality.outputs.prefix }}
+          BASE_URL: ${{ steps.quality.outputs.base_url }}
+          BUCKET: ${{ inputs.evidence_bucket }}
+          ENDPOINT: ${{ inputs.evidence_endpoint }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
+        run: |
+          if [ ! -d "$DIR" ] || [ -z "$(ls -A "$DIR")" ]; then
+            echo "::notice::Pasta de evidencias vazia; nada a publicar."
+            echo "artifact=false" >> "$GITHUB_OUTPUT"; echo "relink=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Evidencias gravadas:"; ls -la "$DIR"
+          if [ "$MODE" = "bucket" ]; then
+            if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+              echo "::warning::Secrets EVIDENCE_ACCESS_KEY_ID/EVIDENCE_SECRET_ACCESS_KEY ausentes; caindo para artifact."
+            else
+              ARGS=()
+              if [ -n "$ENDPOINT" ]; then
+                ARGS+=(--endpoint-url "$ENDPOINT"); export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+              else
+                export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+              fi
+              if aws s3 cp "$DIR" "${BUCKET%/}/${PREFIX}/" --recursive --no-progress "${ARGS[@]}"; then
+                echo "::notice::Evidencias publicadas em ${BASE_URL}/"
+                echo "artifact=false" >> "$GITHUB_OUTPUT"; echo "relink=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "::warning::Upload para ${BUCKET} falhou; caindo para artifact da run."
+            fi
+            echo "relink=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relink=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "artifact=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.publish.outputs.artifact == 'true'
+        with:
+          name: evidencias-${{ steps.target.outputs.number }}
+          path: ${{ steps.quality.outputs.dir }}
+          if-no-files-found: ignore
+
+      # O PR foi escrito com URLs do bucket que nao vao responder: troca cada
+      # imagem e link por um link para a run, onde o artifact esta.
+      - name: Corrigir links de evidencia no PR
+        if: always() && steps.publish.outputs.relink == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+          BASE_URL: ${{ steps.quality.outputs.base_url }}
+          RUN_URL: ${{ steps.quality.outputs.run_url }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess, tempfile
+          number, base, run = os.environ["NUMBER"], os.environ["BASE_URL"], os.environ["RUN_URL"]
+          prs = json.loads(subprocess.check_output(
+              ["gh", "pr", "list", "--state", "open", "--limit", "50", "--json", "number,body"]))
+          closes = re.compile(r"Closes #%s\b" % re.escape(number))
+          pr = next((p for p in prs if closes.search(p.get("body") or "")), None)
+          if not pr:
+              print(f"::notice::Nenhum PR aberto com Closes #{number}; nada a corrigir.")
+              raise SystemExit(0)
+          body = pr["body"]
+          esc = re.escape(base)
+          # imagem -> link; link -> link; URL solta -> URL da run com o nome do arquivo
+          new = re.sub(r"!?\[([^\]]*)\]\(" + esc + r"/([^)\s]+)\)",
+                       lambda m: f"[{m.group(1) or m.group(2)}: {m.group(2)} no artifact da run]({run})", body)
+          new = re.sub(esc + r"/([^)\s<>]+)", lambda m: f"{run} (arquivo {m.group(1)} no artifact)", new)
+          new = new.replace(base, run)
+          if new == body:
+              print("::notice::O PR nao citava URLs do bucket; nada a corrigir.")
+              raise SystemExit(0)
+          with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
+              f.write(new)
+          subprocess.check_call(["gh", "pr", "edit", str(pr["number"]), "--body-file", f.name])
+          print(f"::notice::PR #{pr['number']}: links de evidencia apontados para o artifact da run.")
+          PY
 
       # Fim da rodada, com ou sem falha da action: tira o work-in-progress da
       # sub-task (so se foi este worker que o aplicou), consome um `go` que

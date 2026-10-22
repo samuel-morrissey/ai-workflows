@@ -69,6 +69,36 @@ on:
         type: string
         required: false
         default: ""
+      evidence_tools:
+        description: >-
+          Repassado ao implement e ao worker de sub-task: prefixos de comando
+          liberados ao agente para subir o projeto e capturar evidencias, um
+          por linha. Liga o QA independente.
+        type: string
+        required: false
+        default: ""
+      evidence_bucket:
+        description: >-
+          Repassado ao implement e ao worker de sub-task: bucket compativel
+          com S3 (`s3://bucket[/prefixo]`) que recebe as evidencias. Vazio:
+          artifact da run.
+        type: string
+        required: false
+        default: ""
+      evidence_public_url:
+        description: >-
+          Repassado ao implement e ao worker de sub-task: URL publica da raiz
+          de evidence_bucket.
+        type: string
+        required: false
+        default: ""
+      evidence_endpoint:
+        description: >-
+          Repassado ao implement e ao worker de sub-task: endpoint S3 fora da
+          AWS (R2, MinIO). Vazio: AWS.
+        type: string
+        required: false
+        default: ""
       ai_workflows_ref:
         description: >-
           Repassado ao implement e ao worker de sub-task: ref deste
@@ -80,6 +110,12 @@ on:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
+      # Credenciais do bucket de evidencias. Opcionais: sem elas, ou sem
+      # evidence_bucket, as evidencias vao como artifact da run.
+      EVIDENCE_ACCESS_KEY_ID:
+        required: false
+      EVIDENCE_SECRET_ACCESS_KEY:
+        required: false
 
 jobs:
   # Triagem:
@@ -195,9 +231,15 @@ jobs:
     with:
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
+      evidence_tools: ${{ inputs.evidence_tools }}
+      evidence_bucket: ${{ inputs.evidence_bucket }}
+      evidence_public_url: ${{ inputs.evidence_public_url }}
+      evidence_endpoint: ${{ inputs.evidence_endpoint }}
       ai_workflows_ref: ${{ inputs.ai_workflows_ref }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
+      EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
 
   # Sub-task: o planner do pai despachou a proxima (`repository_dispatch` do
   # tipo `ai-sub-task`), um humano aplicou `go` numa `[SUB-TASK]` aberta (roda
@@ -227,9 +269,15 @@ jobs:
     with:
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
+      evidence_tools: ${{ inputs.evidence_tools }}
+      evidence_bucket: ${{ inputs.evidence_bucket }}
+      evidence_public_url: ${{ inputs.evidence_public_url }}
+      evidence_endpoint: ${{ inputs.evidence_endpoint }}
       ai_workflows_ref: ${{ inputs.ai_workflows_ref }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
+      EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
 
   # PR mergeado numa branch que nao e a padrao: fecha os issues do `Closes`,
   # que o GitHub ignora fora da branch padrao. Na branch padrao o proprio
