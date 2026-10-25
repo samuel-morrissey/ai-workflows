@@ -122,6 +122,80 @@ on:
         required: false
 
 jobs:
+  # Autoverificacao do chamador. O ai.yml de cada consumidor e uma copia do
+  # modelo deste repositorio, e ninguem avisa quando o modelo muda (foi o
+  # caso do repository_dispatch: copia sem ele para na primeira sub-task).
+  # Este job compara o ai.yml do consumidor com o modelo, na ref do router,
+  # e, se divergir, avisa e abre no proprio consumidor um PR de atualizacao
+  # pelo doctor (scripts/doctor.py fix --only ai-yml): inputs inline do
+  # ai.yml antigo migram para .github/ai-workflows.yml no mesmo PR, e um PR
+  # ja aberto e atualizado, nunca duplicado. Igual ao modelo: nada acontece.
+  #
+  # Roda nos eventos em que um humano esta agindo (label em issue e
+  # comentario humano), nao nos elos da cadeia de sub-tasks nem no merge de
+  # PR. Nenhum job depende dele e ele nunca falha a run: erro vira aviso.
+  # Nao ha input para desliga-lo.
+  check-caller:
+    name: Check caller
+    if: >
+      (github.event_name == 'issues' && github.event.action == 'labeled') ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       github.event.comment.user.type != 'Bot')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Verificar o ai.yml do chamador
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REF: ${{ inputs.ai_workflows_ref }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set +e
+          SRC="repos/samuel-morrissey/ai-workflows/contents"
+          RAW="Accept: application/vnd.github.raw"
+          if ! gh api "$SRC/.github/workflows/ai.yml?ref=$REF" -H "$RAW" > "$RUNNER_TEMP/modelo.yml" \
+             || ! gh api "$SRC/scripts/doctor.py?ref=$REF" -H "$RAW" > "$RUNNER_TEMP/doctor.py"; then
+            echo "::warning::check-caller: nao foi possivel baixar o modelo ou o doctor de samuel-morrissey/ai-workflows@$REF; verificacao pulada."
+            exit 0
+          fi
+          gh api "repos/$GH_REPO/contents/.github/workflows/ai.yml?ref=$BRANCH" -H "$RAW" > "$RUNNER_TEMP/atual.yml" 2>/dev/null \
+            || : > "$RUNNER_TEMP/atual.yml"
+          DIFF="$(diff -u --label "ai.yml ($GH_REPO@$BRANCH)" --label "modelo (ai-workflows@$REF)" \
+            <(sed 's/[[:space:]]*$//' "$RUNNER_TEMP/atual.yml") <(sed 's/[[:space:]]*$//' "$RUNNER_TEMP/modelo.yml"))"
+          if [ -z "$DIFF" ]; then
+            echo "ai.yml igual ao modelo (ai-workflows@$REF)."
+            exit 0
+          fi
+          OUT="$(python3 -I "$RUNNER_TEMP/doctor.py" fix "$GH_REPO" --only ai-yml --ref "$REF" --json 2>"$RUNNER_TEMP/doctor.err")"
+          RC=$?
+          if [ "$RC" -eq 2 ] || [ -z "$OUT" ]; then
+            RESUMO="o doctor nao conseguiu abrir o PR de atualizacao ($(tr '\n' ' ' < "$RUNNER_TEMP/doctor.err" | cut -c1-300))"
+          else
+            RESUMO="$(printf '%s' "$OUT" | python3 -I -c '
+          import json, sys
+          r = json.load(sys.stdin)
+          f = next((x for x in r["findings"] if x["item"] == "ai-yml"), {})
+          acts = [a for a in r.get("actions", []) if a != "nada a corrigir"]
+          print((f.get("detail") or "") + ("" if not acts else " | " + "; ".join(acts)))')"
+          fi
+          echo "::warning title=ai.yml desatualizado::$GH_REPO: o .github/workflows/ai.yml difere do modelo de samuel-morrissey/ai-workflows@$REF. $RESUMO"
+          {
+            echo "## ai.yml desatualizado"
+            echo
+            echo "O \`.github/workflows/ai.yml\` de \`$GH_REPO\` difere do modelo de \`samuel-morrissey/ai-workflows@$REF\`."
+            echo
+            echo "$RESUMO"
+            echo
+            echo '```diff'
+            echo "$DIFF"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
   # Triagem:
   # - `needs-triage` aplicado por humano;
   # - `go` em issue aberto com `needs-triage` ou sem nenhum label de estado
