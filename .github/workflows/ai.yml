@@ -1,12 +1,25 @@
 name: AI
 
-# Chamador dos fluxos de IA. Roda nos issues deste repositorio e e o modelo
-# que os outros repositorios da organizacao copiam para
-# `.github/workflows/ai.yml` (passo a passo no README.md).
+# Chamador dos fluxos de IA de samuel-morrissey/ai-workflows: triagem,
+# refinamento, quebra em sub-tasks e implementacao a partir dos issues, com
+# QA independente e evidencias no PR.
 #
-# As regras (qual evento aciona qual etapa, guardas, labels) moram no
-# router.yml. Este arquivo so declara o que o GitHub exige que fique no
-# chamador: gatilhos (`on:`) e permissoes.
+# Este arquivo e IDENTICO em todo repositorio que usa o fluxo, inclusive
+# neste. Nao edite a copia: o que varia por repositorio mora fora dele.
+#
+# - Comandos do projeto (setup_commands, quality_checks, evidence_tools):
+#   em `.github/ai-workflows.yml`, lido pelo workflow depois do checkout.
+# - Bucket de evidencias: variaveis EVIDENCE_BUCKET, EVIDENCE_PUBLIC_URL e
+#   EVIDENCE_ENDPOINT, do repositorio ou da organizacao. Sem elas, as
+#   evidencias vao como artifact da run.
+# - Secrets: CLAUDE_CODE_OAUTH_TOKEN (obrigatorio), EVIDENCE_ACCESS_KEY_ID e
+#   EVIDENCE_SECRET_ACCESS_KEY (com bucket) e PROJECT_ENV (opcional: um .env
+#   com o que o ambiente do QA exige), do repositorio ou da organizacao.
+#
+# Passo a passo, verificacao e correcao: README.md e scripts/doctor.py em
+# samuel-morrissey/ai-workflows. As regras (qual evento aciona qual etapa,
+# guardas, labels) moram no router.yml de la. Este arquivo so declara o que o
+# GitHub exige que fique no chamador: gatilhos (`on:`) e permissoes.
 
 on:
   issues:
@@ -34,42 +47,17 @@ permissions:
 jobs:
   ai:
     uses: samuel-morrissey/ai-workflows/.github/workflows/router.yml@main
-    # Inputs da etapa issue-remote-implement (e do worker de sub-task), um
-    # comando por linha cada:
-    #
-    # - setup_commands: preparacao do ambiente, rodada pelo workflow antes de
-    #   chamar o agente. Comando que falha interrompe o job. Vazio: nada roda.
-    #   Precisa de uma versao especifica de runtime? Resolva aqui; mudanca de
-    #   PATH so chega ao agente se gravada em $GITHUB_PATH.
-    # - quality_checks: verificacao rodada pelo agente antes de abrir o PR.
-    #   Vazio: o PR sai declarando que nao houve verificacao.
-    # - evidence_tools: prefixos de comando que o agente e o QA independente
-    #   podem rodar para subir o projeto e capturar evidencias (prints, GIFs,
-    #   saidas). Liga o QA. Vazio: sem QA, e o PR declara isso.
-    # - evidence_bucket + evidence_public_url (+ evidence_endpoint fora da
-    #   AWS): bucket compativel com S3 que recebe as evidencias, para elas
-    #   renderizarem inline no PR. Vazio: artifact da run, so com link.
-    #
-    # Este repositorio nao tem build nem testes, por isso vai sem eles. No
-    # consumidor, descomente e ajuste:
-    # with:
-    #   setup_commands: |
-    #     npm ci
-    #   quality_checks: |
-    #     npm run typecheck
-    #     npm test
-    #   evidence_tools: |
-    #     node
-    #     npx playwright
-    #     curl
-    #   evidence_bucket: s3://evidencias-caravela
-    #   evidence_public_url: https://pub-xxxx.r2.dev
-    #   evidence_endpoint: https://<account>.r2.cloudflarestorage.com
-    # Passado pelo nome, e nao por `secrets: inherit`: o inherit so repassa
-    # secret de organizacao quando o reutilizavel esta no mesmo dono. Um
-    # consumidor em outra organizacao ficaria sem o secret. Os dois secrets do
-    # bucket sao opcionais: sem eles, as evidencias vao como artifact.
+    # O chamador enxerga as variaveis do proprio repositorio e da organizacao;
+    # variavel ausente resolve vazio, e o fluxo segue em modo artifact.
+    with:
+      evidence_bucket: ${{ vars.EVIDENCE_BUCKET }}
+      evidence_public_url: ${{ vars.EVIDENCE_PUBLIC_URL }}
+      evidence_endpoint: ${{ vars.EVIDENCE_ENDPOINT }}
+    # Passados pelo nome, e nao por `secrets: inherit`: o inherit so repassa
+    # secret de organizacao quando o reutilizavel esta no mesmo dono. Secret
+    # ausente chega vazio e o fluxo trata como opcional.
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
       EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
+      PROJECT_ENV: ${{ secrets.PROJECT_ENV }}

@@ -86,6 +86,10 @@ on:
         required: false
       EVIDENCE_SECRET_ACCESS_KEY:
         required: false
+      # Variaveis do projeto para o ambiente do QA, no formato de um .env.
+      # Opcional: sem ele, nenhuma variavel e carregada.
+      PROJECT_ENV:
+        required: false
 
 permissions:
   contents: write
@@ -197,6 +201,60 @@ jobs:
             gh issue edit "$NUMBER" --remove-label go
           fi
 
+      # O consumidor pode trazer os seis inputs num arquivo versionado,
+      # .github/ai-workflows.yml, em vez do bloco `with:` do ai.yml. Assim o
+      # ai.yml fica identico em todo consumidor e so o arquivo varia. Chave do
+      # arquivo vence o input de mesmo nome; chave ausente deixa o input valer;
+      # sem arquivo, nada muda. So escalar de texto e bloco literal (`|`) sao
+      # aceitos: outro tipo de valor falha aqui, antes do agente.
+      - name: Ler configuracao do repositorio
+        id: config
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        env:
+          CONFIG_FILE: .github/ai-workflows.yml
+          IN_SETUP_COMMANDS: ${{ inputs.setup_commands }}
+          IN_QUALITY_CHECKS: ${{ inputs.quality_checks }}
+          IN_EVIDENCE_TOOLS: ${{ inputs.evidence_tools }}
+          IN_EVIDENCE_BUCKET: ${{ inputs.evidence_bucket }}
+          IN_EVIDENCE_PUBLIC_URL: ${{ inputs.evidence_public_url }}
+          IN_EVIDENCE_ENDPOINT: ${{ inputs.evidence_endpoint }}
+        run: |
+          KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint"
+          emit() {
+            local d="EOF_$(openssl rand -hex 8)"
+            { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_OUTPUT"
+          }
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "::notice::Sem ${CONFIG_FILE}: valem os inputs do ai.yml."
+            for k in $KEYS; do v="IN_$(tr a-z A-Z <<<"$k")"; emit "$k" "${!v}"; done
+            exit 0
+          fi
+          if ! yq -e 'type == "!!map"' "$CONFIG_FILE" >/dev/null 2>&1; then
+            echo "::error file=${CONFIG_FILE}::${CONFIG_FILE} precisa ser um mapa chave: valor."
+            exit 1
+          fi
+          for k in $(yq -r 'keys | .[]' "$CONFIG_FILE"); do
+            case " $KEYS " in
+              *" $k "*) ;;
+              *) echo "::warning file=${CONFIG_FILE}::Chave desconhecida ignorada: ${k}" ;;
+            esac
+          done
+          for k in $KEYS; do
+            v="IN_$(tr a-z A-Z <<<"$k")"
+            if [ "$(yq -r "has(\"$k\")" "$CONFIG_FILE")" = "true" ]; then
+              tag="$(yq -r ".${k} | tag" "$CONFIG_FILE")"
+              if [ "$tag" != "!!str" ]; then
+                echo "::error file=${CONFIG_FILE}::${k} precisa ser texto (escalar ou bloco |), e veio como ${tag}."
+                exit 1
+              fi
+              [ -n "${!v}" ] && echo "::notice::${k}: o valor de ${CONFIG_FILE} vence o input do ai.yml."
+              emit "$k" "$(yq -r ".${k}" "$CONFIG_FILE")"
+            else
+              emit "$k" "${!v}"
+            fi
+          done
+          echo "::notice::Configuracao lida de ${CONFIG_FILE}."
+
       # Mesmo tratamento de quality_checks do issue-remote-implement.yml: cada
       # linha vira prefixo na allowlist e item do system prompt. Aqui o system
       # prompt leva tambem o modo sub-task: o pai e a base da branch e do PR.
@@ -204,10 +262,10 @@ jobs:
         id: quality
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
         env:
-          QUALITY_CHECKS: ${{ inputs.quality_checks }}
-          EVIDENCE_TOOLS: ${{ inputs.evidence_tools }}
-          EVIDENCE_BUCKET: ${{ inputs.evidence_bucket }}
-          EVIDENCE_PUBLIC_URL: ${{ inputs.evidence_public_url }}
+          QUALITY_CHECKS: ${{ steps.config.outputs.quality_checks }}
+          EVIDENCE_TOOLS: ${{ steps.config.outputs.evidence_tools }}
+          EVIDENCE_BUCKET: ${{ steps.config.outputs.evidence_bucket }}
+          EVIDENCE_PUBLIC_URL: ${{ steps.config.outputs.evidence_public_url }}
           GH_REPO: ${{ github.repository }}
           NUMBER: ${{ steps.target.outputs.number }}
           PARENT: ${{ steps.target.outputs.parent }}
@@ -272,10 +330,50 @@ jobs:
           echo "sysprompt=--append-system-prompt \"${SUBTASK} ${QUALITY} ${EVIDENCE}\"" >> "$GITHUB_OUTPUT"
           echo "::notice::${SUBTASK}"
 
+      # Secrets do projeto que o ambiente do QA exige (ex.: chave de teste de
+      # um servico de autenticacao sem emulador). Vem num unico secret,
+      # PROJECT_ENV, no formato de um .env. Cada valor e mascarado no log e
+      # gravado em $GITHUB_ENV, de onde chega a setup_commands, a
+      # quality_checks, ao agente e ao QA. Sem o secret, nada acontece.
+      - name: Carregar variaveis do projeto
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        env:
+          PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
+        run: |
+          if [ -z "$PROJECT_ENV" ]; then
+            echo "::notice::Sem PROJECT_ENV: nenhuma variavel do projeto carregada."
+            exit 0
+          fi
+          N=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            case "$line" in ''|'#'*) continue ;; esac
+            line="${line#export }"
+            if [[ "$line" != *=* ]]; then
+              echo "::warning::PROJECT_ENV: linha sem '=' ignorada."
+              continue
+            fi
+            key="${line%%=*}"
+            val="${line#*=}"
+            key="${key%"${key##*[![:space:]]}"}"
+            if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+              echo "::warning::PROJECT_ENV: nome de variavel invalido ignorado: ${key}"
+              continue
+            fi
+            if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
+              val="${BASH_REMATCH[1]}"
+            fi
+            [ -n "$val" ] && echo "::add-mask::$val"
+            d="EOF_$(openssl rand -hex 8)"
+            { echo "${key}<<${d}"; printf '%s\n' "$val"; echo "$d"; } >> "$GITHUB_ENV"
+            N=$((N + 1))
+          done <<<"$PROJECT_ENV"
+          echo "::notice::PROJECT_ENV: ${N} variavel(is) do projeto carregada(s)."
+
       - name: Preparar ambiente do consumidor
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
         env:
-          SETUP_COMMANDS: ${{ inputs.setup_commands }}
+          SETUP_COMMANDS: ${{ steps.config.outputs.setup_commands }}
         run: |
           set -e
           RAN=0
@@ -296,9 +394,9 @@ jobs:
       # do projeto quando ela existe. Falha aqui nao derruba o job: o QA
       # registra Ambiente falhou e o PR sai declarando.
       - name: Instalar ferramentas de evidencia
-        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true' && inputs.evidence_tools != ''
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true' && steps.config.outputs.evidence_tools != ''
         env:
-          EVIDENCE_TOOLS: ${{ inputs.evidence_tools }}
+          EVIDENCE_TOOLS: ${{ steps.config.outputs.evidence_tools }}
         run: |
           if grep -qi 'playwright' <<<"$EVIDENCE_TOOLS"; then
             echo "::group::playwright (chromium)"
@@ -359,8 +457,8 @@ jobs:
           MODE: ${{ steps.quality.outputs.mode }}
           PREFIX: ${{ steps.quality.outputs.prefix }}
           BASE_URL: ${{ steps.quality.outputs.base_url }}
-          BUCKET: ${{ inputs.evidence_bucket }}
-          ENDPOINT: ${{ inputs.evidence_endpoint }}
+          BUCKET: ${{ steps.config.outputs.evidence_bucket }}
+          ENDPOINT: ${{ steps.config.outputs.evidence_endpoint }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
         run: |
