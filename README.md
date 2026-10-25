@@ -1,6 +1,6 @@
 # ai-workflows
 
-Workflows reutilizáveis do GitHub Actions que levam o fluxo de issues da Caravela para o Claude: triagem, refinamento, quebra em sub-tasks e implementação.
+Workflows reutilizáveis do GitHub Actions que levam o fluxo de issues da Caravela para o Claude: triagem, refinamento, quebra em sub-tasks e implementação. As skills que cada etapa roda moram aqui também, em `skills/`, publicadas como o plugin `samuel-morrissey-skills` do marketplace `samuel-morrissey-ai-workflows` (este repositório é o marketplace). Workflow e skill mudam juntos, num só PR.
 
 Cada repositório da organização tem um único arquivo, `.github/workflows/ai.yml`. Ele chama o `router.yml` daqui, e o router escolhe a etapa que o evento aciona.
 
@@ -71,6 +71,50 @@ Comentário só dispara etapa em issue com `awaiting-reply`. Fora disso, comente
 
 Para tirar um issue do fluxo, coloque `wontfix` (não será feito) ou `deferred` (não agora). Comentar o motivo é opcional: a triagem roda, tira o label de estado anterior, fecha o issue e registra o motivo. Para retomar um `deferred`, reabra o issue, tire `deferred` e coloque de volta o label de estado que o comentário de fechamento registrou. Um `priority` colocado por você marca o issue como prioritário dentro do estado dele; as etapas também o colocam quando você decide a prioridade numa resposta.
 
+## Skills
+
+As skills do fluxo. Cada etapa dos workflows invoca a sua com o número do issue como argumento (`/samuel-morrissey-skills:issue-triage 42`).
+
+### Etapas do fluxo
+
+Na ordem em que um issue percorre o fluxo.
+
+- **issue-triage** — triagem de um issue cru: investiga o código, atribui tipo (MAP/SPEC/pontual) e label de estado. Entrega issue pontual com brief pronto, MAP/SPEC para a próxima etapa, ou fecha como `wontfix` (já rejeitado ou implementado) ou `deferred` (despriorizado pelo humano).
+- **issue-refinement** — refinamento assíncrono de um issue `needs-refinement`: investiga o código, pergunta em rodadas pelo próprio issue até a fronteira de decisões esvaziar, registra o refinamento em comentário e entrega o issue em `needs-break-down`.
+- **issue-break-down** — quebra um issue `needs-break-down` em sub-tasks: fatias verticais que vão para produção sozinhas, cada uma com brief e critérios de aceite, ligadas ao pai como sub-issues com bloqueios nativos. Entrega o pai em `ready-for-agent` ou `ready-for-human`.
+- **issue-remote-implement** — implementa um issue em uma rodada que termina em um PR: num pontual `ready-for-agent`, o PR dele; numa `[SUB-TASK]` despachada pelo workflow, o PR da camada dela na stack do pai. Desenvolve test-first nos critérios de aceite e passa por até duas rodadas de QA independente (`issue-qa`) antes de abrir o PR. Num pai com sub-tasks, quem orquestra (uma sub-task por vez, PRs empilhados) é o planner de `issue-remote-implement.yml`.
+- **issue-qa** — analista de qualidade cego ao diff: executa o roteiro de QA do PR (Configurando o ambiente e Como testar) contra os critérios de aceite do issue, captura evidências antes/depois (prints, GIFs, saídas) e devolve um veredito por critério. Roda como subagente da `issue-remote-implement`; só critério de aceite reprova, e cada rodada nasce sem memória da anterior. Traz em [`EVIDENCIAS-PROJETO.md`](skills/issue-qa/EVIDENCIAS-PROJETO.md) o modelo da skill de projeto `evidencias` (veja [Evidências e QA](#evidências-e-qa)).
+
+### Convenções do fluxo
+
+Skills de apoio que as etapas acima seguem.
+
+- **issue-labeling** — vocabulário canônico: tipos (MAP, SPEC, SUB-TASK e os pontuais), labels de estado (`needs-*`, `ready-for-*`, `awaiting-pr-review`, `wontfix`, `deferred`), labels de trabalho, espera e prioridade (`work-in-progress`, `awaiting-reply`, `priority`) e regras de transição.
+- **issue-git-flow** — estrutura de git do fluxo: nome e base de cada branch, vínculo entre PR e issue ou sub-issue, a stack de PRs de um pai e como cada issue fecha.
+- **issue-async-first** — trabalho assíncrono por essência: esgota tudo que não depende de humano, agrupa toda intervenção em uma única mensagem e, quando impeditiva, para deixando handoff completo.
+- **grilling** — questionamento em lote: monta a fronteira de decisões em aberto, pergunta tudo de uma vez com recomendação e reserva fatos para investigação própria.
+
+### Pull requests
+
+- **to-pr** — abre um pull request, ou redige o texto recomendado para um existente.
+- **remote-to-pr** — abre um PR em fluxo remoto e assíncrono, sem ninguém para responder: segue a `to-pr` inteira, monta Evidências e Critérios de aceite a partir do relatório da `issue-qa` e abre direto, sem perguntar.
+
+### Utilitários
+
+- **80-20** — modo Pareto: maior retorno com o menor esforço na tarefa dada.
+- **hello-issue** — skill de exemplo que valida a integração entre o marketplace e um repositório consumidor, publicando um comentário no issue informado.
+
+### Usar as skills localmente
+
+As mesmas skills servem no Claude Code da sua máquina. O marketplace é este repositório:
+
+```
+/plugin marketplace add samuel-morrissey/ai-workflows
+/plugin install samuel-morrissey-skills@samuel-morrissey-ai-workflows
+```
+
+Quem tinha o marketplace antigo (`samuel-morrissey/claude-marketplace`) troca pelo novo: remova o antigo (`/plugin marketplace remove samuel-morrissey-claude-marketplace`) e rode os dois comandos acima. Em `settings.json`, a chave de `enabledPlugins` passa a ser `samuel-morrissey-skills@samuel-morrissey-ai-workflows`, e a entrada de `extraKnownMarketplaces` aponta para `samuel-morrissey/ai-workflows`.
+
 ## Configuração da organização (uma vez só)
 
 Este repositório é público. Qualquer repositório, de qualquer conta ou organização, pode chamar os workflows daqui sem liberação de acesso.
@@ -127,7 +171,7 @@ Tudo isso é **opcional por repositório** e liga pelo input `evidence_tools`:
 
 1. **O que o agente pode rodar** vai em `evidence_tools`, um prefixo por linha. Cada linha vira uma permissão na allowlist, como em `quality_checks`. Para um app web, em geral basta `node` (para um script que sobe o servidor, espera a porta, captura e encerra), `npx playwright` e `curl`. Para um CLI, o próprio binário e, se quiser gravação de terminal, `asciinema` e `agg`. Linhas que citam `playwright`, `ffmpeg`, `asciinema` ou `agg` fazem o workflow instalar essas ferramentas antes de chamar o agente; o runner `ubuntu-latest` já traz Chrome, Chromium e Firefox, e navegador headless não precisa de tela.
 
-2. **Como capturar neste projeto** vai no próprio repositório, numa skill de projeto em `.claude/skills/evidencias/SKILL.md`: qual é a evidência ideal, como subir o app, porta, login de teste, seeds, como obter o antes e o que não fazer. O QA (e a `to-pr`, localmente) lê esse arquivo antes de capturar. Modelo em [`skills/issue-qa/EVIDENCIAS-PROJETO.md`](https://github.com/samuel-morrissey/claude-marketplace/blob/main/skills/issue-qa/EVIDENCIAS-PROJETO.md) no marketplace. Sem a skill, o QA segue um padrão por tipo de projeto (web, API, CLI, documento).
+2. **Como capturar neste projeto** vai no próprio repositório, numa skill de projeto em `.claude/skills/evidencias/SKILL.md`: qual é a evidência ideal, como subir o app, porta, login de teste, seeds, como obter o antes e o que não fazer. O QA (e a `to-pr`, localmente) lê esse arquivo antes de capturar. Modelo em [`skills/issue-qa/EVIDENCIAS-PROJETO.md`](skills/issue-qa/EVIDENCIAS-PROJETO.md). Sem a skill, o QA segue um padrão por tipo de projeto (web, API, CLI, documento).
 
 3. **Onde as evidências ficam.** O agente grava tudo numa pasta fora do workspace, que nunca é commitada. Depois da rodada, o workflow publica a pasta:
 
@@ -173,8 +217,9 @@ Problemas comuns:
 
 - `ai.yml` (em cada repositório): declara os gatilhos (`on:`) e as permissões. O GitHub exige que esses dois fiquem no chamador.
 - `router.yml`: um job por etapa. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
-- `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do marketplace `samuel-morrissey/claude-marketplace`) e tira o `work-in-progress` no fim.
+- `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas; depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR.
+- `.claude-plugin/` e `skills/`: o marketplace e o plugin. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um único plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas instalam o plugin pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
 - `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 
 Os `uses` apontam para `samuel-morrissey/ai-workflows/...@main`, e não para `./.github/workflows/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.

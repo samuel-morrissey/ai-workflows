@@ -336,8 +336,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: "https://github.com/samuel-morrissey/claude-marketplace.git"
-          plugins: "samuel-morrissey-skills@samuel-morrissey-claude-marketplace"
+          plugin_marketplaces: "https://github.com/samuel-morrissey/ai-workflows.git"
+          plugins: "samuel-morrissey-skills@samuel-morrissey-ai-workflows"
           prompt: "/samuel-morrissey-skills:issue-remote-implement ${{ steps.target.outputs.number }}"
           # Tira o rodape "Generated with Claude Code" do PR. O Co-Authored-By
           # dos commits fica (attribution.commit sem valor mantem o padrao).

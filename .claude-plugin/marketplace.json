@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "samuel-morrissey-ai-workflows",
+  "owner": {
+    "name": "Samuel de Lima",
+    "url": "https://github.com/samuel-morrissey"
+  },
+  "description": "Marketplace pessoal: as skills do fluxo de issues, no mesmo repositorio dos workflows que as rodam.",
+  "plugins": [
+    {
+      "name": "samuel-morrissey-skills",
+      "source": "./",
+      "description": "Skills do fluxo de issues: triagem, refinamento, quebra em sub-tasks, implementacao com QA independente e abertura de PRs.",
+      "category": "engineering",
+      "keywords": [
+        "engineering",
+        "skills",
+        "tdd",
+        "code-review",
+        "grilling"
+      ]
+    }
+  ]
+}

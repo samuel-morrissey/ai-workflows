@@ -10,7 +10,7 @@ Usado por dois workflows reutilizaveis deste repositorio:
 Fala com o GitHub so por `gh api` (token do workflow em GH_TOKEN, repositorio
 em GH_REPO como `owner/repo`). Nao roda agente: tudo aqui e regra fixa.
 
-Conceitos (a `issue-git-flow` e a `issue-labeling` do marketplace sao a
+Conceitos (a `issue-git-flow` e a `issue-labeling` em skills/ sao a
 referencia):
 
 - A branch de uma sub-task chama `sub-task-<numero>`; e por ela que o PR da
