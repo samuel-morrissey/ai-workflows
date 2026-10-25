@@ -1,0 +1,5 @@
+# Comandos deste repositorio para o fluxo de IA (samuel-morrissey/ai-workflows).
+# Chaves: setup_commands, quality_checks, evidence_tools, um comando por linha.
+#
+# Este repositorio nao tem build, lint nem suite: o arquivo existe vazio para
+# dizer isso de forma explicita ao doctor (scripts/doctor.py).

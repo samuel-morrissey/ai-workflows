@@ -191,6 +191,16 @@ Antes de `setup_commands`, o workflow lê cada linha `CHAVE=VALOR`, mascara o va
 
 ## Configurar um repositório
 
+O caminho curto é o `doctor`: ele confere cada item da seção anterior e corrige o que não exige decisão humana.
+
+```
+python3 scripts/doctor.py check <owner/repo>
+python3 scripts/doctor.py fix <owner/repo>
+```
+
+O que ele faz à mão está nos passos abaixo; o que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels) ele aponta para a skill `setup-repo`.
+
+
 1. Copie o chamador, sem alterar nada nele:
 
    ```
@@ -205,6 +215,45 @@ Antes de `setup_commands`, o workflow lê cada linha `CHAVE=VALOR`, mascara o va
 4. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
 Quando o `ai.yml` daqui muda, a cópia de cada repositório precisa ser atualizada: repita o passo 1, sem nada a reaplicar, porque o arquivo não carrega valor do projeto. Foi o caso do `repository_dispatch`, que a cadeia de sub-tasks usa: um `ai.yml` sem ele implementa a primeira sub-task e para ali, sem empilhar nem seguir.
+
+### Verificar e corrigir: o `doctor`
+
+`scripts/doctor.py` verifica um repositório consumidor item por item e, com `fix`, corrige o que é seguro corrigir. Rodar duas vezes não muda nada na segunda: cada correção só acontece quando o item não está `ok`. Ele fala com o GitHub pelo `gh` e não tem dependência além do Python 3.
+
+```
+python3 scripts/doctor.py check caravelasistemas/caravela-www
+python3 scripts/doctor.py fix caravelasistemas/caravela-www
+python3 scripts/doctor.py check --all caravelasistemas samuel-morrissey
+python3 scripts/doctor.py fix samuel-morrissey/life-os --only ai-yml,vars
+```
+
+| Item | Verifica | `fix` |
+| --- | --- | --- |
+| `ai-yml` | `.github/workflows/ai.yml` da branch padrão igual ao modelo daqui (`--ref`, padrão `main`) | abre um PR no repositório com o arquivo novo, na branch `ai-workflows/doctor`; se o `ai.yml` atual tem inputs inline em `with:`, o mesmo PR cria `.github/ai-workflows.yml` com eles. PR já aberto é atualizado, não duplicado |
+| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo` |
+| `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
+| `vars` | `EVIDENCE_BUCKET`, `EVIDENCE_PUBLIC_URL`, `EVIDENCE_ENDPOINT` com os valores do `config.env` | grava na organização (dono organização) ou no repositório (dono conta) |
+| `labels` | label `go` | cria com cor e descrição canônicas. Labels existentes nunca são editados; colisões (`priority-*`, tipos como label) saem como `info` |
+| `evidencias` | `.claude/skills/evidencias/SKILL.md` com as cinco seções do modelo | nada: aponta a skill `setup-repo` |
+| `topic` | topic `ai-workflows` no repositório, que é o inventário do `--all` | adiciona |
+| `bucket` | a URL pública responde HTTP | nada: só informativo |
+
+Estados: `ok`, `falta`, `diverge`, `manual` (exige humano; o relatório traz o comando ou a skill) e `info`. Saída 0 quando tudo é `ok` ou `info`, 1 quando há algo a corrigir, 2 em erro de acesso. `--json` imprime o relatório em JSON, para a skill `setup-repo` e para o job do router. `--only item,item` restringe aos itens dados.
+
+Os valores do dono vêm de um `.env` fora de qualquer repositório, `~/.config/ai-workflows/config.env` (ou o caminho em `AI_WORKFLOWS_CONFIG`):
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=...
+EVIDENCE_ACCESS_KEY_ID=...
+EVIDENCE_SECRET_ACCESS_KEY=...
+EVIDENCE_BUCKET=s3://evidencias
+EVIDENCE_PUBLIC_URL=https://pub-xxxx.r2.dev
+EVIDENCE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+```
+
+O GitHub não devolve o valor de um secret, então o `doctor` confirma a existência e regrava a partir do arquivo só quando falta. Variáveis são legíveis: aí ele compara o valor e reporta `diverge`. Sem o arquivo, ou sem a chave, o item sai como `manual` com o `gh secret set` ou `gh variable set` para fazer à mão. Num repositório sem build nem testes, crie `.github/ai-workflows.yml` só com comentários: é o jeito de dizer ao `doctor` que a ausência de comandos é decisão, não esquecimento.
+
+Os testes das partes puras do script (leitor do arquivo de configuração, extração dos inputs inline, `config.env`, comparação e relatório) rodam com `python3 scripts/test_doctor.py`.
 
 Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`, `deferred`, `priority`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam `work-in-progress` e `go`. Como o `go` é você quem coloca, ele só existe depois da primeira etapa rodar no repositório; para tê-lo desde o início, crie antes:
 
