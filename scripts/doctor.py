@@ -58,7 +58,8 @@ AI_YML = ".github/workflows/ai.yml"
 CONFIG_FILE = ".github/ai-workflows.yml"
 SKILL_FILE = ".claude/skills/evidencias/SKILL.md"
 TOPIC = "ai-workflows"
-DOCTOR_BRANCH = "ai-workflows/doctor"
+BRANCH_PREFIX = "ai-workflows/"
+DOCTOR_BRANCH = BRANCH_PREFIX + "doctor"
 CONFIG_KEYS = ("setup_commands", "quality_checks", "evidence_tools",
                "evidence_bucket", "evidence_public_url", "evidence_endpoint")
 VAR_NAMES = ("EVIDENCE_BUCKET", "EVIDENCE_PUBLIC_URL", "EVIDENCE_ENDPOINT")
@@ -426,24 +427,35 @@ class Repo:
 
 def check_ai_yml(repo):
     desired = repo.template
-    if repo.ai_yml is None:
-        return Finding("ai-yml", "falta", f"{AI_YML} nao existe na branch {repo.default_branch}",
-                       fix=f"python3 scripts/doctor.py fix {repo.full} --only ai-yml", fixer=fix_ai_yml)
-    if normalize(repo.ai_yml) == normalize(desired):
+    if repo.ai_yml is not None and normalize(repo.ai_yml) == normalize(desired):
         return Finding("ai-yml", "ok", f"igual ao modelo ({TEMPLATE_REPO}@{repo.ref})")
-    detail = "diferente do modelo"
-    if repo.inline:
-        detail += f"; inputs inline em with: ({', '.join(sorted(repo.inline))}) migram para {CONFIG_FILE}"
-    pr = doctor_pr(repo)
-    if pr:
-        # PR do doctor ja aberto: se a branch dele ja traz o modelo, so falta
-        # o merge, que e humano. Senao, o fix atualiza a branch.
-        on_branch = fetch_file(repo.full, AI_YML, DOCTOR_BRANCH)
+    if repo.ai_yml is None:
+        status, detail = "falta", f"{AI_YML} nao existe na branch {repo.default_branch}"
+    else:
+        status, detail = "diverge", "diferente do modelo"
+        if repo.inline:
+            detail += f"; inputs inline em with: ({', '.join(sorted(repo.inline))}) migram para {CONFIG_FILE}"
+    # Um PR aberto de uma branch ai-workflows/* (do doctor ou da skill
+    # setup-repo) que ja traz o modelo resolve o item: so falta o merge, que
+    # e humano. Abrir outro PR seria duplicar.
+    for pr in model_prs(repo):
+        on_branch = fetch_file(repo.full, AI_YML, pr["headRefName"])
         if on_branch is not None and normalize(on_branch) == normalize(desired):
-            return Finding("ai-yml", "manual", f"{detail}; PR do doctor aberto, falta o merge: {pr['url']}")
-        detail += f"; PR do doctor desatualizado: {pr['url']}"
-    return Finding("ai-yml", "diverge", detail,
+            return Finding("ai-yml", "manual", f"{detail}; PR aberto com o modelo, falta o merge: {pr['url']}")
+        if pr["headRefName"] == DOCTOR_BRANCH:
+            detail += f"; PR do doctor desatualizado: {pr['url']}"
+    return Finding("ai-yml", status, detail,
                    fix=f"python3 scripts/doctor.py fix {repo.full} --only ai-yml", fixer=fix_ai_yml)
+
+
+def model_prs(repo):
+    """PRs abertos para a branch padrao vindos de branches ai-workflows/*."""
+    out = gh("pr", "list", "-R", repo.full, "--base", repo.default_branch, "--state", "open",
+             "--limit", "100", "--json", "number,url,headRefName", check=False)
+    if out.returncode != 0:
+        return []
+    prs = json.loads(out.stdout or "[]")
+    return [pr for pr in prs if pr["headRefName"].startswith(BRANCH_PREFIX)]
 
 
 def doctor_pr(repo):

@@ -236,7 +236,7 @@ python3 scripts/doctor.py fix samuel-morrissey/life-os --only ai-yml,vars
 
 | Item | Verifica | `fix` |
 | --- | --- | --- |
-| `ai-yml` | `.github/workflows/ai.yml` da branch padrão igual ao modelo daqui (`--ref`, padrão `main`) | abre um PR no repositório com o arquivo novo, na branch `ai-workflows/doctor`; se o `ai.yml` atual tem inputs inline em `with:`, o mesmo PR cria `.github/ai-workflows.yml` com eles. PR já aberto é atualizado, não duplicado |
+| `ai-yml` | `.github/workflows/ai.yml` da branch padrão igual ao modelo daqui (`--ref`, padrão `main`) | abre um PR no repositório com o arquivo novo, na branch `ai-workflows/doctor`; se o `ai.yml` atual tem inputs inline em `with:`, o mesmo PR cria `.github/ai-workflows.yml` com eles. PR já aberto é atualizado, não duplicado, e um PR aberto de qualquer branch `ai-workflows/*` que já traga o modelo, como o da skill `setup-repo`, conta como resolvido até o merge |
 | `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo` |
 | `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
 | `vars` | `EVIDENCE_BUCKET`, `EVIDENCE_PUBLIC_URL`, `EVIDENCE_ENDPOINT` com os valores do `config.env` | grava na organização (dono organização) ou no repositório (dono conta) |
