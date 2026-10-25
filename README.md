@@ -221,7 +221,7 @@ Os passos abaixo são o mesmo caminho feito à mão.
 
 4. Faça commit e push na branch padrão. Eventos de issue só disparam workflows que estão na branch padrão.
 
-Quando o `ai.yml` daqui muda, a cópia de cada repositório precisa ser atualizada: repita o passo 1, sem nada a reaplicar, porque o arquivo não carrega valor do projeto. Foi o caso do `repository_dispatch`, que a cadeia de sub-tasks usa: um `ai.yml` sem ele implementa a primeira sub-task e para ali, sem empilhar nem seguir.
+Quando o `ai.yml` daqui muda, cada cópia precisa ser atualizada, e o fluxo avisa sozinho: a cada label em issue ou comentário humano, o job `check-caller` do router compara o `ai.yml` do repositório com o modelo daqui e, se divergir, emite um aviso na run, mostra a diferença no job summary e abre no repositório um PR de atualização pelo `doctor` (branch `ai-workflows/doctor`; PR já aberto é atualizado, não duplicado). Igual ao modelo: nada acontece. O job não bloqueia as etapas, nunca falha a run e não tem input para ser desligado. Prefere fazer à mão? Repita o passo 1, sem nada a reaplicar, porque o arquivo não carrega valor do projeto. Foi o caso do `repository_dispatch`, que a cadeia de sub-tasks usa: um `ai.yml` sem ele implementa a primeira sub-task e para ali, sem empilhar nem seguir.
 
 ### Verificar e corrigir: o `doctor`
 
@@ -325,7 +325,7 @@ Problemas comuns:
 
 - `ai.yml` (em cada repositório, idêntico ao daqui): declara os gatilhos (`on:`) e as permissões, que o GitHub exige no chamador, lê as variáveis do bucket e repassa os secrets pelo nome. Nenhum valor do projeto mora nele.
 - `.github/ai-workflows.yml` (em cada repositório): os comandos do projeto. `issue-remote-implement.yml` e `issue-sub-task.yml` o leem depois do checkout e, quando existe, ele vence os inputs do `ai.yml`.
-- `router.yml`: um job por etapa. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
+- `router.yml`: um job por etapa, mais o `check-caller`, que confere o `ai.yml` do chamador contra o modelo daqui e abre o PR de atualização quando ele diverge. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas; depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR.
 - `.claude-plugin/` e `skills/`: o marketplace e o plugin. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um único plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas instalam o plugin pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
