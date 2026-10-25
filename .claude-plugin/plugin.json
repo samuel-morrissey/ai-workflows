@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+    "name": "samuel-morrissey-skills",
+    "displayName": "Samuel Morrissey Skills",
+    "version": "4.0.0",
+    "description": "Skills do fluxo de issues: triagem, refinamento, quebra em sub-tasks, implementacao com QA independente e abertura de PRs.",
+    "author": {
+        "name": "Samuel de Lima",
+        "url": "https://github.com/samuel-morrissey"
+    },
+    "repository": "https://github.com/samuel-morrissey/ai-workflows",
+    "keywords": [
+        "engineering",
+        "skills",
+        "tdd",
+        "code-review",
+        "grilling",
+        "domain-modeling",
+        "productivity"
+    ],
+    "skills": [
+        "./skills/"
+    ]
+}
