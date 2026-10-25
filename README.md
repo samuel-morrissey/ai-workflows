@@ -102,6 +102,7 @@ Skills de apoio que as etapas acima seguem.
 ### Utilitários
 
 - **80-20** — modo Pareto: maior retorno com o menor esforço na tarefa dada.
+- **setup-repo** — configura um repositório consumidor a partir do relatório do `doctor`: infere os comandos do projeto, redige a skill `evidencias`, levanta colisões de labels, pergunta tudo de uma vez e abre o PR no repositório alvo. Veja [Configurar um repositório](#configurar-um-repositório).
 - **hello-issue** — skill de exemplo que valida a integração entre o marketplace e um repositório consumidor, publicando um comentário no issue informado.
 
 ### Usar as skills localmente
@@ -198,7 +199,13 @@ python3 scripts/doctor.py check <owner/repo>
 python3 scripts/doctor.py fix <owner/repo>
 ```
 
-O que ele faz à mão está nos passos abaixo; o que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels) ele aponta para a skill `setup-repo`.
+O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez e abre o PR no repositório alvo:
+
+```
+/samuel-morrissey-skills:setup-repo <owner/repo>
+```
+
+Os passos abaixo são o mesmo caminho feito à mão.
 
 
 1. Copie o chamador, sem alterar nada nele:
