@@ -116,6 +116,10 @@ on:
         required: false
       EVIDENCE_SECRET_ACCESS_KEY:
         required: false
+      # Variaveis do projeto para o ambiente do QA, no formato de um .env.
+      # Opcional: sem ele, nenhuma variavel e carregada.
+      PROJECT_ENV:
+        required: false
 
 jobs:
   # Triagem:
@@ -240,6 +244,7 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
       EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
+      PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
 
   # Sub-task: o planner do pai despachou a proxima (`repository_dispatch` do
   # tipo `ai-sub-task`), um humano aplicou `go` numa `[SUB-TASK]` aberta (roda
@@ -278,6 +283,7 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
       EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
+      PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
 
   # PR mergeado numa branch que nao e a padrao: fecha os issues do `Closes`,
   # que o GitHub ignora fora da branch padrao. Na branch padrao o proprio
