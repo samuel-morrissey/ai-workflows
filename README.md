@@ -116,6 +116,26 @@ As mesmas skills servem no Claude Code da sua máquina. O marketplace é este re
 
 Quem tinha o marketplace antigo (`samuel-morrissey/claude-marketplace`) troca pelo novo: remova o antigo (`/plugin marketplace remove samuel-morrissey-claude-marketplace`) e rode os dois comandos acima. Em `settings.json`, a chave de `enabledPlugins` passa a ser `samuel-morrissey-skills@samuel-morrissey-ai-workflows`, e a entrada de `extraKnownMarketplaces` aponta para `samuel-morrissey/ai-workflows`.
 
+### Publicar uma atualização
+
+O que cada parte deste repositório alcança depois do merge em `main`:
+
+| Parte | Quem usa | Chega quando |
+| --- | --- | --- |
+| `.github/workflows/*.yml` | os `ai.yml` dos consumidores, por `@main` | na próxima run, sem fazer nada |
+| `scripts/doctor.py` | você, pelo checkout ou pelo `curl` de `main`; a skill `setup-repo`; o job `check-caller` | na próxima execução, sem fazer nada |
+| `skills/*` e `.claude-plugin/` | o Claude Code da sua máquina, pelo plugin | só depois de subir a versão e atualizar o plugin |
+
+O plugin é instalado por versão: o Claude Code guarda uma cópia do repositório no commit da versão em `.claude-plugin/plugin.json` e só troca essa cópia quando a versão muda. Por isso, todo PR que altera uma skill sobe a versão no `plugin.json` (patch para correção de texto, minor para skill nova ou comportamento novo). Sem isso, o `/plugin` update não traz nada.
+
+Depois do merge de um PR que subiu a versão:
+
+1. Rode `/plugin`, atualize o marketplace `samuel-morrissey-ai-workflows` e depois o plugin `samuel-morrissey-skills`.
+2. Abra uma sessão nova. As skills são carregadas no início da sessão.
+3. Confira a versão instalada com `/plugin`, ou em `~/.claude/plugins/installed_plugins.json`.
+
+A cópia do `scripts/doctor.py` dentro do plugin fica congelada junto com ele. Rode o `doctor` sempre pelo checkout deste repositório ou pelo `curl` de `main`, como faz a skill `setup-repo`.
+
 ## O que um repositório precisa
 
 Este repositório é público: qualquer repositório, de qualquer conta ou organização, chama os workflows daqui sem liberação de acesso. O que varia fica em quatro lugares, e nenhum deles é o `ai.yml`:
