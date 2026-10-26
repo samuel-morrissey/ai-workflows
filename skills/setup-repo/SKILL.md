@@ -32,13 +32,19 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 
 ## Passos
 
-1. **Rode o doctor e leia o relatorio.** No checkout deste plugin o script e
-   `scripts/doctor.py`; fora dele, baixe para uma pasta temporaria:
+1. **Rode o doctor e leia o relatorio.** Baixe sempre a versao de `main`
+   para uma pasta temporaria e rode a partir dela:
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/samuel-morrissey/ai-workflows/main/scripts/doctor.py -o "$TMPDIR/doctor.py"
    python3 -I "$TMPDIR/doctor.py" check <owner/repo> --json
    ```
+
+   Nao use o `scripts/doctor.py` que esta ao lado desta skill: e a copia
+   congelada na versao instalada do plugin, e o `doctor` muda com mais
+   frequencia que o plugin. A unica excecao e a sessao aberta no proprio
+   checkout do `ai-workflows`, onde `scripts/doctor.py` e o codigo em
+   desenvolvimento. Nos passos seguintes, `doctor` e o arquivo baixado.
 
    Saida 2 (sem acesso, repositorio inexistente ou arquivado): pare e
    reporte o erro, sem tentar contornar. Saida 0: diga que o repositorio ja
