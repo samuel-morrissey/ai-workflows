@@ -20,7 +20,7 @@ Divisao de trabalho, para nao duplicar nada:
 |---|---|
 | `doctor check` | diz o que falta, diverge ou exige humano |
 | esta skill | infere comandos, redige a skill `evidencias`, propoe mapeamento de labels, pergunta, abre o PR com os arquivos |
-| `doctor fix` | secrets, variaveis, os labels do fluxo (cria e corrige), topic, e o PR do `ai.yml` quando esta skill nao o incluiu |
+| `doctor fix --only secrets,vars,labels,topic` | secrets, variaveis, os labels do fluxo (cria e corrige) e topic, antes do PR; o `ai.yml` fica fora porque o PR desta skill ja o traz |
 
 Nao escreva arquivo que o `doctor` reporta `ok`. Nao decida sozinho o que e
 pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
@@ -120,20 +120,37 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
       `samuel-morrissey/ai-workflows` na `main`, sem editar),
       `.github/ai-workflows.yml` e `.claude/skills/evidencias/SKILL.md`.
       Arquivo que o `doctor` deu `ok` fica como esta.
-   3. Commit e push. Abra o PR seguindo a skill `to-pr`, com base na branch
-      padrao. Em **Como testar**, o roteiro e: mergear, criar um issue,
-      colocar `needs-triage`, e conferir a aba Actions.
-   4. Rode `doctor fix <owner/repo>` para secrets, variaveis, labels do
-      fluxo e topic. Se o `PROJECT_ENV` foi decidido, diga ao humano o `gh secret
-      set PROJECT_ENV -R <owner/repo>` com o conteudo esperado; o valor e
-      dele, nao seu.
-   5. Rode `doctor check <owner/repo>` de novo. Enquanto o PR nao e
-      mergeado, `ai-yml`, `config` e `evidencias` seguem como estavam: diga
-      isso e mostre o que ficou `manual`.
+   3. Rode `doctor fix <owner/repo> --only secrets,vars,labels,topic`,
+      antes de abrir o PR. O `--only` deixa o item `ai-yml` de fora: sem
+      ele, o `doctor` abriria o proprio PR com o `ai.yml`, porque o PR
+      desta skill ainda nao existe. O relatorio que o `fix` imprime ja e o
+      estado final desses quatro itens (ele rele o repositorio depois de
+      corrigir): guarde-o, porque o texto do PR sai dele.
+   4. Commit e push. Abra o PR seguindo a skill `to-pr`, com base na branch
+      padrao. O texto do PR descreve o repositorio como ele esta neste
+      momento, depois do `fix`:
+      - o que o `fix` fez (labels criados ou corrigidos, secrets e
+        variaveis gravados, topic) entra como feito, nunca como pendencia
+        nem como passo a executar;
+      - o que ficou `manual` no relatorio do `fix` entra em **Antes e
+        depois do deploy**, em *Antes*, com o comando que o relatorio deu.
+        Se o `PROJECT_ENV` foi decidido, e aqui que vai o `gh secret set
+        PROJECT_ENV -R <owner/repo>` com o conteudo esperado; o valor e do
+        humano, nao seu;
+      - em **Como testar**, o roteiro e: mergear, criar um issue, colocar
+        `needs-triage` e conferir a aba Actions.
+   5. Rode `doctor check <owner/repo>` de novo, com o PR aberto. O esperado:
+      `ai-yml` em `manual` apontando para o PR ("PR aberto com o modelo,
+      falta o merge"), `config` e `evidencias` como estavam (so mudam no
+      merge) e os quatro itens do `fix` em `ok` ou `manual`. Se `ai-yml`
+      sair `falta` ou `diverge` sem a URL do PR, a branch nao e
+      `ai-workflows/*` ou o `ai.yml` do PR difere do modelo: corrija antes
+      de responder.
 
-7. **Responda** com: a URL do PR, o relatorio final do `doctor`, o que
-   ficou `manual` e por que, e o proximo passo (mergear o PR e abrir o
-   primeiro issue de teste).
+7. **Responda** com: a URL do PR, o relatorio do `doctor check` do passo
+   6.5, o que ficou `manual` e por que, e o proximo passo (mergear o PR e
+   abrir o primeiro issue de teste). Nao repita como pendencia o que o
+   `fix` ja fez.
 
 ## Casos
 
