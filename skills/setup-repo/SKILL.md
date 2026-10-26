@@ -20,7 +20,7 @@ Divisao de trabalho, para nao duplicar nada:
 |---|---|
 | `doctor check` | diz o que falta, diverge ou exige humano |
 | esta skill | infere comandos, redige a skill `evidencias`, propoe mapeamento de labels, pergunta, abre o PR com os arquivos |
-| `doctor fix` | secrets, variaveis, label `go`, topic, e o PR do `ai.yml` quando esta skill nao o incluiu |
+| `doctor fix` | secrets, variaveis, os labels do fluxo (cria e corrige), topic, e o PR do `ai.yml` quando esta skill nao o incluiu |
 
 Nao escreva arquivo que o `doctor` reporta `ok`. Nao decida sozinho o que e
 pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
@@ -117,8 +117,8 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
    3. Commit e push. Abra o PR seguindo a skill `to-pr`, com base na branch
       padrao. Em **Como testar**, o roteiro e: mergear, criar um issue,
       colocar `needs-triage`, e conferir a aba Actions.
-   4. Rode `doctor fix <owner/repo>` para secrets, variaveis, label `go` e
-      topic. Se o `PROJECT_ENV` foi decidido, diga ao humano o `gh secret
+   4. Rode `doctor fix <owner/repo>` para secrets, variaveis, labels do
+      fluxo e topic. Se o `PROJECT_ENV` foi decidido, diga ao humano o `gh secret
       set PROJECT_ENV -R <owner/repo>` com o conteudo esperado; o valor e
       dele, nao seu.
    5. Rode `doctor check <owner/repo>` de novo. Enquanto o PR nao e
@@ -146,7 +146,8 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 
 ## Fora de escopo
 
-- Editar ou apagar labels existentes.
+- Editar ou apagar labels por conta propria: os do fluxo sao do `doctor`;
+  os demais sao do repositorio.
 - Criar o bucket, a regra de ciclo de vida ou qualquer credencial.
 - Rodar triagem, implementacao ou QA no repositorio alvo.
 - Alterar o `doctor`; se ele reporta errado, abra um issue em

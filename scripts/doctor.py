@@ -26,7 +26,8 @@ Itens, na ordem em que aparecem no relatorio:
               PROJECT_ENV so informativo (fix: grava a partir do config.env)
   vars        EVIDENCE_BUCKET, EVIDENCE_PUBLIC_URL, EVIDENCE_ENDPOINT
               (fix: grava a partir do config.env, na org ou no repositorio)
-  labels      label `go` (fix: cria); colisoes so informativas
+  labels      os 13 labels do fluxo com cor e descricao canonicas (fix: cria os
+              que faltam e corrige os divergentes); colisoes so informativas
   evidencias  .claude/skills/evidencias/SKILL.md com as cinco secoes
   topic       topic `ai-workflows` no repositorio (fix: adiciona)
   bucket      a URL publica do bucket responde (so informativo)
@@ -626,28 +627,60 @@ def fix_vars(repo, names):
     return f"variaveis gravadas ({'org ' + repo.owner if repo.is_org else repo.full}): {', '.join(done)}"
 
 
+def label_plan(labels):
+    """Separa os labels do fluxo em: ausentes e existentes com cor ou
+    descricao fora do canonico. `labels` e {nome: {"color", "description"}}."""
+    missing = [n for n in FLOW_LABELS if n not in labels]
+    different = [n for n, (color, desc) in FLOW_LABELS.items()
+                 if n in labels and ((labels[n].get("color") or "").upper() != color
+                                     or (labels[n].get("description") or "") != desc)]
+    return missing, different
+
+
+def label_collisions(labels):
+    return sorted(n for n in labels if n.startswith("priority-") or n.lower() in TYPE_LABELS)
+
+
 def check_labels(repo):
     out = gh("label", "list", "-R", repo.full, "--limit", "300", "--json", "name,color,description")
     labels = {l["name"]: l for l in json.loads(out.stdout or "[]")}
-    notes = []
-    if "go" not in labels:
-        return Finding("labels", "falta", "label `go` nao existe",
-                       fix=f"gh label create go -R {repo.full} --color {FLOW_LABELS['go'][0]} --description \"{FLOW_LABELS['go'][1]}\"",
-                       fixer=fix_label_go)
-    different = [n for n, (color, desc) in FLOW_LABELS.items()
-                 if n in labels and (labels[n]["color"].upper() != color or (labels[n].get("description") or "") != desc)]
+    missing, different = label_plan(labels)
+    collisions = label_collisions(labels)
+    collision_note = ("labels do repositorio que colidem com o vocabulario do fluxo (decida o mapeamento): "
+                      + ", ".join(collisions)) if collisions else ""
+    if missing or different:
+        parts = []
+        if missing:
+            parts.append("faltam: " + ", ".join(missing))
+        if different:
+            parts.append("cor ou descricao fora do canonico: " + ", ".join(different))
+        if collision_note:
+            parts.append(collision_note)
+        return Finding("labels", "falta" if missing else "diverge", "; ".join(parts),
+                       fix=f"python3 scripts/doctor.py fix {repo.full} --only labels", fixer=fix_labels)
+    if collision_note:
+        return Finding("labels", "info", collision_note)
+    return Finding("labels", "ok", f"os {len(FLOW_LABELS)} labels do fluxo existem com cor e descricao canonicas")
+
+
+def fix_labels(repo):
+    """Cria os labels do fluxo que faltam e corrige cor e descricao dos que
+    divergem. Nunca apaga nem renomeia label."""
+    out = gh("label", "list", "-R", repo.full, "--limit", "300", "--json", "name,color,description")
+    labels = {l["name"]: l for l in json.loads(out.stdout or "[]")}
+    missing, different = label_plan(labels)
+    for name in missing:
+        color, desc = FLOW_LABELS[name]
+        gh("label", "create", name, "-R", repo.full, "--color", color, "--description", desc)
+    for name in different:
+        color, desc = FLOW_LABELS[name]
+        gh("label", "edit", name, "-R", repo.full, "--color", color, "--description", desc)
+    done = []
+    if missing:
+        done.append("criados: " + ", ".join(missing))
     if different:
-        notes.append("labels do fluxo com cor ou descricao fora do canonico (nao editados): " + ", ".join(different))
-    collisions = sorted(n for n in labels if n.startswith("priority-") or n.lower() in TYPE_LABELS)
-    if collisions:
-        notes.append("labels do repositorio que colidem com o vocabulario do fluxo (decida o mapeamento): " + ", ".join(collisions))
-    return Finding("labels", "info" if notes else "ok", "; ".join(notes) or "label `go` presente")
-
-
-def fix_label_go(repo):
-    color, desc = FLOW_LABELS["go"]
-    gh("label", "create", "go", "-R", repo.full, "--color", color, "--description", desc)
-    return f"label `go` criado em {repo.full}"
+        done.append("corrigidos: " + ", ".join(different))
+    return "labels " + "; ".join(done) if done else "labels ja canonicos"
 
 
 def check_evidencias(repo):

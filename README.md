@@ -240,7 +240,7 @@ python3 scripts/doctor.py fix samuel-morrissey/life-os --only ai-yml,vars
 | `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo` |
 | `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
 | `vars` | `EVIDENCE_BUCKET`, `EVIDENCE_PUBLIC_URL`, `EVIDENCE_ENDPOINT` com os valores do `config.env` | grava na organização (dono organização) ou no repositório (dono conta) |
-| `labels` | label `go` | cria com cor e descrição canônicas. Labels existentes nunca são editados; colisões (`priority-*`, tipos como label) saem como `info` |
+| `labels` | os 13 labels do fluxo da `issue-labeling`, com cor e descrição canônicas | cria os que faltam e corrige cor e descrição dos que divergem. Nunca apaga nem renomeia; colisões (`priority-*`, tipos como label) saem como nota para você decidir |
 | `evidencias` | `.claude/skills/evidencias/SKILL.md` com as cinco seções do modelo | nada: aponta a skill `setup-repo` |
 | `topic` | topic `ai-workflows` no repositório, que é o inventário do `--all` | adiciona |
 | `bucket` | a URL pública responde HTTP | nada: só informativo |
@@ -262,11 +262,7 @@ O GitHub não devolve o valor de um secret, então o `doctor` confirma a existê
 
 Os testes das partes puras do script (leitor do arquivo de configuração, extração dos inputs inline, `config.env`, comparação e relatório) rodam com `python3 scripts/test_doctor.py`.
 
-Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`, `deferred`, `priority`...) não precisam ser criados antes. As skills criam os que faltarem, e os workflows criam `work-in-progress` e `go`. Como o `go` é você quem coloca, ele só existe depois da primeira etapa rodar no repositório; para tê-lo desde o início, crie antes:
-
-```
-gh label create go --color 3FB950 --description "Pode seguir: roda a etapa do estado atual"
-```
+Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`, `deferred`, `priority`...) são criados de uma vez pelo `doctor fix`, com a cor e a descrição da `issue-labeling`. Sem o `doctor`, as skills criam os que faltarem na hora de aplicar, e os workflows criam `work-in-progress` e `go`. Um label que já existia com outra cor ou descrição só é corrigido pelo `doctor`: as skills nunca editam label.
 
 ## Evidências e QA
 
