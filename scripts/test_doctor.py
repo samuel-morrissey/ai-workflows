@@ -142,5 +142,28 @@ class Report(unittest.TestCase):
         self.assertIn("acoes:", text)
 
 
+class Labels(unittest.TestCase):
+    def test_tudo_canonico(self):
+        labels = {n: {"color": c.lower(), "description": d} for n, (c, d) in doctor.FLOW_LABELS.items()}
+        self.assertEqual(doctor.label_plan(labels), ([], []))
+
+    def test_faltando_e_divergente(self):
+        labels = {n: {"color": c, "description": d} for n, (c, d) in doctor.FLOW_LABELS.items()}
+        del labels["needs-triage"]
+        labels["go"]["color"] = "000000"
+        labels["priority"]["description"] = ""
+        missing, different = doctor.label_plan(labels)
+        self.assertEqual(missing, ["needs-triage"])
+        self.assertEqual(different, ["go", "priority"])
+
+    def test_fora_do_fluxo_nao_entra(self):
+        labels = {"bug": {"color": "D73A4A", "description": ""}, "priority-high": {"color": "B60205", "description": ""},
+                  "docs": {"color": "0075CA", "description": ""}, "chore": {"color": "EDEDED", "description": ""}}
+        missing, different = doctor.label_plan(labels)
+        self.assertEqual(len(missing), len(doctor.FLOW_LABELS))
+        self.assertEqual(different, [])
+        self.assertEqual(doctor.label_collisions(labels), ["bug", "docs", "priority-high"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

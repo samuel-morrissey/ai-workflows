@@ -192,7 +192,9 @@ de cada sub-task e por que a cadeia parou, quando parou.
 
    `gh issue edit --add-label` falha se o label nao existe — criar primeiro
    evita perder a rodada. Label que ja existe com cor ou descricao diferentes
-   nao e editado: a padronizacao vale para a criacao.
+   nao e editado por skill: a padronizacao vale para a criacao. Quem cria
+   a tabela inteira de uma vez e corrige os existentes e o `doctor`
+   (`scripts/doctor.py fix <owner/repo> --only labels`).
 6. **`work-in-progress`, `awaiting-reply` e `priority` ficam fora destas
    regras.** Nao sao labels de estado — ver as secoes "Label de trabalho",
    "Label de espera" e "Label de prioridade" acima. Nenhum dos tres conta
