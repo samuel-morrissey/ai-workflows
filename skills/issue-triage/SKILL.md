@@ -75,11 +75,30 @@ issue.
 
    Pare: fim da triagem.
 
-   Se o titulo ja tem prefixo de tipo ou o issue ja tem label de estado
-   posterior a `needs-triage` (`needs-discovery`, `needs-refinement`,
-   `needs-break-down`, `ready-for-*`, `awaiting-pr-review`), ele ja
-   foi triado: comente informando o estado atual e pare (o fluxo so anda
-   para frente).
+   Se o issue ja tem label de estado posterior a `needs-triage`
+   (`needs-discovery`, `needs-refinement`, `needs-break-down`, `ready-for-*`,
+   `awaiting-pr-review`), ele ja foi triado: comente informando o estado
+   atual e pare, sem alterar titulo nem labels (o fluxo so anda para
+   frente). Titulo com `[SUB-TASK]` tambem esta fora da triagem (a sub-task
+   nasce da `issue-break-down`, sem label de estado por desenho): comente e
+   pare do mesmo jeito.
+
+   Fora isso, um prefixo de tipo no titulo **nao** quer dizer que o issue
+   foi triado: enquanto ele carrega `needs-triage` e nenhum label de estado
+   posterior, o prefixo e uma **sugestao** de quem o criou (o **tipo
+   sugerido**). Siga a triagem normal (passos 2 a 6): o tipo sugerido e o
+   texto do humano entram como insumo da classificacao, mas o tipo e
+   decidido pelo criterio do passo 4 (grau de definicao). Prefixo fora do
+   vocabulario (`[CHORE]`, `[Bug]`, `bug:`) nao e tipo sugerido: e parte do
+   titulo cru.
+
+   Ao aplicar o titulo (passos 5 e 6), **substitua** o prefixo entre
+   colchetes no comeco do titulo, se houver, pelo tipo decidido: nunca
+   empilhe dois prefixos (`[FEAT] [BUG] ...`). Tipo decidido igual ao
+   sugerido: o prefixo fica como esta. Tipo decidido diferente do sugerido:
+   o comentario de triagem registra a troca na linha **Tipo:**, como
+   `` `[SPEC]` (sugerido: `[FEAT]`) ``, e o **Por que:** diz o motivo. Em
+   handoff (`awaiting-reply`), o titulo nao muda, como em qualquer handoff.
 
    `needs-triage` e o label de entrada: quem o aplica e um humano, e e esta
    skill quem o remove ao concluir. Em todo `--add-label` abaixo, inclua
@@ -141,13 +160,15 @@ issue.
      --add-label "needs-..." --remove-label needs-triage
    ```
 
+   "titulo original" e o titulo sem o prefixo sugerido, se havia (passo 1).
+
    Depois comente, incluindo a leitura de codigo do passo 3 no formato do
    AGENT-BRIEF.md:
 
    ```markdown
    ## Triagem
 
-   **Tipo:** `[MAP]` ou `[SPEC]`
+   **Tipo:** `[MAP]` ou `[SPEC]` (sugerido: `[X]`) — o "(sugerido: ...)" so quando trocou o prefixo
    **Estado:** `needs-discovery` ou `needs-refinement`
    **Por que:** <uma ou duas frases>
    **Proximo passo:** `/issue-discovery` ou `/issue-refinement`
@@ -192,7 +213,8 @@ issue.
 
    5. Nao sobrou: escreva o brief no corpo do issue, no formato e principios
       do AGENT-BRIEF.md, preservando **titulo e texto originais** do issue
-      como citacao logo no comeco do corpo:
+      como citacao logo no comeco do corpo. O titulo citado e o titulo como
+      estava, com o prefixo sugerido, se havia:
 
       ```bash
       gh issue edit $issue --body-file - <<'EOF'
@@ -201,8 +223,8 @@ issue.
       ```
 
    6. Aplique titulo e label. Com o original preservado na citacao, o titulo
-      pode ser reescrito para algo mais claro — sempre com o prefixo
-      `[TIPO]` escolhido. O label e `ready-for-agent`, ou `ready-for-human`
+      pode ser reescrito para algo mais claro — sempre com um unico prefixo,
+      o `[TIPO]` escolhido, no lugar do sugerido (passo 1). O label e `ready-for-agent`, ou `ready-for-human`
       pelo criterio de executor do AGENT-BRIEF.md:
 
       ```bash
@@ -215,7 +237,7 @@ issue.
       ```markdown
       ## Triagem
 
-      **Tipo:** `[TIPO]` (o tipo pontual aplicado)
+      **Tipo:** `[TIPO]` (sugerido: `[X]`) — o tipo pontual aplicado; o "(sugerido: ...)" so quando trocou o prefixo
       **Estado:** `ready-for-agent` ou `ready-for-human`
       **Por que:** <uma ou duas frases, incluindo a escolha do executor>
       **Seams:** <as fronteiras dos criterios de aceite, em uma linha>
@@ -253,4 +275,6 @@ A triagem esta completa quando o issue esta em exatamente um destes estados:
   comentario).
 - Executar codigo, testes ou reproducao de bugs (investigacao e so leitura).
 - Triar Pull Requests.
-- Reclassificar issue ja triado (correcao vira issue nova).
+- Reclassificar issue ja triado, com label de estado posterior a
+  `needs-triage` (correcao vira issue nova). O prefixo de um issue ainda nao
+  triado e sugestao, e trocar esse prefixo faz parte da triagem (passo 1).
