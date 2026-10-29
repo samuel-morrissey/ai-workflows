@@ -17,6 +17,14 @@ em labels segue este vocabulario.
 O tipo e um **prefixo no titulo** (`[MAP] ...`) e diz o que a issue **e**.
 O tipo e **imutavel**: um `[MAP]` nunca vira `[SPEC]` — ele gera filhos.
 
+A imutabilidade vale para o tipo atribuido pela triagem em diante. Prefixo
+num issue ainda nao triado (com `needs-triage` e nenhum label de estado
+posterior) e **sugestao** de quem o criou: a `issue-triage` o usa como
+insumo, decide o tipo pelo proprio criterio e pode troca-lo, substituindo o
+prefixo (nunca empilhando dois). `[SUB-TASK]` e excecao: nasce da
+`issue-break-down` e nunca passa pela triagem. Reclassificar issue ja triado
+continua fora: correcao vira issue nova (regra 2).
+
 | Prefixo | Significado |
 |---|---|
 | `[MAP]` | Ideia nebulosa, sem arestas definidas. Nao se sabe o que sera desenvolvido |

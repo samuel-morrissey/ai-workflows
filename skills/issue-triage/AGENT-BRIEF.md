@@ -57,7 +57,8 @@ do escopo, o gesto normal e editar o brief antes de aplicar o label `go` —
 nao abrir rodada de perguntas.
 
 A citacao no comeco preserva o **titulo e o texto originais** do issue, na
-integra. Com o original registrado ali, o titulo do issue pode ser reescrito
+integra: o titulo citado e o titulo como estava, com o prefixo sugerido, se
+havia. Com o original registrado ali, o titulo do issue pode ser reescrito
 para algo mais claro.
 
 **Executor:** agente por padrao. Humano quando a execucao exige o que o
