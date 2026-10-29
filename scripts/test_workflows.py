@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Testes do passo "Comentar falha da rodada" dos cinco workflows reutilizaveis
+"""Testes do passo "Comentar falha da rodada" dos workflows reutilizaveis
 (issue-triage, issue-refinement, issue-break-down, issue-remote-implement e
-issue-sub-task), sem gh nem rede: o `run` do passo e extraido do YAML e roda
-num bash com um `gh` falso.
+issue-sub-task), sem gh nem rede. O passo e a composite action round-failure:
+cada workflow a chama como ultimo passo, e o `run` dela e extraido do YAML e
+roda num bash com um `gh` falso.
 
     python3 scripts/test_workflows.py
 """
@@ -18,6 +19,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
+ACTION = ROOT / ".github" / "actions" / "round-failure" / "action.yml"
+USES = "samuel-morrissey/ai-workflows/.github/actions/round-failure@main"
 FILES = ["issue-triage.yml", "issue-refinement.yml", "issue-break-down.yml",
          "issue-remote-implement.yml", "issue-sub-task.yml"]
 STEP_NAME = "Comentar falha da rodada"
@@ -71,29 +74,40 @@ def steps_of(text):
 
 
 def parse_step(block):
-    """Extrai if, continue-on-error, env e o texto do run de um passo."""
+    """Extrai if, continue-on-error, uses e o `with:` de um passo do workflow."""
     cond = re.search(r"^        if: (.+)$", block, re.M)
     coe = re.search(r"^        continue-on-error: (\S+)$", block, re.M)
-    env = dict(re.findall(r"^          ([A-Z_]+): (.*)$", block.split("        run: |")[0], re.M))
-    run = block.split("        run: |\n", 1)[1]
-    lines = []
-    for line in run.splitlines():
-        if line.strip() == "":
-            lines.append("")
-        elif line.startswith("          "):
-            lines.append(line[10:])
-        else:
-            break
+    uses = re.search(r"^        uses: (\S+)$", block, re.M)
+    with_ = dict(re.findall(r"^          ([a-z_]+): (.*)$", block.split("        with:\n", 1)[-1], re.M))
     return {"if": cond and cond.group(1).strip(), "continue_on_error": coe and coe.group(1),
-            "env": env, "run": "\n".join(lines).rstrip("\n") + "\n"}
+            "uses": uses and uses.group(1), "with": with_}
 
 
 def load_steps():
     return {f: parse_step(dict(steps_of((WORKFLOWS / f).read_text()))[STEP_NAME]) for f in FILES}
 
 
+def action_run():
+    """Texto do `run` do unico passo da action round-failure."""
+    run = ACTION.read_text().split("      run: |\n", 1)[1]
+    lines = []
+    for line in run.splitlines():
+        if line.strip() == "":
+            lines.append("")
+        elif line.startswith("        "):
+            lines.append(line[8:])
+        else:
+            break
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def action_input_default(name):
+    m = re.search(r"^  %s:\n(?:    .*\n)*?    default: \"(.*)\"$" % name, ACTION.read_text(), re.M)
+    return m.group(1)
+
+
 class Shape(unittest.TestCase):
-    def test_ultimo_passo_dos_cinco(self):
+    def test_ultimo_passo_de_cada_workflow(self):
         for f in FILES:
             names = [n for n, _ in steps_of((WORKFLOWS / f).read_text())]
             self.assertEqual(names[-1], STEP_NAME, f)
@@ -103,13 +117,15 @@ class Shape(unittest.TestCase):
         for f, step in load_steps().items():
             self.assertEqual(step["if"], "failure()", f)
             self.assertEqual(step["continue_on_error"], "true", f)
-            self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}", f)
-            self.assertEqual(step["env"]["NUMBER"], "${{ steps.target.outputs.number }}", f)
-            self.assertTrue(step["env"]["ETAPA"], f)
+            self.assertEqual(step["uses"], USES, f)
+            self.assertEqual(step["with"]["number"], "${{ steps.target.outputs.number }}", f)
+            self.assertTrue(step["with"]["etapa"], f)
 
-    def test_mesmo_run_nos_cinco(self):
-        runs = {step["run"] for step in load_steps().values()}
-        self.assertEqual(len(runs), 1)
+    def test_action_le_numero_de_issue_e_de_pr(self):
+        text = ACTION.read_text()
+        self.assertIn("GH_TOKEN: ${{ github.token }}", text)
+        self.assertIn("EVENT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}", text)
+        self.assertIn("PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}", text)
 
     def test_permissao_actions_read(self):
         for f in FILES:
@@ -121,7 +137,8 @@ class Run(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.script = load_steps()["issue-triage.yml"]["run"]
+        cls.script = action_run()
+        cls.retomar = action_input_default("retomar")
 
     def execute(self, env=None, jobs=JOBS, api_fail=False, comment_fail=False):
         tmp = tempfile.mkdtemp(prefix="wf-")
@@ -138,6 +155,7 @@ class Run(unittest.TestCase):
             "GH_TOKEN": "x", "GH_REPO": "o/r", "ETAPA": "implementacao", "NUMBER": "46",
             "EVENT_NUMBER": "", "PAYLOAD_NUMBER": "", "GITHUB_SERVER_URL": "https://github.com",
             "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "GitHub Actions 7",
+            "RETOMAR": self.retomar,
         }
         e.update(env or {})
         proc = subprocess.run(["bash", "-eo", "pipefail", str(script)], env=e, capture_output=True, text=True)
@@ -154,7 +172,7 @@ class Run(unittest.TestCase):
         self.assertIn("**implementacao**", body)
         self.assertIn("**Preparar ambiente do consumidor**", body)
         self.assertIn("https://github.com/o/r/actions/runs/123", body)
-        self.assertIn("aplique `go` de novo", body)
+        self.assertIn("corrija a causa e aplique `go` de novo. Esta falha nao mudou o label de estado.", body)
         self.assertIn("::notice::Falha da rodada registrada no issue #46", proc.stdout)
 
     def test_filtra_o_job_deste_runner(self):
@@ -192,6 +210,11 @@ class Run(unittest.TestCase):
         self.assertEqual(log, "")
         self.assertIsNone(body)
         self.assertIn("nao ha onde comentar", proc.stdout)
+
+    def test_retomar_troca_o_fim_da_frase(self):
+        _, _, body = self.execute(env={"RETOMAR": "comente `@claude` de novo."})
+        self.assertIn("corrija a causa e comente `@claude` de novo.", body)
+        self.assertNotIn("`go`", body)
 
     def test_numero_vem_do_evento_ou_do_payload(self):
         _, log, _ = self.execute(env={"NUMBER": "", "EVENT_NUMBER": "51"})

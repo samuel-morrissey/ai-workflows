@@ -1,0 +1,156 @@
+name: Publicar evidencias
+description: >-
+  Publica a pasta de evidencias de uma rodada do agente: envia ao bucket no
+  prefixo decidido antes da rodada ou, sem bucket ou com upload que falhou,
+  anexa como artifact da run e troca no PR as URLs do bucket pelo link da run.
+
+# Usado por issue-remote-implement.yml, issue-sub-task.yml e pr-fix.yml, logo
+# depois da action do agente e com `if: always()` no chamador, para nao perder
+# captura quando a action falha. Os valores de pasta, modo, prefixo e URLs vem
+# dos outputs da action agent-env da mesma rodada.
+
+inputs:
+  number:
+    description: Issue ou PR da rodada; da nome ao artifact (evidencias-<number>).
+    required: true
+  pr:
+    description: >-
+      PR que a rodada escreveu. Vazio: o PR e achado pelo `Closes #<number>`
+      no corpo de um PR aberto.
+    required: false
+    default: ""
+  dir:
+    description: Pasta de evidencias (output dir da agent-env).
+    required: true
+  mode:
+    description: "`bucket` ou `artifact` (output mode da agent-env)."
+    required: true
+  prefix:
+    description: Prefixo no bucket (output prefix da agent-env).
+    required: false
+    default: ""
+  base_url:
+    description: URL publica da pasta no bucket (output base_url da agent-env).
+    required: false
+    default: ""
+  run_url:
+    description: URL da run (output run_url da agent-env).
+    required: true
+  bucket:
+    description: evidence_bucket final (output evidence_bucket da agent-env).
+    required: false
+    default: ""
+  endpoint:
+    description: evidence_endpoint final (output evidence_endpoint da agent-env).
+    required: false
+    default: ""
+  access_key_id:
+    description: Secret EVIDENCE_ACCESS_KEY_ID.
+    required: false
+    default: ""
+  secret_access_key:
+    description: Secret EVIDENCE_SECRET_ACCESS_KEY.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Com bucket: envia para o prefixo decidido antes da rodada, de modo que as
+    # URLs ja escritas no PR passem a responder. Sem bucket, ou com upload
+    # que falhou: a pasta vai como artifact da run e, se o PR citava URLs do
+    # bucket, o passo seguinte as troca pelo link da run. Pasta vazia: nada
+    # a fazer.
+    - name: Publicar evidencias
+      id: publish
+      shell: bash
+      env:
+        DIR: ${{ inputs.dir }}
+        MODE: ${{ inputs.mode }}
+        PREFIX: ${{ inputs.prefix }}
+        BASE_URL: ${{ inputs.base_url }}
+        BUCKET: ${{ inputs.bucket }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.secret_access_key }}
+      run: |
+        set +o pipefail
+        if [ ! -d "$DIR" ] || [ -z "$(ls -A "$DIR")" ]; then
+          echo "::notice::Pasta de evidencias vazia; nada a publicar."
+          echo "artifact=false" >> "$GITHUB_OUTPUT"; echo "relink=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "Evidencias gravadas:"; ls -la "$DIR"
+        if [ "$MODE" = "bucket" ]; then
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::warning::Secrets EVIDENCE_ACCESS_KEY_ID/EVIDENCE_SECRET_ACCESS_KEY ausentes; caindo para artifact."
+          else
+            ARGS=()
+            if [ -n "$ENDPOINT" ]; then
+              ARGS+=(--endpoint-url "$ENDPOINT"); export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+            else
+              export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+            fi
+            if aws s3 cp "$DIR" "${BUCKET%/}/${PREFIX}/" --recursive --no-progress "${ARGS[@]}"; then
+              echo "::notice::Evidencias publicadas em ${BASE_URL}/"
+              echo "artifact=false" >> "$GITHUB_OUTPUT"; echo "relink=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::warning::Upload para ${BUCKET} falhou; caindo para artifact da run."
+          fi
+          echo "relink=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "relink=false" >> "$GITHUB_OUTPUT"
+        fi
+        echo "artifact=true" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@v4
+      if: steps.publish.outputs.artifact == 'true'
+      with:
+        name: evidencias-${{ inputs.number }}
+        path: ${{ inputs.dir }}
+        if-no-files-found: ignore
+
+    # O PR foi escrito com URLs do bucket que nao vao responder: troca cada
+    # imagem e link por um link para a run, onde o artifact esta.
+    - name: Corrigir links de evidencia no PR
+      if: steps.publish.outputs.relink == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ inputs.number }}
+        PR: ${{ inputs.pr }}
+        BASE_URL: ${{ inputs.base_url }}
+        RUN_URL: ${{ inputs.run_url }}
+      run: |
+        set +o pipefail
+        python3 - <<'PY'
+        import json, os, re, subprocess, tempfile
+        number, base, run = os.environ["NUMBER"], os.environ["BASE_URL"], os.environ["RUN_URL"]
+        if os.environ.get("PR"):
+            # A rodada ja sabe qual PR escreveu (pr-fix): sem busca.
+            pr = json.loads(subprocess.check_output(
+                ["gh", "pr", "view", os.environ["PR"], "--json", "number,body"]))
+        else:
+            prs = json.loads(subprocess.check_output(
+                ["gh", "pr", "list", "--state", "open", "--limit", "50", "--json", "number,body"]))
+            closes = re.compile(r"Closes #%s\b" % re.escape(number))
+            pr = next((p for p in prs if closes.search(p.get("body") or "")), None)
+            if not pr:
+                print(f"::notice::Nenhum PR aberto com Closes #{number}; nada a corrigir.")
+                raise SystemExit(0)
+        body = pr["body"]
+        esc = re.escape(base)
+        # imagem -> link; link -> link; URL solta -> URL da run com o nome do arquivo
+        new = re.sub(r"!?\[([^\]]*)\]\(" + esc + r"/([^)\s]+)\)",
+                     lambda m: f"[{m.group(1) or m.group(2)}: {m.group(2)} no artifact da run]({run})", body)
+        new = re.sub(esc + r"/([^)\s<>]+)", lambda m: f"{run} (arquivo {m.group(1)} no artifact)", new)
+        new = new.replace(base, run)
+        if new == body:
+            print("::notice::O PR nao citava URLs do bucket; nada a corrigir.")
+            raise SystemExit(0)
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
+            f.write(new)
+        subprocess.check_call(["gh", "pr", "edit", str(pr["number"]), "--body-file", f.name])
+        print(f"::notice::PR #{pr['number']}: links de evidencia apontados para o artifact da run.")
+        PY
