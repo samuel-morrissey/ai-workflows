@@ -1,5 +1,16 @@
 # Comandos deste repositorio para o fluxo de IA (samuel-morrissey/ai-workflows).
 # Chaves: setup_commands, quality_checks, evidence_tools, um comando por linha.
 #
-# Este repositorio nao tem build, lint nem suite: o arquivo existe vazio para
-# dizer isso de forma explicita ao doctor (scripts/doctor.py).
+# Sem setup_commands: os scripts usam so a biblioteca padrao do Python 3, que o
+# runner ja traz. Nao ha lint nem build. A suite cobre as partes puras do
+# doctor (scripts/test_doctor.py) e roda sem rede e sem gh.
+#
+# Os evidence_tools sao os proprios scripts: a evidencia de uma mudanca aqui
+# e a saida deles, antes e depois. O que capturar e como esta em
+# .claude/skills/evidencias/SKILL.md.
+quality_checks: |
+  python3 scripts/test_doctor.py
+evidence_tools: |
+  python3 scripts/doctor.py
+  python3 scripts/sub_tasks.py
+  python3 scripts/test_doctor.py
