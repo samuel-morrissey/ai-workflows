@@ -219,7 +219,7 @@ python3 scripts/doctor.py check <owner/repo>
 python3 scripts/doctor.py fix <owner/repo>
 ```
 
-O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez e abre o PR no repositório alvo:
+O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez, aplica o `doctor fix` e só então abre o PR no repositório alvo, com o texto coerente com o que já foi corrigido:
 
 ```
 /samuel-morrissey-skills:setup-repo <owner/repo>
