@@ -1,0 +1,270 @@
+name: PR Fix
+
+# Workflow reutilizavel de correcao de PR. Chamado pelo router.yml quando um
+# humano age num PR aberto do proprio repositorio:
+# - envia uma review com *Request changes*, ou uma review cujo corpo cita
+#   `@claude`;
+# - comenta no PR citando `@claude`;
+# - responde a um handoff da correcao (comentario no PR com awaiting-reply).
+#
+# Roda o agente com a skill pr-fix na branch do PR: cada pedido da review ou
+# do comentario vira commit nessa branch (sem PR novo, sem rebase, sem force
+# push), e o agente responde a cada pedido no proprio PR. Comentario de linha
+# avulso nao dispara: o gatilho e a review que o contem. Os guardas estao no
+# router; o chamador do consumidor e o .github/workflows/ai.yml (ver
+# README.md).
+#
+# O push e feito com o GITHUB_TOKEN e por isso nao dispara o CI do PR (regra
+# do GitHub): o comentario final da skill avisa o humano.
+
+on:
+  workflow_call:
+    inputs:
+      setup_commands:
+        description: >-
+          Comandos de preparacao do ambiente do repositorio consumidor, um por
+          linha. Mesma semantica do input de issue-remote-implement.yml.
+        type: string
+        required: false
+        default: ""
+      quality_checks:
+        description: >-
+          Comandos de verificacao de qualidade do repositorio consumidor, um por
+          linha. Mesma semantica do input de issue-remote-implement.yml.
+        type: string
+        required: false
+        default: ""
+      evidence_tools:
+        description: >-
+          Prefixos de comando liberados ao agente para subir o projeto e
+          capturar evidencias, um por linha. Mesma semantica do input de
+          issue-remote-implement.yml; aqui o QA so roda quando um pedido muda
+          a tela ou o comportamento de um criterio de aceite.
+        type: string
+        required: false
+        default: ""
+      evidence_bucket:
+        description: >-
+          Destino das evidencias num bucket compativel com S3. Mesma semantica
+          do input de issue-remote-implement.yml.
+        type: string
+        required: false
+        default: ""
+      evidence_public_url:
+        description: >-
+          URL publica que corresponde a raiz de evidence_bucket. Mesma
+          semantica do input de issue-remote-implement.yml.
+        type: string
+        required: false
+        default: ""
+      evidence_endpoint:
+        description: >-
+          Endpoint S3 para provedores fora da AWS (ex.: Cloudflare R2,
+          MinIO). Vazio: AWS.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      EVIDENCE_ACCESS_KEY_ID:
+        required: false
+      EVIDENCE_SECRET_ACCESS_KEY:
+        required: false
+      # Variaveis do projeto para o ambiente do QA, no formato de um .env.
+      # Opcional: sem ele, nenhuma variavel e carregada.
+      PROJECT_ENV:
+        required: false
+
+# Mesmas permissoes dos outros workflows do agente: o ai.yml do consumidor ja
+# concede todas, e um reutilizavel que pede uma permissao que o chamador nao
+# concede invalida a run inteira. O CI do PR e lido pelas runs do Actions
+# (actions: read).
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  pr-fix:
+    name: Fix PR
+    runs-on: ubuntu-latest
+    steps:
+      # Alvo: o PR do evento. A review traz o PR no payload; o comentario so
+      # traz o numero (issue_comment roda no contexto da branch padrao, sem a
+      # head), por isso o resto vem do gh. PR fechado nao tem o que corrigir.
+      # PR de fork e recusado: issue_comment roda com os secrets do
+      # repositorio, e o checkout da head de um fork executaria codigo de fora
+      # com eles.
+      - name: Resolver alvo
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          REVIEW_ID: ${{ github.event.review.id }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::Evento sem PR: dispare o workflow chamador por review ou comentario num PR."
+            exit 1
+          fi
+          NUMBER="$PR_NUMBER"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          INFO=$(gh pr view "$NUMBER" --json state,isCrossRepository,headRefName,baseRefName,closingIssuesReferences)
+          STATE=$(jq -r '.state' <<<"$INFO")
+          if [ "$STATE" != "OPEN" ]; then
+            echo "::notice::PR #$NUMBER esta $STATE; nada a corrigir."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(jq -r '.isCrossRepository' <<<"$INFO")" = "true" ]; then
+            echo "::notice::PR #$NUMBER vem de um fork; a correcao nao roda nele."
+            gh pr comment "$NUMBER" --body "A correcao automatica nao roda em PR de fork: ela executaria o codigo do fork com os secrets deste repositorio. Corrija pelo fork."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HEAD=$(jq -r '.headRefName' <<<"$INFO")
+          BASE=$(jq -r '.baseRefName' <<<"$INFO")
+          # Os nomes entram no system prompt, que vai entre aspas em
+          # claude_args: so os caracteres de nome de branch comum passam.
+          for ref in "$HEAD" "$BASE"; do
+            if ! [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+              echo "::error::Nome de branch fora do padrao aceito: ${ref}"
+              exit 1
+            fi
+          done
+          ISSUES=$(jq -r '[.closingIssuesReferences[].number | "#\(.)"] | join(" ")' <<<"$INFO")
+          if [ "$EVENT_NAME" = "pull_request_review" ]; then
+            TRIGGER="review ${REVIEW_ID}"
+          else
+            TRIGGER="comentario ${COMMENT_ID}"
+          fi
+          {
+            echo "head=$HEAD"; echo "base=$BASE"; echo "issues=${ISSUES:-nenhum}"; echo "trigger=$TRIGGER"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::PR #$NUMBER ($HEAD -> $BASE), gatilho: $TRIGGER, issues: ${ISSUES:-nenhum}."
+
+      # Guarda de concorrencia: PR com work-in-progress ja tem um worker
+      # atuando — encerra sem falhar. O label vai no PR (labels de PR sao os
+      # mesmos do issue; `gh issue edit` serve aos dois).
+      - name: Aplicar work-in-progress
+        id: wip
+        if: steps.target.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+            echo "::notice::PR #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh label create work-in-progress --color D93F0B \
+            --description "Worker em execucao nesta issue" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label work-in-progress
+          # Nova rodada = o humano respondeu: sai o sinal de espera. Se a
+          # rodada parar em outra pergunta, a skill aplica de novo.
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'awaiting-reply'; then
+            gh issue edit "$NUMBER" --remove-label awaiting-reply
+          fi
+
+      # A head do PR, com historico completo: o merge da base na head (conflito)
+      # precisa do ancestral comum. O .github/ai-workflows.yml lido a seguir e
+      # o da head; so roda com quem tem escrita no repositorio (a action do
+      # agente confere) e nunca com PR de fork.
+      - uses: actions/checkout@v7
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        with:
+          ref: ${{ steps.target.outputs.head }}
+          fetch-depth: 0
+
+      - name: Preparar ambiente do agente
+        id: ambiente
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        uses: samuel-morrissey/ai-workflows/.github/actions/agent-env@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+          prompt_prefix: "Correcao de PR: #${{ steps.target.outputs.number }}, head ${{ steps.target.outputs.head }}, base ${{ steps.target.outputs.base }}. Gatilho: ${{ steps.target.outputs.trigger }}. Issues que o PR fecha: ${{ steps.target.outputs.issues }}. O workflow ja resolveu esses fatos e fez o checkout da head; use-os como estao."
+          setup_commands: ${{ inputs.setup_commands }}
+          quality_checks: ${{ inputs.quality_checks }}
+          evidence_tools: ${{ inputs.evidence_tools }}
+          evidence_bucket: ${{ inputs.evidence_bucket }}
+          evidence_public_url: ${{ inputs.evidence_public_url }}
+          evidence_endpoint: ${{ inputs.evidence_endpoint }}
+          project_env: ${{ secrets.PROJECT_ENV }}
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Branch do servidor MCP da action; o checkout da head e o de cima.
+          CLAUDE_BRANCH: ${{ steps.target.outputs.head }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/samuel-morrissey/ai-workflows.git"
+          plugins: "samuel-morrissey-skills@samuel-morrissey-ai-workflows"
+          prompt: "/samuel-morrissey-skills:pr-fix ${{ steps.target.outputs.number }}"
+          # Tira o rodape "Generated with Claude Code" do PR. O Co-Authored-By
+          # dos commits fica (attribution.commit sem valor mantem o padrao).
+          settings: '{"attribution":{"pr":""}}'
+          # A allowlist espelha o frontmatter da skill pr-fix: gh pr e gh api
+          # para ler o PR, a review e as threads, responder e editar o corpo;
+          # gh run para ler o CI que falhou; gh issue view/edit para os
+          # criterios dos issues vinculados e o awaiting-reply do handoff; git
+          # para merge da base, commit e push na branch do PR (sem rebase);
+          # Agent para o QA independente (issue-qa) e os prefixos derivados de
+          # quality_checks e evidence_tools.
+          claude_args: |
+            --model claude-opus-5-5
+            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh pr checks:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh label create:*),Bash(gh api:*),Bash(git status:*),Bash(git branch:*),Bash(git switch:*),Bash(git checkout:*),Bash(git fetch:*),Bash(git merge:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git config:*),Bash(git worktree:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite,Agent${{ steps.ambiente.outputs.allow }}"
+            --max-turns 200
+            ${{ steps.ambiente.outputs.sysprompt }}
+
+      # Publica o que o agente e o QA gravaram na pasta de evidencias (bucket,
+      # ou artifact da run com os links do PR corrigidos). Roda mesmo quando a
+      # action falhou, para nao perder captura.
+      - name: Publicar evidencias
+        if: always() && steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true' && steps.ambiente.outcome == 'success'
+        uses: samuel-morrissey/ai-workflows/.github/actions/publish-evidence@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+          pr: ${{ steps.target.outputs.number }}
+          dir: ${{ steps.ambiente.outputs.dir }}
+          mode: ${{ steps.ambiente.outputs.mode }}
+          prefix: ${{ steps.ambiente.outputs.prefix }}
+          base_url: ${{ steps.ambiente.outputs.base_url }}
+          run_url: ${{ steps.ambiente.outputs.run_url }}
+          bucket: ${{ steps.ambiente.outputs.evidence_bucket }}
+          endpoint: ${{ steps.ambiente.outputs.evidence_endpoint }}
+          access_key_id: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
+          secret_access_key: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
+
+      # Remove o WIP mesmo quando a action falha — mas so se foi este worker
+      # que o aplicou, para nao apagar o label de outro worker.
+      - name: Remover work-in-progress
+        if: always() && steps.target.outputs.skip != 'true' && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          gh issue edit "$NUMBER" --remove-label work-in-progress
+
+      # Registro da falha para o humano. Quem escreve no PR e a skill, de
+      # dentro do agente; quando um passo falha fora dela (configuracao
+      # invalida, setup_commands, a propria action do agente), o PR ficava sem
+      # nenhum sinal. Este passo roda so quando algum passo anterior falhou e
+      # comenta no PR a etapa, o passo que falhou (lido da run) e o link da
+      # run. Nunca derruba o job nem mascara a falha original: a run continua
+      # marcada como falha.
+      - name: Comentar falha da rodada
+        if: failure()
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/round-failure@main
+        with:
+          etapa: correcao de PR
+          number: ${{ steps.target.outputs.number }}
+          retomar: "comente `@claude` no PR de novo."

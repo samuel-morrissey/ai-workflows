@@ -287,7 +287,8 @@ com o link. O outro fim valido e o handoff com `awaiting-reply` sem PR.
 
 ## Fora de escopo
 
-- Fazer merge, aprovar ou iterar em PR ja existente.
+- Fazer merge, aprovar ou iterar em PR ja existente (corrigir um PR
+  aberto e da skill `pr-fix`).
 - Commit ou push direto na branch padrao ou na branch de outra camada.
 - Mais de um PR por rodada.
 - Terceira rodada de QA, ou replica ao relatorio do QA.

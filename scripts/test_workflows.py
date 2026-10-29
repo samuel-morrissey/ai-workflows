@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Testes do passo "Comentar falha da rodada" dos workflows reutilizaveis
-(issue-triage, issue-refinement, issue-break-down, issue-remote-implement e
-issue-sub-task), sem gh nem rede. O passo e a composite action round-failure:
+(issue-triage, issue-refinement, issue-break-down, issue-remote-implement,
+issue-sub-task e pr-fix), sem gh nem rede. O passo e a composite action round-failure:
 cada workflow a chama como ultimo passo, e o `run` dela e extraido do YAML e
 roda num bash com um `gh` falso.
 
@@ -22,7 +22,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "round-failure" / "action.yml"
 USES = "samuel-morrissey/ai-workflows/.github/actions/round-failure@main"
 FILES = ["issue-triage.yml", "issue-refinement.yml", "issue-break-down.yml",
-         "issue-remote-implement.yml", "issue-sub-task.yml"]
+         "issue-remote-implement.yml", "issue-sub-task.yml", "pr-fix.yml"]
 STEP_NAME = "Comentar falha da rodada"
 
 FAKE_GH = r'''#!/usr/bin/env bash

@@ -24,6 +24,11 @@ name: AI Router
 # Um label de estado aplicado por humano (`needs-triage`, `needs-refinement`,
 # `needs-break-down`) tambem dispara a etapa dele, sem precisar de `go`.
 #
+# Num PR aberto, a correcao (pr-fix) responde a uma acao explicita: review com
+# *Request changes*, review ou comentario que cita `@claude`, ou comentario
+# humano no PR com `awaiting-reply` (resposta a um handoff da correcao).
+# Comentario sem nenhum desses sinais nao dispara nada.
+#
 # Um terceiro sinal e interno: `repository_dispatch`. Num pai com sub-tasks a
 # implementacao e uma cadeia de runs (planner do pai -> worker da sub-task ->
 # planner do pai -> ...), e cada elo chama o seguinte com esse evento, criado
@@ -48,7 +53,7 @@ name: AI Router
 # Guardas comuns a todos os jobs de issue:
 # - sem work-in-progress — outro worker ja esta atuando no issue;
 # - `!github.event.issue.pull_request` — issue_comment tambem dispara em
-#   comentario de PR, e PR esta fora de escopo;
+#   comentario de PR, e comentario de PR e do job pr-fix;
 # - `comment.user.type != 'Bot'` — so comentario humano conta como resposta.
 
 on:
@@ -131,17 +136,18 @@ jobs:
   # ai.yml antigo migram para .github/ai-workflows.yml no mesmo PR, e um PR
   # ja aberto e atualizado, nunca duplicado. Igual ao modelo: nada acontece.
   #
-  # Roda nos eventos em que um humano esta agindo (label em issue e
-  # comentario humano), nao nos elos da cadeia de sub-tasks nem no merge de
-  # PR. Nenhum job depende dele e ele nunca falha a run: erro vira aviso.
-  # Nao ha input para desliga-lo.
+  # Roda nos eventos em que um humano esta agindo (label em issue, comentario
+  # humano em issue ou PR e review humana), nao nos elos da cadeia de
+  # sub-tasks nem no merge de PR. Nenhum job depende dele e ele nunca falha a
+  # run: erro vira aviso. Nao ha input para desliga-lo.
   check-caller:
     name: Check caller
     if: >
       (github.event_name == 'issues' && github.event.action == 'labeled') ||
       (github.event_name == 'issue_comment' &&
-       !github.event.issue.pull_request &&
-       github.event.comment.user.type != 'Bot')
+       github.event.comment.user.type != 'Bot') ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.user.type != 'Bot')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -353,6 +359,50 @@ jobs:
       evidence_public_url: ${{ inputs.evidence_public_url }}
       evidence_endpoint: ${{ inputs.evidence_endpoint }}
       ai_workflows_ref: ${{ inputs.ai_workflows_ref }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
+      EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
+      PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
+
+  # Correcao de PR: acao humana explicita num PR aberto.
+  # - review enviada com *Request changes* (`review.state` chega em
+  #   minusculas: `changes_requested`), ou review cujo corpo cita `@claude`.
+  #   A review traz o PR no payload: PR de fork sai ja aqui, pela head;
+  # - comentario no PR que cita `@claude`, ou qualquer comentario humano no
+  #   PR com `awaiting-reply` (resposta a um handoff da correcao). PR de fork
+  #   sai no workflow, que resolve a head pelo gh.
+  # Comentario de linha avulso (pull_request_review_comment) nao e gatilho:
+  # cada comentario de uma review gera um evento proprio, e a review que os
+  # contem ja e o pedido inteiro. A concorrencia por PR serializa as rodadas.
+  pr-fix:
+    if: >
+      (github.event_name == 'pull_request_review' &&
+       github.event.action == 'submitted' &&
+       github.event.review.user.type != 'Bot' &&
+       github.event.pull_request.state == 'open' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       !contains(join(github.event.pull_request.labels.*.name, ','), 'work-in-progress') &&
+       (github.event.review.state == 'changes_requested' ||
+        contains(github.event.review.body, '@claude'))) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.issue.state == 'open' &&
+       github.event.comment.user.type != 'Bot' &&
+       !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress') &&
+       (contains(github.event.comment.body, '@claude') ||
+        contains(join(github.event.issue.labels.*.name, ','), 'awaiting-reply')))
+    concurrency:
+      group: ai-pr-fix-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    uses: samuel-morrissey/ai-workflows/.github/workflows/pr-fix.yml@main
+    with:
+      setup_commands: ${{ inputs.setup_commands }}
+      quality_checks: ${{ inputs.quality_checks }}
+      evidence_tools: ${{ inputs.evidence_tools }}
+      evidence_bucket: ${{ inputs.evidence_bucket }}
+      evidence_public_url: ${{ inputs.evidence_public_url }}
+      evidence_endpoint: ${{ inputs.evidence_endpoint }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
