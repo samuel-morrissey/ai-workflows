@@ -727,3 +727,55 @@ jobs:
               status "parada" "$WAIT_NOTE"
               ;;
           esac
+
+      # Registro da falha para o humano. Quem escreve no issue e a skill, de
+      # dentro do agente; quando um passo falha fora dela (configuracao
+      # invalida, setup_commands, planner, a propria action do agente), o
+      # issue ficava como antes do `go`, sem nenhum sinal. Este passo roda so
+      # quando algum passo anterior falhou e comenta no issue a etapa, o passo
+      # que falhou (lido da run) e o link da run. Nunca derruba o job nem
+      # mascara a falha original: a run continua marcada como falha.
+      - name: Comentar falha da rodada
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ETAPA: implementacao
+          NUMBER: ${{ steps.target.outputs.number }}
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+          PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}
+        run: |
+          NUMBER="${NUMBER:-${EVENT_NUMBER:-$PAYLOAD_NUMBER}}"
+          if [ -z "$NUMBER" ]; then
+            echo "::notice::A rodada falhou antes de resolver o issue; nao ha onde comentar."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+          # O nome do passo vem da propria run (actions: read), filtrando o
+          # job deste runner; todo outro job desta tentativa e o fallback.
+          # Sem resposta da API, o comentario sai so com o link.
+          STEP=$(gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100" 2>/dev/null \
+            | jq -r --arg runner "$RUNNER_NAME" '
+                [.jobs[] | select(.runner_name == $runner)] as $mine
+                | (if ($mine | length) > 0 then $mine else .jobs end)
+                | [.[].steps[]? | select(.conclusion == "failure") | .name]
+                | first // empty' 2>/dev/null) || STEP=""
+          if [ -n "$STEP" ]; then
+            ONDE="no passo **${STEP}**"
+          else
+            echo "::warning::Nao consegui ler pela API qual passo falhou; o comentario sai so com o link da run."
+            ONDE="em um passo que nao consegui identificar (veja o log)"
+          fi
+          BODY="## Rodada com falha
+
+          A rodada de **${ETAPA}** falhou fora do que a skill registra, ${ONDE}.
+
+          Run: ${RUN_URL}
+
+          Veja o log da run, corrija a causa e aplique \`go\` de novo. Esta falha nao mudou o label de estado."
+          if gh issue comment "$NUMBER" --body "$BODY"; then
+            echo "::notice::Falha da rodada registrada no issue #$NUMBER."
+          else
+            echo "::warning::Nao consegui comentar a falha no issue #$NUMBER; so a run registra o erro."
+          fi

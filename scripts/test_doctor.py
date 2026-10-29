@@ -10,6 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
+from test_workflows import Run as WorkflowRun, Shape as WorkflowShape  # noqa: E402,F401
 
 TEMPLATE = """name: AI
 on:
