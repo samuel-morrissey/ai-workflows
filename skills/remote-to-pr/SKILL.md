@@ -1,6 +1,6 @@
 ---
 name: remote-to-pr
-description: Abre um PR em fluxo remoto e assincrono, sem ninguem para responder - segue a to-pr inteira (formato, estilo da casa, vinculos), monta Evidencias e Criterios de aceite a partir do relatorio do QA e abre direto, sem perguntar. Use para abrir PR dentro de um workflow, como na issue-remote-implement.
+description: Abre um PR, ou atualiza o corpo de um PR existente, em fluxo remoto e assincrono, sem ninguem para responder - segue a to-pr inteira (formato, estilo da casa, vinculos), monta Evidencias e Criterios de aceite a partir do relatorio do QA e aplica direto, sem perguntar. Use dentro de um workflow, como na issue-remote-implement (PR novo) e na pr-fix (PR existente).
 ---
 
 # Remote to PR
@@ -8,6 +8,11 @@ description: Abre um PR em fluxo remoto e assincrono, sem ninguem para responder
 A `to-pr` e a fonte unica do **formato** do PR. Esta skill so a adapta a um
 fluxo remoto: ninguem esta olhando, entao nada espera resposta. Mudou o
 formato na `to-pr`? Vale aqui na proxima execucao, sem tocar neste arquivo.
+
+Dois ramos, pelo que quem chama passa:
+
+- **head e base** → *PR novo*: os passos abaixo.
+- **numero de um PR aberto** → *PR existente*: a secao do fim.
 
 ## Passos
 
@@ -76,3 +81,38 @@ pelas linhas de vinculo da `issue-git-flow`, o `closingIssuesReferences` do
 PR lista cada issue do `Closes`, segue o `TEMPLATE.md` da `to-pr`, as
 Evidencias e os Criterios de aceite vem do relatorio do QA (ou declaram por
 que nao) e termina na ultima secao de conteudo.
+
+## PR existente
+
+Quem chama (a `pr-fix`) passa o numero do PR, a lista de pedidos feitos
+com os commits, a bateria que rodou e o relatorio do QA (ou o motivo de nao
+ter rodado). O corpo atual e o ponto de partida: a rodada acrescenta, nao
+reescreve.
+
+1. **Leia o corpo atual:** `gh pr view <pr> --json body,closingIssuesReferences`.
+   Corpo que nao segue o `TEMPLATE.md` da `to-pr` (PR escrito por uma
+   pessoa, em outro formato) fica como esta: devolva a quem chamou "corpo
+   fora do template, mantido", e o registro da rodada fica so no comentario
+   dela.
+
+2. **Atualize so as secoes que a rodada mudou**, com as regras da `to-pr`
+   para cada uma; as linhas de vinculo do topo e as outras secoes ficam
+   byte a byte:
+   - **Alteracoes:** acrescente os itens da rodada, agrupados como a secao
+     ja agrupa.
+   - **Qualidade de codigo:** troque pelo resultado da bateria desta rodada.
+   - **Configurando o ambiente** e **Como testar:** atualize quando algum
+     pedido mudou o caminho ate a funcionalidade.
+   - **Evidencias** e **Criterios de aceite:** com QA nesta rodada, troque
+     pelas capturas e pela tabela da ultima rodada dele, como no passo 1 do
+     PR novo. Sem QA, e com pedido que mudou a tela ou o comportamento,
+     mantenha as capturas e acrescente, logo abaixo do titulo da secao, a
+     linha "Capturas anteriores a correcao de <commit>: nao refletem
+     <o que mudou>."
+
+3. **Aplique direto**, sem perguntar:
+   `gh pr edit <pr> --body-file <arquivo-temporario>`. Depois confira que
+   `closingIssuesReferences` lista os mesmos issues de antes.
+
+Pronto quando o corpo do PR descreve o estado da head depois da rodada, nas
+secoes que ela mudou, e os vinculos sao os mesmos de antes.

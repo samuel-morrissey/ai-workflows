@@ -1,0 +1,335 @@
+name: Ambiente do agente
+description: >-
+  Prepara uma rodada do agente no checkout do repositorio consumidor: le
+  .github/ai-workflows.yml, monta a allowlist e o system prompt de qualidade e
+  evidencias, carrega PROJECT_ENV, roda setup_commands e instala as
+  ferramentas de evidencia. O checkout do consumidor vem antes deste passo.
+
+# Os passos sao os mesmos que viviam copiados em cada workflow que roda o
+# agente (issue-remote-implement.yml, issue-sub-task.yml, pr-fix.yml). Mudou
+# aqui, mudou para todos.
+#
+# Cada passo roda em `bash` com `set +o pipefail` no topo: o shell padrao de
+# um `run:` de workflow e `bash -e`, sem pipefail, e e o comportamento que
+# setup_commands do consumidor sempre teve.
+
+inputs:
+  number:
+    description: >-
+      Issue ou PR da rodada. Entra no prefixo das evidencias no bucket e no
+      nome do artifact.
+    required: true
+  prompt_prefix:
+    description: >-
+      Texto que abre o system prompt, antes das frases de qualidade e de
+      evidencias (ex.: o modo sub-task). Sem aspas duplas: o system prompt vai
+      entre aspas em claude_args.
+    required: false
+    default: ""
+  setup_commands:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
+  quality_checks:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
+  evidence_tools:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
+  evidence_bucket:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
+  evidence_public_url:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
+  evidence_endpoint:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
+  project_env:
+    description: Conteudo do secret PROJECT_ENV, no formato de um .env.
+    required: false
+    default: ""
+
+outputs:
+  setup_commands:
+    description: Valor final, depois de .github/ai-workflows.yml.
+    value: ${{ steps.config.outputs.setup_commands }}
+  quality_checks:
+    description: Valor final, depois de .github/ai-workflows.yml.
+    value: ${{ steps.config.outputs.quality_checks }}
+  evidence_tools:
+    description: Valor final, depois de .github/ai-workflows.yml.
+    value: ${{ steps.config.outputs.evidence_tools }}
+  evidence_bucket:
+    description: Valor final, depois de .github/ai-workflows.yml.
+    value: ${{ steps.config.outputs.evidence_bucket }}
+  evidence_public_url:
+    description: Valor final, depois de .github/ai-workflows.yml.
+    value: ${{ steps.config.outputs.evidence_public_url }}
+  evidence_endpoint:
+    description: Valor final, depois de .github/ai-workflows.yml.
+    value: ${{ steps.config.outputs.evidence_endpoint }}
+  allow:
+    description: >-
+      Prefixos de quality_checks e evidence_tools ja no formato da allowlist
+      (`,Bash(<linha>:*)` por linha), para colar no fim de --allowed-tools.
+    value: ${{ steps.quality.outputs.allow }}
+  sysprompt:
+    description: Argumento --append-system-prompt pronto para claude_args.
+    value: ${{ steps.quality.outputs.sysprompt }}
+  dir:
+    description: Pasta de evidencias, fora do workspace.
+    value: ${{ steps.quality.outputs.dir }}
+  prefix:
+    description: Prefixo imprevisivel das evidencias no bucket.
+    value: ${{ steps.quality.outputs.prefix }}
+  mode:
+    description: "`bucket` ou `artifact`."
+    value: ${{ steps.quality.outputs.mode }}
+  base_url:
+    description: URL publica da pasta de evidencias no bucket (vazia em modo artifact).
+    value: ${{ steps.quality.outputs.base_url }}
+  run_url:
+    description: URL desta run.
+    value: ${{ steps.quality.outputs.run_url }}
+
+runs:
+  using: composite
+  steps:
+    # O consumidor pode trazer os seis inputs num arquivo versionado,
+    # .github/ai-workflows.yml, em vez do bloco `with:` do ai.yml. Assim o
+    # ai.yml fica identico em todo consumidor e so o arquivo varia. Chave do
+    # arquivo vence o input de mesmo nome; chave ausente deixa o input valer;
+    # sem arquivo, nada muda. So escalar de texto e bloco literal (`|`) sao
+    # aceitos: outro tipo de valor falha aqui, antes do agente.
+    - name: Ler configuracao do repositorio
+      id: config
+      shell: bash
+      env:
+        CONFIG_FILE: .github/ai-workflows.yml
+        IN_SETUP_COMMANDS: ${{ inputs.setup_commands }}
+        IN_QUALITY_CHECKS: ${{ inputs.quality_checks }}
+        IN_EVIDENCE_TOOLS: ${{ inputs.evidence_tools }}
+        IN_EVIDENCE_BUCKET: ${{ inputs.evidence_bucket }}
+        IN_EVIDENCE_PUBLIC_URL: ${{ inputs.evidence_public_url }}
+        IN_EVIDENCE_ENDPOINT: ${{ inputs.evidence_endpoint }}
+      run: |
+        set +o pipefail
+        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint"
+        emit() {
+          local d="EOF_$(openssl rand -hex 8)"
+          { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_OUTPUT"
+        }
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "::notice::Sem ${CONFIG_FILE}: valem os inputs do ai.yml."
+          for k in $KEYS; do v="IN_$(tr a-z A-Z <<<"$k")"; emit "$k" "${!v}"; done
+          exit 0
+        fi
+        if ! yq -e 'type == "!!map"' "$CONFIG_FILE" >/dev/null 2>&1; then
+          echo "::error file=${CONFIG_FILE}::${CONFIG_FILE} precisa ser um mapa chave: valor."
+          exit 1
+        fi
+        for k in $(yq -r 'keys | .[]' "$CONFIG_FILE"); do
+          case " $KEYS " in
+            *" $k "*) ;;
+            *) echo "::warning file=${CONFIG_FILE}::Chave desconhecida ignorada: ${k}" ;;
+          esac
+        done
+        for k in $KEYS; do
+          v="IN_$(tr a-z A-Z <<<"$k")"
+          if [ "$(yq -r "has(\"$k\")" "$CONFIG_FILE")" = "true" ]; then
+            tag="$(yq -r ".${k} | tag" "$CONFIG_FILE")"
+            if [ "$tag" != "!!str" ]; then
+              echo "::error file=${CONFIG_FILE}::${k} precisa ser texto (escalar ou bloco |), e veio como ${tag}."
+              exit 1
+            fi
+            [ -n "${!v}" ] && echo "::notice::${k}: o valor de ${CONFIG_FILE} vence o input do ai.yml."
+            emit "$k" "$(yq -r ".${k}" "$CONFIG_FILE")"
+          else
+            emit "$k" "${!v}"
+          fi
+        done
+        echo "::notice::Configuracao lida de ${CONFIG_FILE}."
+
+    # Cada linha de quality_checks vira (a) um prefixo liberado na allowlist
+    # e (b) um item da lista que a skill recebe via system prompt. Um input
+    # so alimenta os dois, sem abrir Bash(*) para o agente.
+    - name: Preparar verificacao de qualidade e evidencias
+      id: quality
+      shell: bash
+      env:
+        QUALITY_CHECKS: ${{ steps.config.outputs.quality_checks }}
+        EVIDENCE_TOOLS: ${{ steps.config.outputs.evidence_tools }}
+        EVIDENCE_BUCKET: ${{ steps.config.outputs.evidence_bucket }}
+        EVIDENCE_PUBLIC_URL: ${{ steps.config.outputs.evidence_public_url }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ inputs.number }}
+        PROMPT_PREFIX: ${{ inputs.prompt_prefix }}
+      run: |
+        set +o pipefail
+        ALLOW=""
+        LIST=""
+        while IFS= read -r line; do
+          line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          [ -z "$line" ] && continue
+          ALLOW="${ALLOW},Bash(${line}:*)"
+          LIST="${LIST}${LIST:+ ; }${line}"
+        done <<<"$QUALITY_CHECKS"
+        if [ -n "$LIST" ]; then
+          QUALITY="Verificacao de qualidade: o workflow chamador liberou e pede que voce rode, nesta ordem, os comandos: ${LIST}."
+          echo "::notice::quality_checks: ${LIST}"
+        else
+          QUALITY="Verificacao de qualidade: nenhum comando liberado; siga sem verificacao e declare isso no PR."
+          echo "::notice::Sem quality_checks: a skill segue sem verificacao e declara isso no PR."
+        fi
+        # Evidencias: pasta fora do workspace, prefixo imprevisivel no bucket e
+        # a frase que diz ao agente onde gravar, como referenciar e o que pode
+        # rodar. As URLs sao decididas AQUI, antes do agente, para o PR ja
+        # sair com elas; o upload acontece depois (passo "Publicar
+        # evidencias"). Sem bucket, o destino e o artifact da run.
+        EV_ALLOW=""
+        EV_LIST=""
+        while IFS= read -r line; do
+          line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          [ -z "$line" ] && continue
+          EV_ALLOW="${EV_ALLOW},Bash(${line}:*)"
+          EV_LIST="${EV_LIST}${EV_LIST:+ ; }${line}"
+        done <<<"$EVIDENCE_TOOLS"
+        ALLOW="${ALLOW}${EV_ALLOW}"
+        echo "allow=$ALLOW" >> "$GITHUB_OUTPUT"
+        DIR="$RUNNER_TEMP/evidencias"
+        mkdir -p "$DIR"
+        PREFIX="${GH_REPO}/${NUMBER}/${GITHUB_RUN_ID}-$(openssl rand -hex 6)"
+        RUN_URL="${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+        if [ -n "$EVIDENCE_BUCKET" ] && [ -n "$EVIDENCE_PUBLIC_URL" ]; then
+          MODE=bucket
+          BASE_URL="${EVIDENCE_PUBLIC_URL%/}/${PREFIX}"
+          PUBLISH="Publicacao: depois da rodada cada arquivo dessa pasta estara publico em ${BASE_URL}/<nome-do-arquivo>; referencie imagens no PR como ![nome](${BASE_URL}/<arquivo>) e os demais arquivos como link para essa URL."
+        else
+          MODE=artifact
+          BASE_URL=""
+          PUBLISH="Publicacao: depois da rodada a pasta sera anexada como artifact evidencias-${NUMBER} da run ${RUN_URL}; no PR, linke a run e cite cada arquivo pelo nome (sem renderizacao inline)."
+          [ -n "$EVIDENCE_BUCKET" ] && echo "::warning::evidence_bucket sem evidence_public_url: evidencias vao como artifact."
+        fi
+        if [ -n "$EV_LIST" ]; then
+          TOOLS="Ferramentas liberadas para captura e QA: ${EV_LIST}."
+          echo "::notice::evidence_tools: ${EV_LIST} (publicacao: ${MODE})"
+        else
+          TOOLS="Ferramentas liberadas para captura e QA: nenhuma (o QA independente nao roda; declare isso no PR)."
+          echo "::notice::Sem evidence_tools: o QA independente nao roda."
+        fi
+        EVIDENCE="Evidencias: grave toda captura e o relatorio do QA na pasta ${DIR}, fora do workspace, sem commitar. ${PUBLISH} ${TOOLS}"
+        {
+          echo "dir=$DIR"; echo "prefix=$PREFIX"; echo "mode=$MODE"; echo "base_url=$BASE_URL"; echo "run_url=$RUN_URL"
+        } >> "$GITHUB_OUTPUT"
+        if [ -n "$PROMPT_PREFIX" ]; then
+          echo "::notice::${PROMPT_PREFIX}"
+        fi
+        echo "sysprompt=--append-system-prompt \"${PROMPT_PREFIX:+${PROMPT_PREFIX} }${QUALITY} ${EVIDENCE}\"" >> "$GITHUB_OUTPUT"
+
+    # Secrets do projeto que o ambiente do QA exige (ex.: chave de teste de
+    # um servico de autenticacao sem emulador). Vem num unico secret,
+    # PROJECT_ENV, no formato de um .env. Cada valor e mascarado no log e
+    # gravado em $GITHUB_ENV, de onde chega a setup_commands, a
+    # quality_checks, ao agente e ao QA. Sem o secret, nada acontece.
+    - name: Carregar variaveis do projeto
+      shell: bash
+      env:
+        PROJECT_ENV: ${{ inputs.project_env }}
+      run: |
+        set +o pipefail
+        if [ -z "$PROJECT_ENV" ]; then
+          echo "::notice::Sem PROJECT_ENV: nenhuma variavel do projeto carregada."
+          exit 0
+        fi
+        N=0
+        while IFS= read -r line || [ -n "$line" ]; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          case "$line" in ''|'#'*) continue ;; esac
+          line="${line#export }"
+          if [[ "$line" != *=* ]]; then
+            echo "::warning::PROJECT_ENV: linha sem '=' ignorada."
+            continue
+          fi
+          key="${line%%=*}"
+          val="${line#*=}"
+          key="${key%"${key##*[![:space:]]}"}"
+          if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "::warning::PROJECT_ENV: nome de variavel invalido ignorado: ${key}"
+            continue
+          fi
+          if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
+            val="${BASH_REMATCH[1]}"
+          fi
+          [ -n "$val" ] && echo "::add-mask::$val"
+          d="EOF_$(openssl rand -hex 8)"
+          { echo "${key}<<${d}"; printf '%s\n' "$val"; echo "$d"; } >> "$GITHUB_ENV"
+          N=$((N + 1))
+        done <<<"$PROJECT_ENV"
+        echo "::notice::PROJECT_ENV: ${N} variavel(is) do projeto carregada(s)."
+
+    # setup_commands serve a um fim so: ser executado aqui. Instalar
+    # dependencia e pre-condicao, nao decisao — por isso quem roda e o
+    # workflow (falha com log legivel, sem gastar turno do agente nem abrir
+    # prefixo novo na allowlist), e nao o agente. Nada deste input vaza para
+    # --allowed-tools ou para o system prompt.
+    - name: Preparar ambiente do consumidor
+      shell: bash
+      env:
+        SETUP_COMMANDS: ${{ steps.config.outputs.setup_commands }}
+      run: |
+        set +o pipefail
+        set -e
+        RAN=0
+        while IFS= read -r line; do
+          line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          [ -z "$line" ] && continue
+          echo "::group::setup: ${line}"
+          # Falha aqui para o job: o agente nao roda em ambiente quebrado.
+          # stdin em /dev/null para o comando nao consumir as linhas que
+          # faltam e furar a ordem declarada.
+          eval "$line" </dev/null
+          echo "::endgroup::"
+          RAN=$((RAN + 1))
+        done <<<"$SETUP_COMMANDS"
+        if [ "$RAN" -eq 0 ]; then
+          echo "::notice::Sem setup_commands: nenhum comando de preparacao executado."
+        fi
+
+    # Ferramentas de captura, instaladas so quando evidence_tools as cita.
+    # Depois do setup do consumidor, para o `npx playwright` usar a versao
+    # do projeto quando ela existe. Falha aqui nao derruba o job: o QA
+    # registra Ambiente falhou e o PR sai declarando.
+    - name: Instalar ferramentas de evidencia
+      if: steps.config.outputs.evidence_tools != ''
+      shell: bash
+      env:
+        EVIDENCE_TOOLS: ${{ steps.config.outputs.evidence_tools }}
+      run: |
+        set +o pipefail
+        if grep -qi 'playwright' <<<"$EVIDENCE_TOOLS"; then
+          echo "::group::playwright (chromium)"
+          npx --yes playwright install --with-deps chromium || echo "::warning::Falha ao instalar o Playwright; o QA vai registrar Ambiente falhou."
+          echo "::endgroup::"
+        fi
+        if grep -qiE 'ffmpeg|playwright' <<<"$EVIDENCE_TOOLS" && ! command -v ffmpeg >/dev/null; then
+          echo "::group::ffmpeg"
+          sudo apt-get install -y -qq ffmpeg || echo "::warning::Falha ao instalar o ffmpeg; gravacoes ficam em webm."
+          echo "::endgroup::"
+        fi
+        if grep -qi 'asciinema' <<<"$EVIDENCE_TOOLS" && ! command -v asciinema >/dev/null; then
+          echo "::group::asciinema"
+          sudo apt-get install -y -qq asciinema || echo "::warning::Falha ao instalar o asciinema."
+          echo "::endgroup::"
+        fi
+        if grep -qiw 'agg' <<<"$EVIDENCE_TOOLS" && ! command -v agg >/dev/null; then
+          echo "::group::agg"
+          (curl -fsSL https://github.com/asciinema/agg/releases/latest/download/agg-x86_64-unknown-linux-gnu -o /tmp/agg \
+            && sudo install -m 0755 /tmp/agg /usr/local/bin/agg) || echo "::warning::Falha ao instalar o agg; gravacoes de terminal ficam em .cast."
+          echo "::endgroup::"
+        fi

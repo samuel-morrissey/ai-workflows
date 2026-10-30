@@ -2,7 +2,7 @@ name: AI
 
 # Chamador dos fluxos de IA de samuel-morrissey/ai-workflows: triagem,
 # refinamento, quebra em sub-tasks e implementacao a partir dos issues, com
-# QA independente e evidencias no PR.
+# QA independente e evidencias no PR, e correcao de PR a partir da review.
 #
 # Este arquivo e IDENTICO em todo repositorio que usa o fluxo, inclusive
 # neste. Nao edite a copia: o que varia por repositorio mora fora dele.
@@ -28,6 +28,10 @@ on:
     types: [created]
   pull_request:
     types: [closed]
+  # Correcao de PR: review com Request changes ou que cita @claude. O
+  # comentario no PR chega pelo issue_comment acima.
+  pull_request_review:
+    types: [submitted]
   # Elos da cadeia de sub-tasks: o planner do pai chama o worker da proxima
   # sub-task (`ai-sub-task`) e o worker devolve o controle ao pai
   # (`ai-implement`). Evento criado pelos proprios workflows, com o
