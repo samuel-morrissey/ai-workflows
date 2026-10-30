@@ -150,12 +150,15 @@ jobs:
 
       # Guarda de concorrencia: PR com work-in-progress ja tem um worker
       # atuando — encerra sem falhar. O label vai no PR (labels de PR sao os
-      # mesmos do issue; `gh issue edit` serve aos dois).
+      # mesmos do issue; `gh issue edit` serve aos dois). Roda antes do
+      # checkout: sem GH_REPO, o gh procura o repositorio num .git que nao
+      # existe.
       - name: Aplicar work-in-progress
         id: wip
         if: steps.target.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           NUMBER: ${{ steps.target.outputs.number }}
         run: |
           if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
@@ -249,6 +252,7 @@ jobs:
         if: always() && steps.target.outputs.skip != 'true' && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           NUMBER: ${{ steps.target.outputs.number }}
         run: |
           gh issue edit "$NUMBER" --remove-label work-in-progress
