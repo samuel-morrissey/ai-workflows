@@ -108,6 +108,16 @@ Lendo os labels juntos:
 - `needs-triage` + `work-in-progress` — worker atuando agora;
 - `needs-triage` sozinho — esperando `go` para a triagem rodar.
 
+## Labels em PR
+
+Num PR, so os dois labels que nao sao estado valem, com o mesmo significado:
+`work-in-progress` (a correcao do `pr-fix` esta rodando no PR) e
+`awaiting-reply` (a correcao parou numa pergunta; qualquer comentario humano
+no PR dispara a proxima rodada). Quem aplica e remove e o mesmo do issue.
+PR nao recebe label de estado nem `go`: o estado da implementacao continua
+no issue (`awaiting-pr-review`), e a correcao parte de uma review ou de um
+comentario que cita `@claude`.
+
 ## Label de prioridade
 
 `priority` tambem nao e estado: diz que o humano decidiu que esta issue vem

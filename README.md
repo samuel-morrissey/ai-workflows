@@ -13,6 +13,7 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 | Quebra em sub-tasks | o label `go` entra num issue com `needs-break-down`, ou uma pessoa coloca `needs-break-down` | `issue-break-down.yml` |
 | Implementação | o label `go` entra num issue com `ready-for-agent`. Num pontual, abre o PR dele. Num pai com sub-tasks, é o planner da cadeia: despacha uma sub-task por vez e empilha os PRs numa stack | `issue-remote-implement.yml` |
 | Sub-task | o planner do pai despacha a próxima sub-task, o label `go` entra numa `[SUB-TASK]` (roda só ela), ou uma pessoa responde a uma pergunta dela | `issue-sub-task.yml` |
+| Correção de PR | uma pessoa envia uma review com *Request changes* num PR aberto, ou uma review ou um comentário no PR que cita `@claude`, ou responde a uma pergunta da correção. Cada pedido vira commit na branch do PR e resposta no próprio PR. Veja [Correção de PR](#correção-de-pr) | `pr-fix.yml` |
 | Fechar sub-task | um PR é mergeado numa branch que não é a padrão. Fecha os issues do `Closes` do corpo, porque o GitHub só faz isso sozinho na branch padrão. Numa stack o GitHub já fechou; só o label `awaiting-pr-review` sai | `pr-merged.yml` |
 
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos. Num pai com sub-tasks ele fica durante a cadeia inteira (veja abaixo).
@@ -51,7 +52,7 @@ Cada camada da stack precisa da camada de baixo para existir, por isso a ordem �
 
 Quando uma etapa para com uma pergunta, o issue ganha `awaiting-reply`: a vez é de um humano. Responda no issue: a resposta já dispara a próxima rodada da etapa, em qualquer estado, inclusive na implementação. O workflow tira o `awaiting-reply` quando a rodada seguinte começa.
 
-Comentário só dispara etapa em issue com `awaiting-reply`. Fora disso, comente à vontade: nada roda. Comentários de bots e de PRs nunca disparam nada.
+Comentário só dispara etapa em issue com `awaiting-reply`. Fora disso, comente à vontade: nada roda. Comentários de bots nunca disparam nada. Comentário em PR segue as regras de [Correção de PR](#correção-de-pr).
 
 | Labels no issue | Quer dizer |
 | --- | --- |
@@ -70,6 +71,31 @@ Comentário só dispara etapa em issue com `awaiting-reply`. Fora disso, comente
 | `deferred` | fechado: despriorizado. Pode ser reaberto; um pedido igual cita este issue e segue o fluxo |
 
 Para tirar um issue do fluxo, coloque `wontfix` (não será feito) ou `deferred` (não agora). Comentar o motivo é opcional: a triagem roda, tira o label de estado anterior, fecha o issue e registra o motivo. Para retomar um `deferred`, reabra o issue, tire `deferred` e coloque de volta o label de estado que o comentário de fechamento registrou. Um `priority` colocado por você marca o issue como prioritário dentro do estado dele; as etapas também o colocam quando você decide a prioridade numa resposta.
+
+### Correção de PR
+
+Na revisão de um PR aberto, peça a mudança no próprio PR. A correção roda com qualquer uma destas ações:
+
+- uma review com **Request changes**. O corpo e todos os comentários de linha da review formam o pedido;
+- uma review (**Comment** ou **Approve**) cujo corpo cita `@claude`;
+- um comentário no PR que cita `@claude`, por exemplo "@claude resolva os conflitos" ou "@claude o lint quebrou depois do merge";
+- qualquer comentário no PR quando ele tem `awaiting-reply`: é a resposta a uma pergunta da correção.
+
+Comentário de linha avulso (**Add single comment**) não dispara: junte os comentários numa review. Comentário sem `@claude` também não dispara, por isso a conversa entre pessoas no PR não aciona nada.
+
+A correção roda em qualquer PR aberto do repositório, do fluxo ou de uma pessoa. PR de fork é recusado, com um comentário: a rodada executaria o código do fork com os secrets do repositório.
+
+Na rodada, o Claude:
+
+1. lê o pedido, o PR e os critérios de aceite dos issues que o PR fecha;
+2. faz um commit por pedido na branch do PR. Conflito com a base se resolve com merge da base na branch, nunca com rebase ou force push;
+3. roda a bateria de `quality_checks` e, quando um pedido muda a tela ou o comportamento, o QA independente;
+4. atualiza as seções do corpo do PR que a rodada mudou (só em PR que segue o modelo da `to-pr`);
+5. responde a cada comentário de linha na thread dele e deixa um comentário **Correção** no PR, com o que foi feito, o que não foi e por quê.
+
+Pedido ambíguo ou que muda um critério de aceite não vira código: vira pergunta, e o PR ganha `awaiting-reply`. Responda no PR, sem precisar de `@claude`.
+
+O push da correção usa o `GITHUB_TOKEN`, e o GitHub não dispara workflows a partir dele: o CI do PR não roda sozinho depois da correção. Dê o play manualmente (feche e reabra o PR, ou dispare o workflow de CI). Mudança em `.github/workflows/` também fica fora: o token da rodada não pode fazer push desses arquivos.
 
 ## Skills
 
@@ -97,7 +123,8 @@ Skills de apoio que as etapas acima seguem.
 ### Pull requests
 
 - **to-pr** — abre um pull request, ou redige o texto recomendado para um existente.
-- **remote-to-pr** — abre um PR em fluxo remoto e assíncrono, sem ninguém para responder: segue a `to-pr` inteira, monta Evidências e Critérios de aceite a partir do relatório da `issue-qa` e abre direto, sem perguntar.
+- **remote-to-pr** — abre um PR, ou atualiza o corpo de um PR existente, em fluxo remoto e assíncrono, sem ninguém para responder: segue a `to-pr` inteira, monta Evidências e Critérios de aceite a partir do relatório da `issue-qa` e aplica direto, sem perguntar.
+- **pr-fix** — corrige um PR aberto a partir de uma review ou de um comentário: um commit por pedido na branch do PR, bateria de qualidade, QA quando a tela ou o comportamento muda, resposta a cada pedido no PR. Veja [Correção de PR](#correção-de-pr).
 
 ### Utilitários
 
@@ -343,6 +370,7 @@ Problemas comuns:
 - `ai.yml` (em cada repositório, idêntico ao daqui): declara os gatilhos (`on:`) e as permissões, que o GitHub exige no chamador, lê as variáveis do bucket e repassa os secrets pelo nome. Nenhum valor do projeto mora nele.
 - `.github/ai-workflows.yml` (em cada repositório): os comandos do projeto. `issue-remote-implement.yml` e `issue-sub-task.yml` o leem depois do checkout e, quando existe, ele vence os inputs do `ai.yml`.
 - `router.yml`: um job por etapa, mais o `check-caller`, que confere o `ai.yml` do chamador contra o modelo daqui e abre o PR de atualização quando ele diverge. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
+- `pr-fix.yml`: a correção de PR. Resolve o PR do evento (recusa PR fechado ou de fork), coloca `work-in-progress` no PR, faz o checkout da head com histórico completo e roda o Claude com a skill `pr-fix`, com as mesmas actions de ambiente e de evidências da implementação.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, e o link da run; a run continua marcada como falha.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas (action `agent-env`); depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR (action `publish-evidence`).
 - `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence` e `round-failure`. Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
