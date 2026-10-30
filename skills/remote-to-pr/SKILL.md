@@ -31,9 +31,12 @@ Dois ramos, pelo que quem chama passa:
    remoto quem capturou foi o QA (skill `issue-qa`), e quem chamou passa o
    caminho do relatorio da ultima rodada (`qa-<n>.md`). Use as capturas
    `antes`/`depois` dele, referenciadas como a *Publicacao* do system prompt
-   manda: com bucket, `![c1 antes](<url-base>/qa2-c1-antes.png)` e
-   `![c1 depois](<url-base>/qa2-c1-depois.png)`; com artifact, o nome do
-   arquivo e o link da run onde o artifact `evidencias-<issue>` fica. O
+   manda: com bucket, cada par `qa<n>-c<k>-antes`/`-depois` e uma linha da
+   tabela lado a lado `Antes` | `Depois` do `TEMPLATE.md`, rotulada `c<k>`
+   (`**c1**<br>![c1 antes](<url-base>/qa2-c1-antes.png)` |
+   `**c1**<br>![c1 depois](<url-base>/qa2-c1-depois.png)`); com artifact, o
+   nome do arquivo e o link da run onde o artifact `evidencias-<issue>` fica,
+   na lista empilhada. O
    runner tem navegador headless, Playwright e ffmpeg quando o consumidor os
    libera: "sem tela" nao e motivo de declaracao. A declaracao so vale quando
    o QA nao rodou (nenhuma ferramenta liberada) ou a mudanca nao tem nada
