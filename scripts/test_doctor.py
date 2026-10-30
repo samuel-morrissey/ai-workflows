@@ -11,6 +11,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
 from test_workflows import Run as WorkflowRun, Shape as WorkflowShape  # noqa: E402,F401
+from test_sub_tasks import (  # noqa: E402,F401
+    Finish as SubTasksFinish, Stack as SubTasksStack, Worker as SubTasksWorker)
 
 TEMPLATE = """name: AI
 on:
