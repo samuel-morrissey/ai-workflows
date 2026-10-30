@@ -26,7 +26,7 @@ Por que ele existe: quando uma etapa troca o label sozinha (ex.: o refinamento t
 
 Um `go` colocado enquanto a etapa roda é descartado no fim dela, porque um label que já está no issue não pode ser colocado de novo. Coloque outro quando a rodada terminar. `go` num issue com `awaiting-pr-review`, fechado ou sem etapa para o estado dele não dispara nada; o próximo workflow que rodar nesse issue tira o label.
 
-Quando a implementação termina e abre o PR, o issue troca `ready-for-agent` por `awaiting-pr-review`: a implementação acabou e o PR está pronto para análise.
+Quando a implementação termina e abre o PR, o issue troca `ready-for-agent` por `awaiting-pr-review`: a implementação acabou e o PR está pronto para análise. Se a rodada morre depois de abrir o PR e antes de trocar o label (teto de turnos, erro ou timeout), o workflow garante a troca no fim da rodada: com o issue aberto e um PR aberto com `Closes #<número>`, o `ready-for-agent` vira `awaiting-pr-review`. Sem PR aberto, como num handoff, o `ready-for-agent` fica.
 
 ### Issue com sub-tasks
 
