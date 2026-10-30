@@ -36,7 +36,7 @@ A quebra cria `[SUB-TASK]`s ligadas ao issue pai, com bloqueios entre elas. Um �
 2. O agente implementa as sub-tasks **uma por vez**, na ordem dos bloqueios, cada uma numa run própria. A primeira nasce da `main`; cada seguinte nasce da branch da anterior, e o PR dela aponta para essa branch. A sub-task ganha `awaiting-pr-review` quando o PR abre.
 3. A partir do segundo PR, os PRs entram numa [stack do GitHub](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs). O pai recebe um comentário de status, atualizado a cada rodada, com a camada, o PR e o estado de cada sub-task.
 4. Quando toda sub-task tem PR, o PR do topo ganha `Closes #<pai>`, o pai troca `ready-for-agent` por `awaiting-pr-review` e o `work-in-progress` sai.
-5. Revise a stack de baixo para cima e faça o merge pela interface do GitHub. Mergear uma camada do meio leva as de baixo junto; mergear o topo leva tudo. Cada camada que entra na `main` fecha a sub-task dela, e o topo fecha o pai. O GitHub rebaseia as camadas de cima sozinho.
+5. Revise a stack de baixo para cima e faça o merge pela interface do GitHub. Mergear uma camada do meio leva as de baixo junto; mergear o topo leva tudo. Cada camada que entra na `main` fecha a sub-task dela, e o topo fecha o pai. O GitHub rebaseia as camadas de cima sozinho. Dá para mergear com a cadeia ainda rodando: se a camada sobre a qual uma sub-task está sendo feita é mergeada no meio da rodada, o agente abre o PR dela na `main`, e o planner leva para a camada aberta de baixo (ou para a `main`) o PR que ainda nascer sobre uma camada mergeada.
 
 Não existe mais branch de integração nem PR do pai: a stack faz esse papel, e cada camada vai para a `main` por si.
 

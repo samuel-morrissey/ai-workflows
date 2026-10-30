@@ -63,6 +63,19 @@ O que muda em relacao ao pontual, e so isso:
 
 - a branch nasce de `origin/<base>`, nao da branch padrao, e o PR tem base
   `<base>`;
+- a unica excecao a base recebida e a camada de baixo ter sido mergeada
+  durante a rodada. Merge numa stack leva as camadas de baixo junto, entao
+  o que sobra e a branch padrao. Quando `<base>` nao e a branch padrao,
+  confira na criacao da branch e de novo logo antes de abrir o PR:
+
+  ```bash
+  gh pr list --head <base> --state merged --json number --jq length
+  ```
+
+  Deu mais que zero, ou `origin/<base>` nao existe mais (branch apagada no
+  merge): use a branch padrao no lugar de `<base>`, na branch e no PR. Se a
+  branch ja nasceu de `<base>`, nao a refaca: so o PR muda de base. Se uma
+  camada for mergeada depois do PR aberto, o planner corrige a base;
 - as linhas de vinculo do PR sao `Closes #<sub-task>` e `Parte de #<pai>`;
 - o label `awaiting-pr-review` vai na sub-task; o pai nao muda;
 - o comentario de fim de rodada vai so na sub-task: o status do pai e um

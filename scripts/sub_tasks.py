@@ -22,13 +22,18 @@ referencia):
   (brief com `**Executor:** humano`), nao esta com work-in-progress nem
   awaiting-reply, e cujos bloqueadores ja tem PR ou estao fechados.
 - A base da proxima e a branch do PR aberto mais alto; sem PR aberto, a
-  branch padrao.
+  branch padrao. Se essa camada for mergeada durante a run da proxima, o PR
+  novo nasce sobre uma branch morta: o agente confere isso antes de abrir o
+  PR (skill issue-remote-implement), e o `stack` leva o que escapou para a
+  camada aberta de baixo (ou a branch padrao).
 
 Subcomandos:
 
   plan <pai>                      JSON com ordem, proxima, espera e stack
   stack <pai>                     empilha os PRs abertos ainda fora do stack
   finish <pai>                    poe `Closes #<pai>` no PR do topo e vincula
+  retarget <pai>                  tira de camada ja mergeada a base dos PRs
+                                  abertos (o `stack` e o `finish` tambem o fazem)
   status <pai> --chain <estado> [--note <texto>]
                                   cria ou atualiza o comentario de status do pai
   base <sub>                      JSON com pai, base da branch e bloqueios
@@ -248,9 +253,36 @@ def cmd_plan(args):
     print(json.dumps(public(plan), ensure_ascii=False))
 
 
+def retarget(plan):
+    """Leva para a camada aberta de baixo o PR com base numa camada ja mergeada.
+
+    Acontece quando o humano mergeia uma camada enquanto o worker da seguinte
+    roda: a base calculada no inicio da run vira branch morta. So PR fora do
+    stack troca de base (o GitHub recusa no empilhado, e ja retargeta esse
+    sozinho no merge); base que nao e de sub-task mergeada fica como esta, e
+    o `stack` a acusa como cadeia quebrada. Devolve os PRs retargetados.
+    """
+    merged = {row["pr"]["head"] for row in plan["rows"] if row["pr"] and row["pr"]["merged"]}
+    prev = plan["default_branch"]
+    moved = []
+    for pr in plan["_open_prs"]:
+        if pr["base"] != prev and pr["base"] in merged and not pr["stack"]:
+            api(f"repos/{REPO}/pulls/{pr['number']}", "PATCH", {"base": prev})
+            pr["base"] = prev
+            moved.append(pr["number"])
+        prev = pr["head"]
+    return moved
+
+
+def cmd_retarget(args):
+    plan = analyze(*load(args.parent))
+    print(json.dumps({"retargeted": retarget(plan)}))
+
+
 def cmd_stack(args):
     plan = analyze(*load(args.parent))
     open_prs = plan["_open_prs"]
+    moved = retarget(plan)
     # Cada PR aberto precisa ter como base a head do anterior (ou a branch
     # padrao, no primeiro aberto): e o que o GitHub exige para empilhar.
     prev = plan["default_branch"]
@@ -262,18 +294,19 @@ def cmd_stack(args):
         prev = pr["head"]
     unstacked = [pr["number"] for pr in open_prs if not pr["stack"]]
     if not unstacked:
-        print(json.dumps({"stack": plan["stack"], "added": []}))
+        print(json.dumps({"stack": plan["stack"], "added": [], "retargeted": moved}))
         return
     if plan["stack"]:
         api(f"repos/{REPO}/stacks/{plan['stack']}/add", "POST", {"pull_requests": unstacked})
-        print(json.dumps({"stack": plan["stack"], "added": unstacked}))
+        print(json.dumps({"stack": plan["stack"], "added": unstacked, "retargeted": moved}))
         return
     if len(open_prs) < 2:
         # Stack exige dois PRs; com um so, ainda nao ha o que empilhar.
-        print(json.dumps({"stack": None, "added": []}))
+        print(json.dumps({"stack": None, "added": [], "retargeted": moved}))
         return
     created = api(f"repos/{REPO}/stacks", "POST", {"pull_requests": [pr["number"] for pr in open_prs]})
-    print(json.dumps({"stack": created["number"], "added": [pr["number"] for pr in open_prs]}))
+    print(json.dumps({"stack": created["number"], "added": [pr["number"] for pr in open_prs],
+                      "retargeted": moved}))
 
 
 def cmd_finish(args):
@@ -282,6 +315,9 @@ def cmd_finish(args):
     if not open_prs:
         print(json.dumps({"top": None}))
         return
+    # O `Closes` so fecha o pai se o topo chega a branch padrao: um topo
+    # sobre camada mergeada nunca chegaria.
+    retarget(plan)
     top = open_prs[-1]
     line = f"Closes #{args.parent}"
     if not re.search(rf"^\s*{re.escape(line)}\s*$", top["body"], re.MULTILINE):
@@ -380,7 +416,7 @@ def cmd_base(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     subs = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("plan", "stack", "finish"):
+    for name in ("plan", "stack", "finish", "retarget"):
         p = subs.add_parser(name)
         p.add_argument("parent", type=int)
     p = subs.add_parser("status")
@@ -394,7 +430,7 @@ def main():
         sys.exit("GH_REPO (owner/repo) e obrigatorio.")
     try:
         {"plan": cmd_plan, "stack": cmd_stack, "finish": cmd_finish,
-         "status": cmd_status, "base": cmd_base}[args.cmd](args)
+         "status": cmd_status, "base": cmd_base, "retarget": cmd_retarget}[args.cmd](args)
     except ApiError as err:
         print(str(err), file=sys.stderr)
         sys.exit(2)
