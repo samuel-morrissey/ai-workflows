@@ -349,7 +349,7 @@ Tudo isso é **opcional por repositório** e liga pela chave `evidence_tools` de
 
    O `ai.yml` repassa as variáveis e os secrets pelo nome (a cópia daqui já faz isso). Em repositório privado, só o bucket garante imagem inline: URL de arquivo do próprio repositório não renderiza em corpo de PR, porque o proxy de imagens do GitHub não autentica.
 
-Custo: a run passa a rodar o agente desenvolvedor mais até dois subagentes de QA, cada um subindo o app. Num projeto com banco e seed pesado, meça uma run antes de ligar; o teto de turnos do agente subiu de 150 para 200 por causa do QA. Vídeo: o Playwright grava `.webm`, mas o GitHub só mostra player para vídeo enviado pela interface; o QA converte para GIF com ffmpeg, e o `.webm` fica no bucket ou no artifact.
+Custo: a run passa a rodar o agente desenvolvedor mais até dois subagentes de QA, cada um subindo o app. Num projeto com banco e seed pesado, meça uma run antes de ligar; o teto de turnos do agente subiu de 150 para 250 por causa do QA. Vídeo: o Playwright grava `.webm`, mas o GitHub só mostra player para vídeo enviado pela interface; o QA converte para GIF com ffmpeg, e o `.webm` fica no bucket ou no artifact.
 
 ## Testar
 
