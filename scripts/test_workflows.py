@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -27,6 +28,18 @@ USES = "samuel-morrissey/ai-workflows/.github/actions/round-failure@main"
 FILES = ["issue-triage.yml", "issue-refinement.yml", "issue-break-down.yml",
          "issue-remote-implement.yml", "issue-sub-task.yml", "pr-fix.yml"]
 STEP_NAME = "Comentar falha da rodada"
+PR_FIX = "pr-fix.yml"
+
+# Resolucao falsa no lugar de scripts/responsible.py: imprime $FAKE_RESP, ou
+# falha com FAKE_RESP_FAIL=1, e registra os argumentos em $FAKE_RESP_LOG.
+FAKE_RESPONSIBLE = r'''import os, sys
+with open(os.environ["FAKE_RESP_LOG"], "a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\n")
+if os.environ.get("FAKE_RESP_FAIL") == "1":
+    print("gh api repos/o/r/issues/46: HTTP 503", file=sys.stderr)
+    sys.exit(2)
+print(os.environ["FAKE_RESP"])
+'''
 
 FAKE_GH = r'''#!/usr/bin/env bash
 # gh falso: registra cada chamada em $FAKE_GH_LOG e responde conforme o ambiente.
@@ -124,6 +137,31 @@ class Shape(unittest.TestCase):
             self.assertEqual(step["with"]["number"], "${{ steps.target.outputs.number }}", f)
             self.assertTrue(step["with"]["etapa"], f)
 
+    def test_action_usa_a_resolucao_do_proprio_repositorio(self):
+        text = ACTION.read_text()
+        self.assertIn("RESPONSIBLE_PY: ${{ github.action_path }}/../../../scripts/responsible.py", text)
+        self.assertIn("TRIGGER_LOGIN: ${{ github.event.comment.user.login || github.event.review.user.login }}", text)
+        self.assertIn("IS_PR: ${{ github.event.pull_request != null || github.event.issue.pull_request != null }}", text)
+        self.assertEqual(action_input_default("mencionar"), "auto")
+        self.assertTrue((ROOT / "scripts" / "responsible.py").exists())
+
+    def test_so_o_pr_fix_roda_em_evento_de_pr(self):
+        # O modo `auto` marca quem disparou em evento de PR: so vale enquanto
+        # o pr-fix e a unica etapa com round-failure que roda nesses eventos.
+        router = (WORKFLOWS / "router.yml").read_text()
+        jobs = re.split(r"^  (?=[a-z-]+:\n)", router.split("\njobs:\n", 1)[1], flags=re.M)
+        checked = set()
+        for job in jobs:
+            name = job.split(":", 1)[0]
+            uses = re.search(r"/\.github/workflows/([\w-]+\.yml)@main", job)
+            if not uses or uses.group(1) not in FILES:
+                continue
+            checked.add(uses.group(1))
+            cond = re.search(r"    if: >\n((?:      .*\n)+)", job).group(1)
+            on_pr = "pull_request_review" in cond or bool(re.search(r"(?<!!)github\.event\.issue\.pull_request &&", cond))
+            self.assertEqual(on_pr, uses.group(1) == PR_FIX, name)
+        self.assertEqual(checked, set(FILES))
+
     def test_action_le_numero_de_issue_e_de_pr(self):
         text = ACTION.read_text()
         self.assertIn("GH_TOKEN: ${{ github.token }}", text)
@@ -143,8 +181,10 @@ class Run(unittest.TestCase):
         cls.script = action_run()
         cls.retomar = action_input_default("retomar")
 
-    def execute(self, env=None, jobs=JOBS, api_fail=False, comment_fail=False):
+    def execute(self, env=None, jobs=JOBS, api_fail=False, comment_fail=False,
+                resp='{"issue": 46, "logins": [], "rule": "none"}', resp_fail=False):
         tmp = tempfile.mkdtemp(prefix="wf-")
+        pathlib.Path(tmp, "responsible.py").write_text(FAKE_RESPONSIBLE)
         gh = pathlib.Path(tmp, "gh")
         gh.write_text(FAKE_GH)
         gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
@@ -159,8 +199,12 @@ class Run(unittest.TestCase):
             "EVENT_NUMBER": "", "PAYLOAD_NUMBER": "", "GITHUB_SERVER_URL": "https://github.com",
             "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "GitHub Actions 7",
             "RETOMAR": self.retomar,
+            "RESPONSIBLE_PY": f"{tmp}/responsible.py", "FAKE_RESP": resp, "FAKE_RESP_LOG": f"{tmp}/resp.log",
+            "FAKE_RESP_FAIL": "1" if resp_fail else "", "DEFAULT_RESPONSIBLE": "", "MENCIONAR": "auto",
+            "TRIGGER_LOGIN": "", "TRIGGER_TYPE": "", "IS_PR": "false",
         }
         e.update(env or {})
+        self.resp_log = pathlib.Path(tmp, "resp.log")
         proc = subprocess.run(["bash", "-eo", "pipefail", str(script)], env=e, capture_output=True, text=True)
         log = pathlib.Path(tmp, "log").read_text() if pathlib.Path(tmp, "log").exists() else ""
         body = pathlib.Path(tmp, "body").read_text() if pathlib.Path(tmp, "body").exists() else None
@@ -219,11 +263,119 @@ class Run(unittest.TestCase):
         self.assertIn("corrija a causa e comente `@claude` de novo.", body)
         self.assertNotIn("`go`", body)
 
+    def test_marca_o_responsavel_do_issue(self):
+        proc, _, body = self.execute(
+            resp='{"issue": 46, "logins": ["ana", "bia"], "rule": "assignees"}',
+            env={"DEFAULT_RESPONSIBLE": "gil"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("46 --default gil", self.resp_log.read_text())
+        self.assertIn("**Responsavel:** @ana @bia", body)
+        self.assertIn("## Rodada com falha", body)
+
+    def test_sem_responsavel_diz_e_nao_marca(self):
+        proc, _, body = self.execute()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("nao ha responsavel identificavel", body)
+        self.assertNotIn("@", body)
+
+    def test_resolucao_falhando_ainda_comenta_sem_mencao(self):
+        proc, log, body = self.execute(resp_fail=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("issue comment 46 --body", log)
+        self.assertIn("## Rodada com falha", body)
+        self.assertIn("**Preparar ambiente do consumidor**", body)
+        self.assertNotIn("@", body)
+        self.assertNotIn("Responsavel", body)
+        self.assertIn("::warning::Nao consegui resolver o responsavel", proc.stdout)
+
+    def test_resolucao_com_saida_invalida_ainda_comenta(self):
+        proc, _, body = self.execute(resp="nao e json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("## Rodada com falha", body)
+        self.assertNotIn("@", body)
+
+    def test_pr_fix_marca_quem_disparou(self):
+        proc, _, body = self.execute(
+            resp='{"issue": 46, "logins": ["ana"], "rule": "author"}',
+            env={"IS_PR": "true", "TRIGGER_LOGIN": "revisora", "TRIGGER_TYPE": "User",
+                 "ETAPA": "correcao de PR"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("**Quem disparou a rodada:** @revisora", body)
+        self.assertNotIn("@ana", body)
+        self.assertFalse(self.resp_log.exists(), "o responsavel do issue nao e consultado")
+
+    def test_mencionar_explicito_vence_o_auto(self):
+        _, _, body = self.execute(env={"MENCIONAR": "quem-disparou", "TRIGGER_LOGIN": "revisora"})
+        self.assertIn("@revisora", body)
+        _, _, body = self.execute(resp='{"issue": 46, "logins": ["ana"], "rule": "author"}',
+                                  env={"MENCIONAR": "responsavel", "IS_PR": "true", "TRIGGER_LOGIN": "revisora"})
+        self.assertIn("**Responsavel:** @ana", body)
+        self.assertNotIn("revisora", body)
+
+    def test_pr_fix_sem_humano_no_evento_nao_marca(self):
+        proc, _, body = self.execute(env={"IS_PR": "true", "TRIGGER_LOGIN": "x[bot]",
+                                          "TRIGGER_TYPE": "Bot"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("@", body)
+        self.assertIn("nao identifiquei quem disparou", body)
+
     def test_numero_vem_do_evento_ou_do_payload(self):
         _, log, _ = self.execute(env={"NUMBER": "", "EVENT_NUMBER": "51"})
         self.assertIn("issue comment 51", log)
         _, log, _ = self.execute(env={"NUMBER": "", "PAYLOAD_NUMBER": "52"})
         self.assertIn("issue comment 52", log)
+
+
+AGENT_ENV = ROOT / ".github" / "actions" / "agent-env" / "action.yml"
+
+
+def agent_env_config_run():
+    """Texto do `run` do passo "Ler configuracao do repositorio" da agent-env."""
+    block = AGENT_ENV.read_text().split("    - name: Ler configuracao do repositorio\n", 1)[1]
+    lines = []
+    for line in block.split("      run: |\n", 1)[1].splitlines():
+        if line.strip() == "":
+            lines.append("")
+        elif line.startswith("        "):
+            lines.append(line[8:])
+        else:
+            break
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+class AgentEnvConfig(unittest.TestCase):
+    """O passo que le .github/ai-workflows.yml, com o yq do runner."""
+
+    def setUp(self):
+        if not shutil.which("yq"):
+            self.skipTest("yq ausente")
+
+    def execute(self, text):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="cfg-"))
+        (tmp / ".github").mkdir()
+        (tmp / ".github" / "ai-workflows.yml").write_text(text)
+        (tmp / "step.sh").write_text(agent_env_config_run())
+        env = {"PATH": os.environ["PATH"], "CONFIG_FILE": ".github/ai-workflows.yml",
+               "GITHUB_OUTPUT": str(tmp / "out")}
+        proc = subprocess.run(["bash", "-e", str(tmp / "step.sh")], cwd=tmp, env=env,
+                              capture_output=True, text=True)
+        out = (tmp / "out").read_text() if (tmp / "out").exists() else ""
+        return proc, out
+
+    def test_default_responsible_sem_aviso_de_chave_desconhecida(self):
+        proc, out = self.execute("quality_checks: make test\ndefault_responsible: fulano\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("Chave desconhecida", proc.stdout)
+        self.assertRegex(out, r"default_responsible<<EOF_\w+\nfulano\n")
+
+    def test_chave_desconhecida_ainda_avisa(self):
+        proc, _ = self.execute("responsavel: fulano\n")
+        self.assertIn("Chave desconhecida ignorada: responsavel", proc.stdout)
+
+    def test_default_responsible_que_nao_e_texto_falha(self):
+        proc, _ = self.execute("default_responsible:\n  - fulano\n")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("default_responsible precisa ser texto", proc.stdout)
 
 
 SAFETY_STEP = "Garantir awaiting-pr-review se ha PR aberto"

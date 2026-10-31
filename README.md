@@ -97,6 +97,38 @@ Pedido ambíguo ou que muda um critério de aceite não vira código: vira pergu
 
 O push da correção usa o `GITHUB_TOKEN`, e o GitHub não dispara workflows a partir dele: o CI do PR não roda sozinho depois da correção. Dê o play manualmente (feche e reabra o PR, ou dispare o workflow de CI). Mudança em `.github/workflows/` também fica fora: o token da rodada não pode fazer push desses arquivos.
 
+### Notificação
+
+Quando o fluxo para e só anda com uma pessoa, o comentário que pede a ação marca o **responsável** do issue com `@`. Hoje isso vale para o comentário **Rodada com falha** (veja [Testar](#testar)); as outras paradas passam a marcar nas próximas versões, com a mesma regra.
+
+O responsável é resolvido por `scripts/responsible.py`, sempre da mesma forma. A primeira regra que acha uma pessoa vence:
+
+1. Os **assignees** do issue. Vale para todo issue, inclusive os criados por bot. Com vários assignees, todos são marcados.
+2. O **autor** do issue, se for uma pessoa.
+3. Se o autor é bot ou agente:
+   - numa `[SUB-TASK]`, o responsável do **pai** (a sub-issue nativa, ou a linha `Parte de #<pai>`), resolvido pelas mesmas regras;
+   - em outro issue, o campo **`Responsável: @usuario`** do corpo (veja abaixo);
+   - por último, a chave **`default_responsible`** de `.github/ai-workflows.yml`.
+4. Nenhuma regra achou uma pessoa: **sem responsável**. O comentário diz que não há responsável identificável e não marca ninguém. Não é erro: a rodada segue como seguiria.
+
+Bot ou agente nunca é marcado: conta como bot a conta do tipo `Bot` ou com login terminado em `[bot]`. Quem colocou o último `go` não conta como responsável. Se a resolução falhar (API indisponível, por exemplo), o comentário sai mesmo assim, sem menção.
+
+**Exceção, a correção de PR:** na falha de uma rodada do `pr-fix`, o aviso vai para quem disparou a rodada, ou seja, o autor da review ou do comentário que cita `@claude`. O responsável do issue não é marcado nesse caso.
+
+#### O campo `Responsável:` (para agentes de fora do fluxo)
+
+Um agente ou bot de fora do fluxo que abre issue com `needs-triage` diz quem responde por ele com uma linha própria no corpo, em qualquer posição:
+
+```
+Responsável: @usuario
+```
+
+- A linha tem só o campo e um login do GitHub, com `@`. `Responsavel:` sem acento e `**Responsável:** @usuario` em negrito também valem. No meio de uma frase, não vale.
+- Mais de uma linha: vale a primeira.
+- O campo só é lido quando o autor do issue é bot ou agente e não há assignee. Num issue aberto por uma pessoa, o autor vem antes.
+- Login de bot, ou que não existe, é ignorado, e vale a regra seguinte (`default_responsible`).
+- Dentro do fluxo, quem cria issue é a `issue-break-down`, e só `[SUB-TASK]`: essas herdam o responsável do pai e não precisam do campo.
+
 ## Skills
 
 As skills do fluxo. Cada etapa dos workflows invoca a sua com o número do issue como argumento (`/samuel-morrissey-skills:issue-triage 42`).
@@ -170,7 +202,7 @@ Este repositório é público: qualquer repositório, de qualquer conta ou organ
 | Natureza | Onde mora | Exemplo |
 | --- | --- | --- |
 | Igual em todo repositório | `.github/workflows/ai.yml`, cópia idêntica do arquivo daqui | gatilhos, permissões, repasse de secrets |
-| Do projeto | `.github/ai-workflows.yml`, versionado no repositório | `setup_commands`, `quality_checks`, `evidence_tools` |
+| Do projeto | `.github/ai-workflows.yml`, versionado no repositório | `setup_commands`, `quality_checks`, `evidence_tools`, `default_responsible` |
 | Do dono (conta ou organização) | variáveis e secrets do Actions | bucket de evidências, `CLAUDE_CODE_OAUTH_TOKEN` |
 | Do ambiente de QA do projeto | secret `PROJECT_ENV` | chave de teste de um serviço sem emulador |
 
@@ -204,7 +236,7 @@ O `ai.yml` lê as três variáveis com `vars.EVIDENCE_*` e as passa ao router. V
 
 ### O arquivo `.github/ai-workflows.yml`
 
-Os comandos do projeto, lidos por `issue-remote-implement.yml` e `issue-sub-task.yml` depois do checkout, antes de chamar o agente. Só escalares de texto e blocos literais (`|`), um comando por linha:
+Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente, e o responsável padrão, lido por todas as etapas na falha de rodada. Só escalares de texto e blocos literais (`|`), um comando por linha:
 
 ```yaml
 # Comandos deste repositório para o fluxo de IA (samuel-morrissey/ai-workflows).
@@ -223,6 +255,7 @@ evidence_tools: |
 - `quality_checks`: os comandos de verificação do projeto. O **Claude** roda esses comandos antes de abrir o PR. Sem eles, o PR sai declarando que não houve verificação.
 - `evidence_tools`: os prefixos de comando que o agente e o QA independente podem rodar para subir o projeto e capturar evidências. Liga o QA. Sem ele, o PR sai declarando que não houve QA. Veja [Evidências e QA](#evidências-e-qa).
 - `evidence_bucket`, `evidence_public_url`, `evidence_endpoint`: aceitas também aqui, para um repositório que usa um bucket diferente do dono. Normalmente ficam nas variáveis.
+- `default_responsible`: um login do GitHub (`fulano` ou `"@fulano"`), marcado quando um issue não tem responsável: autor bot, sem assignee, sem pai e sem o campo `Responsável:`. É a última regra da [Notificação](#notificação). Sem a chave, esses issues ficam sem responsável, sem erro. Todas as etapas a leem do checkout, inclusive triagem, refinamento e quebra.
 
 Chave do arquivo vence o input de mesmo nome do `ai.yml`; chave ausente deixa o input valer; chave desconhecida gera aviso e é ignorada; valor que não é texto (lista, mapa, número) falha o job antes do agente, com o nome do arquivo no erro. Os inputs no `ai.yml` continuam aceitos para os repositórios já configurados, mas o caminho novo é o arquivo.
 
@@ -363,7 +396,7 @@ Problemas comuns:
 - **`Secret CLAUDE_CODE_OAUTH_TOKEN is required, but not provided while calling`:** o `ai.yml` usa `secrets: inherit` e o repositório está em outra organização. Passe o secret pelo nome, como no `ai.yml` daqui.
 - **Erro ao buscar o workflow (`failed to fetch workflow` ou parecido, ou a execução falha em 0s):** o `uses` do `ai.yml` aponta para um caminho que não existe. Confira que ele aponta para `samuel-morrissey/ai-workflows/...@main`.
 - **Todos os jobs aparecem como "skipped":** o evento não bateu com nenhuma etapa. Um label colocado antes do `ai.yml` existir não conta: tire o label e coloque de novo.
-- **Rodada com falha:** quando um passo falha fora do agente (configuração inválida em `.github/ai-workflows.yml`, `setup_commands` que falha, secret inválido, falha ao instalar o plugin ou ao baixar o planner, ou a própria action do agente), o `work-in-progress` sai e o workflow deixa no issue um comentário **Rodada com falha**, com a etapa, o nome do passo que falhou e o link da run. O label de estado não muda. Veja o log da run, corrija a causa e aplique `go` de novo. Uma falha antes de o número do issue ser resolvido não tem onde comentar: só a aba **Actions** mostra.
+- **Rodada com falha:** quando um passo falha fora do agente (configuração inválida em `.github/ai-workflows.yml`, `setup_commands` que falha, secret inválido, falha ao instalar o plugin ou ao baixar o planner, ou a própria action do agente), o `work-in-progress` sai e o workflow deixa no issue um comentário **Rodada com falha**, com a etapa, o nome do passo que falhou, o link da run e o `@` do responsável (na correção de PR, de quem disparou a rodada; veja [Notificação](#notificação)). O label de estado não muda. Veja o log da run, corrija a causa e aplique `go` de novo. Uma falha antes de o número do issue ser resolvido não tem onde comentar: só a aba **Actions** mostra.
 
 ## Como funciona
 
@@ -371,7 +404,7 @@ Problemas comuns:
 - `.github/ai-workflows.yml` (em cada repositório): os comandos do projeto. `issue-remote-implement.yml` e `issue-sub-task.yml` o leem depois do checkout e, quando existe, ele vence os inputs do `ai.yml`.
 - `router.yml`: um job por etapa, mais o `check-caller`, que confere o `ai.yml` do chamador contra o modelo daqui e abre o PR de atualização quando ele diverge. O `if` do job decide se o evento é daquela etapa, e o `uses` chama o workflow dela, passando o secret pelo nome. Mudar uma regra aqui muda para todos os repositórios.
 - `pr-fix.yml`: a correção de PR. Resolve o PR do evento (recusa PR fechado ou de fork), coloca `work-in-progress` no PR, faz o checkout da head com histórico completo e roda o Claude com a skill `pr-fix`, com as mesmas actions de ambiente e de evidências da implementação.
-- `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, e o link da run; a run continua marcada como falha.
+- `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, o link da run e a menção ao responsável, resolvido por `scripts/responsible.py` (que vem junto com a action, na mesma ref); a run continua marcada como falha.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas (action `agent-env`); depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR (action `publish-evidence`).
 - `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence` e `round-failure`. Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
 - `.claude-plugin/` e `skills/`: o marketplace e o plugin. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um único plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas instalam o plugin pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
