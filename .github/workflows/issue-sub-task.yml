@@ -201,6 +201,19 @@ jobs:
             gh issue edit "$NUMBER" --remove-label go
           fi
 
+      # O responsavel da sub-task, ja resolvido (scripts/responsible.py, com
+      # default_responsible lido deste checkout). Sub-task criada por bot
+      # herda o responsavel do pai, nunca o bot autor. A skill o marca no
+      # handoff, sem adivinhar. Falha aqui nao para a rodada: ela segue como
+      # "sem responsavel".
+      - name: Resolver responsavel
+        id: responsavel
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/responsible@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+
       # Config do repositorio, allowlist e system prompt de qualidade e
       # evidencias, PROJECT_ENV, setup_commands e ferramentas de evidencia:
       # tudo na action agent-env, comum aos workflows que rodam o agente.
@@ -210,7 +223,7 @@ jobs:
         uses: samuel-morrissey/ai-workflows/.github/actions/agent-env@main
         with:
           number: ${{ steps.target.outputs.number }}
-          prompt_prefix: "Modo sub-task: #${{ steps.target.outputs.number }} e sub-task do pai #${{ steps.target.outputs.parent }}. A branch sub-task-${{ steps.target.outputs.number }} nasce de origin/${{ steps.target.outputs.base }} e o PR tem base ${{ steps.target.outputs.base }}; o workflow ja calculou isso pela ordem da stack, nao recalcule."
+          prompt_prefix: "Modo sub-task: #${{ steps.target.outputs.number }} e sub-task do pai #${{ steps.target.outputs.parent }}. A branch sub-task-${{ steps.target.outputs.number }} nasce de origin/${{ steps.target.outputs.base }} e o PR tem base ${{ steps.target.outputs.base }}; o workflow ja calculou isso pela ordem da stack, nao recalcule. ${{ steps.responsavel.outputs.sentence }}"
           setup_commands: ${{ inputs.setup_commands }}
           quality_checks: ${{ inputs.quality_checks }}
           evidence_tools: ${{ inputs.evidence_tools }}

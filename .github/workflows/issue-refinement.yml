@@ -67,6 +67,18 @@ jobs:
             gh issue edit "$NUMBER" --remove-label go
           fi
 
+      # O responsavel do issue, ja resolvido (scripts/responsible.py, com
+      # default_responsible lido deste checkout): a skill marca quem ele diz
+      # na rodada de perguntas e no comentario final, sem adivinhar. Falha
+      # aqui nao para a rodada: ela segue como "sem responsavel".
+      - name: Resolver responsavel
+        id: responsavel
+        if: steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/responsible@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+
       - uses: anthropics/claude-code-action@v1
         if: steps.wip.outputs.skip != 'true'
         env:
@@ -82,6 +94,7 @@ jobs:
             --model claude-opus-5-5
             --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob,Skill,TodoWrite"
             --max-turns 80
+            --append-system-prompt "${{ steps.responsavel.outputs.sentence }}"
 
       # Rede de seguranca: se a rodada terminou e o issue continua em
       # `needs-refinement`, a rodada parou em pergunta. Garante o awaiting-reply, caso
