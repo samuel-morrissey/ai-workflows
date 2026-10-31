@@ -30,11 +30,14 @@ precisa do numero do PR.
 
 ## O que o workflow informa
 
-O system prompt traz tres frases. Use os fatos delas como estao:
+O system prompt traz quatro frases. Use os fatos delas como estao:
 
 - **"Correcao de PR:"** — o numero, a head, a base, o **gatilho**
   (`review <id>` ou `comentario <id>`) e os issues que o PR fecha (ou
   `nenhum`). O workflow ja fez o checkout da head, com historico completo.
+- **"Quem disparou a rodada:"** — o login do autor da review ou do
+  comentario do gatilho (`@<login>`), ou "nao identificado" (bot, ou evento
+  sem autor). E quem o handoff do passo 9 marca.
 - **"Verificacao de qualidade:"** — os comandos da bateria, na ordem em que
   rodam. "Nenhum comando liberado": siga sem bateria e declare isso.
 - **"Evidencias:"** — a pasta de evidencias (fora do workspace, nunca
@@ -187,6 +190,27 @@ O system prompt traz tres frases. Use os fatos delas como estao:
 
    Termine a mensagem com: "responda aqui para retomar: qualquer comentario
    neste PR ja dispara a proxima rodada".
+
+   **Quem o handoff marca:** quem disparou a rodada,
+   nao o responsavel do issue: a pergunta e sobre o pedido dessa pessoa, e
+   e ela quem sabe responder. O login vem do system prompt, na frase **"Quem disparou a
+   rodada:"**; nao procure outra pessoa (autor do PR, assignee, responsavel
+   do issue). A mencao vai no pedido de acao do handoff, so nesse comentario
+   novo:
+
+   ```markdown
+   **Preciso de voce** (@quem-disparou): os pedidos em aberto, como perguntas especificas
+   ```
+
+   Frase com "nao identificado", ou sem a frase: nenhum `@`, e uma linha
+   propria logo abaixo do pedido de acao:
+
+   ```markdown
+   **Quem disparou a rodada:** nao identifiquei quem disparou; ninguem foi marcado.
+   ```
+
+   O comentario `## Correcao` do passo 8 nao marca ninguem: quem disparou ja
+   acompanha o PR, e o aviso so vale quando a vez e dele.
 
 A rodada esta completa quando todo pedido da lista tem resposta no PR —
 feito, com o commit, ou nao feito, com o motivo, ou em aberto no handoff —,

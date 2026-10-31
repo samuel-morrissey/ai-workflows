@@ -48,8 +48,9 @@ frase que comeca por **"Responsavel:"**: os logins, ou "sem responsavel".
 Numa sub-task, o workflow ja resolveu o responsavel do pai: nunca marque o
 bot autor da sub-task nem procure outra pessoa. Sem responsavel, nenhum `@`:
 a linha **Responsavel:** diz que nao ha responsavel identificavel. O
-comentario `## Implement` do passo 8 nao e espera de `go` e nao marca; o
-aviso de review do PR e de outra etapa.
+comentario `## Implement` do passo 8 nao e espera de `go` e nao marca: quem
+avisa o responsavel do PR aberto e o pedido de review da `remote-to-pr`
+(passo 6), e o passo 8 so relata o resultado, na linha **Review**.
 
 ## Argumento
 
@@ -269,7 +270,10 @@ capturas da ultima rodada dele.
 6. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
    unidade), a base da `issue-git-flow` (branch padrao no pontual; a base
    do modo sub-task na sub-task) e o caminho do relatorio da ultima rodada
-   do QA (ou o motivo de nao ter rodado).
+   do QA (ou o motivo de nao ter rodado). A `remote-to-pr` pede review do
+   responsavel da frase **"Responsavel:"** (numa sub-task, o do pai) e
+   devolve o resultado por login, para a linha **Review** do passo 8. Pedido
+   de review que falha nao para a rodada: os passos 7 e 8 seguem.
 
 7. **Marque a unidade como em revisao.** Crie o label antes, se nao existir:
 
@@ -292,9 +296,14 @@ capturas da ultima rodada dele.
    **Criterios cobertos:** <lista curta mapeando criterio → teste e onde foi coberto>
    **Verificacao:** <comandos rodados e resultado — ou "nenhuma: <motivo>">
    **QA:** <rodadas e resultado: "1 rodada, todos os criterios passaram" | "2 rodadas, c2 em aberto" — ou "nao rodou: <motivo>">
+   **Review:** <por login, sem `@`: "pedido a `ana`" | "`bia` sem acesso: avisada por `@` no PR" — ou "nao ha responsavel identificavel; nenhum review pedido">
    **Atencao:** o CI nao roda sozinho em PR aberto pelo agente — de o play
    manualmente (feche e reabra o PR, ou dispare o workflow de CI).
    ```
+
+   Na linha **Review**, o login vai entre crases, sem `@`: o pedido de
+   review (ou o `@` do fallback no PR) ja notificou, e este comentario nao
+   marca de novo.
 
    Numa sub-task, acrescente uma linha: "Camada da stack de #<pai>, sobre
    `<base>`. O planner empilha e segue para a proxima." Nao comente no pai.
