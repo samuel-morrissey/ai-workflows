@@ -205,6 +205,19 @@ jobs:
             gh issue edit "$NUMBER" --remove-label go
           fi
 
+      # O responsavel do issue, ja resolvido (scripts/responsible.py, com
+      # default_responsible lido deste checkout): a skill o marca no handoff,
+      # sem adivinhar. Vai no prompt_prefix da agent-env, que monta o unico
+      # --append-system-prompt da rodada. Falha aqui nao para a rodada: ela
+      # segue como "sem responsavel".
+      - name: Resolver responsavel
+        id: responsavel
+        if: steps.target.outputs.kind == 'pontual' && steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/responsible@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+
       # Config do repositorio, allowlist e system prompt de qualidade e
       # evidencias, PROJECT_ENV, setup_commands e ferramentas de evidencia:
       # tudo na action agent-env, comum aos workflows que rodam o agente.
@@ -214,6 +227,7 @@ jobs:
         uses: samuel-morrissey/ai-workflows/.github/actions/agent-env@main
         with:
           number: ${{ steps.target.outputs.number }}
+          prompt_prefix: "${{ steps.responsavel.outputs.sentence }}"
           setup_commands: ${{ inputs.setup_commands }}
           quality_checks: ${{ inputs.quality_checks }}
           evidence_tools: ${{ inputs.evidence_tools }}
