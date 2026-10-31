@@ -26,7 +26,17 @@ Siga estas skills:
 - `issue-labeling`: tipos, labels e transicoes. Invoque antes de mexer em
   label.
 - `grilling`: fronteira, formato das perguntas e recomendacao.
-- `issue-async-first`: canal, handoff e `awaiting-reply`.
+- `issue-async-first`: canal, handoff, `awaiting-reply` e a mencao ao
+  responsavel.
+
+Os dois fins de rodada esperam uma pessoa, e os dois marcam o responsavel
+que o workflow informa no system prompt (frase "Responsavel:"; ver "Mencao
+ao responsavel" da `issue-async-first`): a rodada de perguntas na linha **Ao
+responder**, o `## Refinamento` final na linha **Proximo passo**. A mencao
+vai no proprio comentario, nunca num comentario a parte nem numa edicao.
+Sem responsavel, nenhum `@`: a linha **Responsavel:** diz que nao ha
+responsavel identificavel. O fechamento em `wontfix` ou `deferred` nao
+marca ninguem.
 
 ## Argumento
 
@@ -95,9 +105,14 @@ issue.
    **Q<n> — <titulo>:** <pergunta; com opcoes A/B quando ajudar>
    ➡️ Recomendacao: <recomendacao e por que, em uma frase>
 
-   **Ao responder:** responda aqui mesmo, citando o numero (ex.: "7 ok, 8 vai
-   de B"). Seu comentario dispara a proxima rodada.
+   **Ao responder** (@responsavel): responda aqui mesmo, citando o numero
+   (ex.: "7 ok, 8 vai de B"). Seu comentario dispara a proxima rodada.
    ```
+
+   Esta rodada e o handoff do refinamento: o **Ao responder** faz as vezes
+   do **Preciso de voce** e leva a mencao. Sem responsavel, a linha fica
+   sem `@` e ganha, logo abaixo, `**Responsavel:** nao ha responsavel
+   identificavel; ninguem foi marcado.`
 
    O "Decidido ate aqui" e acumulado de proposito: a proxima rodada le so
    ele, sem reconstruir a conversa inteira. Depois de postar, aplique
@@ -150,7 +165,13 @@ o sistema aceita e recusa, o que a tela mostra>
 
 ### Fora do escopo
 <o que NAO muda, com todas as letras>
+
+**Proximo passo** (@responsavel): aplique o label `go` neste issue para a
+quebra em sub-tasks.
 ```
+
+Sem responsavel, o **Proximo passo** fica sem `@` e ganha, logo abaixo,
+`**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado.`
 
 Agrupe por **tema**, nao por pergunta: decisoes de rodadas diferentes sobre
 o mesmo conceito ficam juntas. Toda decisao do "Decidido ate aqui" aparece em

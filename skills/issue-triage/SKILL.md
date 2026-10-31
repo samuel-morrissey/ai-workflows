@@ -40,6 +40,16 @@ Precisou de informacao ou decisao humana em qualquer passo? Siga a skill
 `issue-async-first`: uma unica mensagem no issue, com handoff completo, e encerre a
 rodada.
 
+**Mencao ao responsavel.** Todo comentario que deixa o issue esperando uma
+pessoa marca o responsavel, como diz a "Mencao ao responsavel" da
+`issue-async-first`: o workflow o informa no system prompt, numa frase que
+comeca por "Responsavel:". No handoff, a mencao vai no **Preciso de voce**.
+No `## Triagem` que troca `needs-triage` por um estado seguinte, vai na
+linha do **Proximo passo**, no mesmo comentario: `**Proximo passo**
+(@fulano): ...`. Sem responsavel, nada de `@`: a linha **Responsavel:** diz
+que nao ha responsavel identificavel. O fechamento em `wontfix` ou
+`deferred` nao marca ninguem.
+
 ## Argumento
 
 `$issue` — o numero do issue a triar.
@@ -73,7 +83,7 @@ issue.
    **Por que:** <o motivo do comentario humano, ou o significado do label>
    ```
 
-   Pare: fim da triagem.
+   Encerramento terminal, sem mencao ao responsavel. Pare: fim da triagem.
 
    Se o issue ja tem label de estado posterior a `needs-triage`
    (`needs-discovery`, `needs-refinement`, `needs-break-down`, `ready-for-*`,
@@ -171,7 +181,7 @@ issue.
    **Tipo:** `[MAP]` ou `[SPEC]` (sugerido: `[X]`) — o "(sugerido: ...)" so quando trocou o prefixo
    **Estado:** `needs-discovery` ou `needs-refinement`
    **Por que:** <uma ou duas frases>
-   **Proximo passo:** `/issue-discovery` ou `/issue-refinement`
+   **Proximo passo** (@responsavel): `/issue-discovery`, ou aplique o label `go` para `/issue-refinement`
 
    ### Leitura do codigo
    <formato do AGENT-BRIEF.md>
@@ -200,7 +210,8 @@ issue.
       ```
 
       Comente como no passo 5 (incluindo a leitura de codigo), com
-      **Estado:** `needs-break-down` e **Proximo passo:** `/issue-break-down`.
+      **Estado:** `needs-break-down` e **Proximo passo** (@responsavel):
+      aplique o label `go` para `/issue-break-down`.
       Fim da triagem — o brief e trabalho do `/issue-break-down`, nao desta skill.
 
    4. Sobrou lacuna que so o humano responde (escolha de produto, prioridade,
@@ -241,10 +252,16 @@ issue.
       **Estado:** `ready-for-agent` ou `ready-for-human`
       **Por que:** <uma ou duas frases, incluindo a escolha do executor>
       **Seams:** <as fronteiras dos criterios de aceite, em uma linha>
-      **Proximo passo:** aplique o label `go` para o agente implementar, ou execucao humana
+      **Proximo passo** (@responsavel): aplique o label `go` para o agente implementar, ou execucao humana
       **Antes do `go`:** discordou de fronteira, criterio ou escopo?
       Edite o brief no corpo — o implement le o corpo na hora de rodar.
       ```
+
+      Em todo `## Triagem` que deixa o issue esperando `go` (este e os do
+      passo 5 e do passo 6.3), o `(@responsavel)` sao os logins da frase
+      "Responsavel:" do system prompt. Sem responsavel, a linha fica
+      `**Proximo passo:** ...` sem `@`, seguida de `**Responsavel:** nao ha
+      responsavel identificavel; ninguem foi marcado.`
 
       O `ready-for-agent` **nao** inicia a implementacao: quem da o "vai" e
       o humano, aplicando o label `go`. O intervalo entre os dois e a

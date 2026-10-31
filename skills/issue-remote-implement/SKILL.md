@@ -40,6 +40,17 @@ Siga as skills `grilling` e `issue-async-first`: handoff completo no issue
 alvo, `awaiting-reply` aplicado, e encerre sem abrir PR. Termine a mensagem
 com: "responda aqui para retomar: a resposta ja dispara a proxima rodada".
 
+**Mencao ao responsavel.** Todo handoff desta skill no issue alvo (parada
+sem PR, verificacao vermelha fora do escopo, QA em aberto depois da rodada
+2) marca o responsavel no **Preciso de voce**, como diz a "Mencao ao
+responsavel" da `issue-async-first`. Quem marcar vem do system prompt, numa
+frase que comeca por **"Responsavel:"**: os logins, ou "sem responsavel".
+Numa sub-task, o workflow ja resolveu o responsavel do pai: nunca marque o
+bot autor da sub-task nem procure outra pessoa. Sem responsavel, nenhum `@`:
+a linha **Responsavel:** diz que nao ha responsavel identificavel. O
+comentario `## Implement` do passo 8 nao e espera de `go` e nao marca; o
+aviso de review do PR e de outra etapa.
+
 ## Argumento
 
 `$issue` — o numero do issue alvo: o pontual que recebeu o `go`, ou a

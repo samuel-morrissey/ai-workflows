@@ -53,12 +53,53 @@ A mensagem vai no canal do contexto em que voce esta:
 
    **Feito:** o que foi concluido e decidido nesta rodada
    **Falta:** o que ainda nao foi feito e por que
-   **Preciso de voce:** perguntas ou acoes, especificas
+   **Preciso de voce** (@responsavel): perguntas ou acoes, especificas
    **Ao responder:** o proximo passo com a resposta em maos
    ```
 
+   Em issue, o `(@responsavel)` segue a "Mencao ao responsavel", abaixo.
+
    No chat a sessao e o contexto sao preservados — basta a pergunta, sem
    handoff.
+5. **Em issue, marque o responsavel no pedido de acao.** Quem marcar nao e
+   decisao sua: o workflow da rodada ja resolveu o responsavel e o informa no
+   system prompt, numa frase que comeca por **"Responsavel:"**. Use-a como
+   esta (ver "Mencao ao responsavel", abaixo).
+
+## Mencao ao responsavel
+
+Vale para todo comentario que deixa um issue esperando uma pessoa: o handoff
+desta skill e o comentario final de etapa que espera o `go` (as skills de
+cada etapa dizem em qual linha).
+
+- **Com logins** (`Responsavel: @ana @bia ...`): marque **todos** eles, e so
+  eles, na linha do pedido de acao. No handoff, essa linha e o **Preciso de
+  voce**:
+
+  ```markdown
+  **Preciso de voce** (@ana @bia): perguntas ou acoes, especificas
+  ```
+
+- **Sem responsavel** (`Responsavel: sem responsavel ...`), ou sem a frase
+  no system prompt: nao marque ninguem com `@`. Diga isso numa linha propria,
+  logo abaixo do pedido de acao:
+
+  ```markdown
+  **Preciso de voce:** perguntas ou acoes, especificas
+  **Responsavel:** nao ha responsavel identificavel; ninguem foi marcado.
+  ```
+
+Regras da mencao:
+
+- So em comentario novo. Nunca edite um comentario existente para
+  acrescentar `@`, nem poste um segundo comentario so para avisar: a mencao
+  vai no proprio comentario que pede a acao.
+- Bot ou agente nunca e marcado, mesmo que seja o autor do issue: numa
+  `[SUB-TASK]`, o responsavel ja vem como o do pai.
+- Nao procure outra pessoa (assignee, autor, quem aplicou o `go`) para
+  marcar: a frase do workflow e a unica fonte.
+- Encerramento terminal (`wontfix`, `deferred`) nao e espera: nao marca.
+- No chat nao ha mencao. Em PR, a mencao segue a skill que comenta nele.
 
 O criterio de uma boa mensagem assincrona: outro agente, lendo so o canal,
 continua o trabalho sem pedir nada de novo.

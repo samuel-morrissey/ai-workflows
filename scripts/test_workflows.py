@@ -6,7 +6,10 @@ cada workflow a chama como ultimo passo, e o `run` dela e extraido do YAML e
 roda num bash com um `gh` falso.
 
 Tambem testa o passo "Garantir awaiting-pr-review se ha PR aberto" do
-issue-remote-implement.yml, com um `gh` falso que guarda o estado do issue.
+issue-remote-implement.yml, com um `gh` falso que guarda o estado do issue,
+e o passo "Resolver responsavel" (action responsible) das etapas de issue: a
+posicao antes do agente, a frase que chega ao system prompt e os modelos de
+comentario das skills que levam a mencao.
 
     python3 scripts/test_workflows.py
 """
@@ -557,6 +560,262 @@ class SafetyNetRun(unittest.TestCase):
         proc, after = self.execute([pr(69, "Closes #4")], fail=["pr list"])
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(after["issue"]["labels"], ["ready-for-agent", "work-in-progress"])
+
+
+RESP_ACTION = ROOT / ".github" / "actions" / "responsible" / "action.yml"
+RESP_USES = "samuel-morrissey/ai-workflows/.github/actions/responsible@main"
+RESP_STEP = "Resolver responsavel"
+RESP_OUT = "${{ steps.responsavel.outputs.sentence }}"
+AGENT = "anthropics/claude-code-action@v1"
+# Etapas que rodam o agente num issue. O pr-fix fica fora: o aviso dele e de
+# outra fatia.
+AGENT_FILES = ["issue-triage.yml", "issue-refinement.yml", "issue-break-down.yml",
+               "issue-remote-implement.yml", "issue-sub-task.yml"]
+# As que nao usam a agent-env: o responsavel vai num --append-system-prompt
+# proprio. As outras o levam no prompt_prefix da agent-env, que monta o unico
+# --append-system-prompt da rodada.
+OWN_SYSPROMPT = ["issue-triage.yml", "issue-refinement.yml", "issue-break-down.yml"]
+
+# gh falso para a resolucao real: `gh api <rota>` responde o JSON de
+# $FAKE_API/<rota com / trocado por _>.json, ou HTTP 404.
+FAKE_GH_API = r'''#!/usr/bin/env bash
+[ "$1" = "api" ] || { echo "gh falso: comando inesperado: $*" >&2; exit 2; }
+f="$FAKE_API/$(printf '%s' "$2" | tr '/' '_').json"
+[ -f "$f" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+cat "$f"
+'''
+
+
+def composite_run(path):
+    """Texto do `run` do unico passo de uma composite action."""
+    run = path.read_text().split("      run: |\n", 1)[1]
+    lines = []
+    for line in run.splitlines():
+        if line.strip() == "":
+            lines.append("")
+        elif line.startswith("        "):
+            lines.append(line[8:])
+        else:
+            break
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def outputs_of(text):
+    """Mapa do $GITHUB_OUTPUT: `k=v` e `k<<DELIM ... DELIM`; a ultima vence."""
+    out, lines, i = {}, text.splitlines(), 0
+    while i < len(lines):
+        line = lines[i]
+        m = re.fullmatch(r"([a-z_]+)<<(\S+)", line)
+        if m:
+            end = lines.index(m.group(2), i + 1)
+            out[m.group(1)] = "\n".join(lines[i + 1:end])
+            i = end + 1
+            continue
+        k, _, v = line.partition("=")
+        out[k] = v
+        i += 1
+    return out
+
+
+class ResponsibleShape(unittest.TestCase):
+    """Toda rodada de agente em issue recebe o responsavel pronto."""
+
+    def steps(self, f):
+        return steps_of((WORKFLOWS / f).read_text())
+
+    def test_resolve_antes_do_agente_sem_derrubar_a_rodada(self):
+        for f in AGENT_FILES:
+            names = [n for n, _ in self.steps(f)]
+            self.assertEqual(names.count(RESP_STEP), 1, f)
+            self.assertLess(names.index(RESP_STEP), names.index(AGENT), f)
+            self.assertGreater(names.index(RESP_STEP), names.index("Aplicar work-in-progress"), f)
+            if "Preparar ambiente do agente" in names:
+                self.assertLess(names.index(RESP_STEP), names.index("Preparar ambiente do agente"), f)
+            step = parse_step(dict(self.steps(f))[RESP_STEP])
+            self.assertEqual(step["uses"], RESP_USES, f)
+            self.assertEqual(step["continue_on_error"], "true", f)
+            self.assertEqual(step["with"]["number"], "${{ steps.target.outputs.number }}", f)
+            # Roda sempre que o agente roda.
+            agent_if = parse_step(dict(self.steps(f))[AGENT])["if"]
+            self.assertEqual(step["if"], agent_if, f)
+
+    def test_responsavel_chega_ao_system_prompt(self):
+        for f in AGENT_FILES:
+            steps = dict(self.steps(f))
+            agent = steps[AGENT]
+            if f in OWN_SYSPROMPT:
+                self.assertIn(f'--append-system-prompt "{RESP_OUT}"', agent, f)
+            else:
+                self.assertIn("${{ steps.ambiente.outputs.sysprompt }}", agent, f)
+                prefix = parse_step(steps["Preparar ambiente do agente"])["with"]["prompt_prefix"]
+                self.assertIn(RESP_OUT, prefix, f)
+            # Um --append-system-prompt so por rodada.
+            self.assertLessEqual(agent.count("--append-system-prompt"), 1, f)
+
+    def test_sub_task_mantem_o_modo_sub_task_no_comeco(self):
+        prefix = parse_step(dict(self.steps("issue-sub-task.yml"))["Preparar ambiente do agente"])["with"]["prompt_prefix"]
+        self.assertTrue(prefix.startswith('"Modo sub-task: #'), prefix)
+        self.assertTrue(prefix.endswith(f' {RESP_OUT}"'), prefix)
+
+    def test_pr_fix_fica_de_fora(self):
+        self.assertNotIn(RESP_STEP, [n for n, _ in self.steps(PR_FIX)])
+
+    def test_action_le_a_chave_do_checkout(self):
+        text = RESP_ACTION.read_text()
+        self.assertIn("RESPONSIBLE_PY: ${{ github.action_path }}/../../../scripts/responsible.py", text)
+        self.assertIn("GH_REPO: ${{ github.repository }}", text)
+        # Sem --config: o responsible.py le .github/ai-workflows.yml do
+        # diretorio de trabalho, que e o checkout do consumidor.
+        self.assertNotIn("--config", composite_run(RESP_ACTION))
+
+
+class ResponsibleRun(unittest.TestCase):
+    """Roda o passo da action responsible num bash, com a resolucao falsa ou real."""
+
+    def execute(self, resp=None, resp_fail=False, real=None, config=None, default=""):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="resp-wf-"))
+        (tmp / "step.sh").write_text(composite_run(RESP_ACTION))
+        env = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(tmp / "out"), "NUMBER": "46",
+               "DEFAULT_RESPONSIBLE": default, "GH_REPO": "o/r", "GH_TOKEN": "x",
+               "FAKE_RESP_LOG": str(tmp / "resp.log")}
+        if real is None:
+            (tmp / "responsible.py").write_text(FAKE_RESPONSIBLE)
+            env.update({"RESPONSIBLE_PY": str(tmp / "responsible.py"),
+                        "FAKE_RESP": resp or '{"issue": 46, "logins": [], "rule": "none"}',
+                        "FAKE_RESP_FAIL": "1" if resp_fail else ""})
+        else:
+            api = tmp / "api"
+            api.mkdir()
+            for route, data in real.items():
+                (api / (route.replace("/", "_") + ".json")).write_text(json.dumps(data))
+            gh = tmp / "bin" / "gh"
+            gh.parent.mkdir()
+            gh.write_text(FAKE_GH_API)
+            gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+            env.update({"RESPONSIBLE_PY": str(ROOT / "scripts" / "responsible.py"),
+                        "FAKE_API": str(api), "PATH": f"{gh.parent}:{os.environ['PATH']}"})
+        work = tmp / "checkout"
+        (work / ".github").mkdir(parents=True)
+        if config is not None:
+            (work / ".github" / "ai-workflows.yml").write_text(config)
+        self.resp_log = tmp / "resp.log"
+        proc = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(tmp / "step.sh")],
+                              cwd=work, env=env, capture_output=True, text=True)
+        out = outputs_of((tmp / "out").read_text()) if (tmp / "out").exists() else {}
+        return proc, out
+
+    def assertSafe(self, sentence):
+        # Vai entre aspas duplas em claude_args.
+        for ch in '"`$\\\n':
+            self.assertNotIn(ch, sentence)
+
+    def test_logins_viram_mencao(self):
+        proc, out = self.execute('{"issue": 46, "logins": ["ana", "bia"], "rule": "assignees"}', default="gil")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("46 --default gil", self.resp_log.read_text())
+        self.assertTrue(out["sentence"].startswith("Responsavel: @ana @bia"), out)
+        self.assertEqual(out["logins"], "ana bia")
+        self.assertSafe(out["sentence"])
+
+    def test_sem_responsavel_diz_e_nao_marca(self):
+        proc, out = self.execute()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["sentence"].startswith("Responsavel: sem responsavel"), out)
+        self.assertNotIn("@", out["sentence"])
+        self.assertEqual(out["logins"], "")
+        self.assertSafe(out["sentence"])
+
+    def test_resolucao_falhando_segue_sem_responsavel(self):
+        proc, out = self.execute(resp_fail=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("::warning::Nao consegui resolver o responsavel do #46", proc.stdout)
+        self.assertTrue(out["sentence"].startswith("Responsavel: sem responsavel"), out)
+        self.assertNotIn("@", out["sentence"])
+
+    def test_saida_invalida_segue_sem_responsavel(self):
+        proc, out = self.execute("nao e json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("@", out["sentence"])
+
+    def test_login_estranho_nunca_vira_mencao(self):
+        # Defesa em profundidade: bot ou texto que quebraria as aspas.
+        proc, out = self.execute('{"issue": 46, "logins": ["x[bot]", "a\\" b", "ana"], "rule": "assignees"}')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["sentence"].startswith("Responsavel: @ana "), out)
+        self.assertNotIn("bot", out["sentence"])
+        self.assertSafe(out["sentence"])
+
+    def test_triagem_de_autor_humano_sem_assignee_marca_o_autor(self):
+        proc, out = self.execute(real={
+            "repos/o/r/issues/46": {"title": "Algo", "body": "", "assignees": [],
+                                    "user": {"login": "autora", "type": "User"}}})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["sentence"].startswith("Responsavel: @autora "), out)
+
+    def test_sub_task_de_bot_marca_o_responsavel_do_pai(self):
+        proc, out = self.execute(real={
+            "repos/o/r/issues/46": {"title": "[SUB-TASK] fatia", "body": "Parte de #40.", "assignees": [],
+                                    "user": {"login": "github-actions[bot]", "type": "Bot"}},
+            "repos/o/r/issues/46/parent": {"number": 40},
+            "repos/o/r/issues/40": {"title": "[SPEC] pai", "body": "", "assignees": [],
+                                    "user": {"login": "dona", "type": "User"}}})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["sentence"].startswith("Responsavel: @dona "), out)
+        self.assertNotIn("github-actions", out["sentence"])
+
+    def test_default_responsible_vem_do_checkout(self):
+        proc, out = self.execute(config="default_responsible: gil\n", real={
+            "repos/o/r/issues/46": {"title": "[FEAT] x", "body": "", "assignees": [],
+                                    "user": {"login": "claude", "type": "Bot"}},
+            "users/gil": {"login": "gil", "type": "User"}})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["sentence"].startswith("Responsavel: @gil "), out)
+
+    def test_issue_de_bot_sem_nada_fica_sem_responsavel(self):
+        proc, out = self.execute(real={
+            "repos/o/r/issues/46": {"title": "[FEAT] x", "body": "", "assignees": [],
+                                    "user": {"login": "claude", "type": "Bot"}}})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["sentence"].startswith("Responsavel: sem responsavel"), out)
+        self.assertNotIn("@", out["sentence"])
+
+
+SKILLS = ROOT / "skills"
+NO_ONE = "**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado."
+
+
+class SkillsMention(unittest.TestCase):
+    """Os modelos de comentario das skills levam a mencao onde ela vai."""
+
+    def skill(self, name):
+        return (SKILLS / name / "SKILL.md").read_text()
+
+    def test_async_first_documenta_mencao_e_sem_responsavel(self):
+        text = self.skill("issue-async-first")
+        self.assertIn("## Mencao ao responsavel", text)
+        self.assertIn('**"Responsavel:"**', text)
+        self.assertIn("**Preciso de voce** (@responsavel):", text)
+        self.assertIn(NO_ONE, text)
+        self.assertIn("Nunca edite um comentario existente", text)
+
+    def test_comentarios_finais_marcam_no_proximo_passo(self):
+        triage = self.skill("issue-triage")
+        # passo 5, passo 6.3 e passo 6.7
+        self.assertEqual(triage.count("**Proximo passo** (@responsavel):"), 3)
+        # Nenhum modelo de comentario ficou com o Proximo passo sem mencao.
+        self.assertNotRegex(triage, r"(?m)^ *\*\*Proximo passo:\*\*")
+        refinement = self.skill("issue-refinement")
+        self.assertIn("**Ao responder** (@responsavel):", refinement)
+        self.assertIn("**Proximo passo** (@responsavel): aplique o label `go`", refinement)
+        self.assertIn("**Proximo passo** (@responsavel): aplique o label `go` neste issue",
+                      self.skill("issue-break-down"))
+        for name in ("issue-triage", "issue-refinement", "issue-break-down"):
+            self.assertIn("nao ha responsavel identificavel", self.skill(name), name)
+
+    def test_implement_marca_o_handoff_e_nunca_o_bot(self):
+        text = self.skill("issue-remote-implement")
+        self.assertIn('**"Responsavel:"**', text)
+        self.assertIn("nunca marque o\nbot autor da sub-task", text)
 
 
 if __name__ == "__main__":

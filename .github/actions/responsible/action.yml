@@ -1,0 +1,72 @@
+name: Responsavel do issue
+description: >-
+  Resolve o responsavel do issue da rodada (scripts/responsible.py) e devolve
+  a frase "Responsavel: ..." pronta para o system prompt do agente: os logins
+  a marcar, ou "sem responsavel". Nunca falha a rodada.
+
+# Quem escreve os comentarios que pedem acao humana (handoff e comentario
+# final da etapa) e a skill, de dentro do agente. Ela nao adivinha quem
+# marcar: recebe o responsavel ja resolvido, por esta frase, e marca so ele.
+# A resolucao e a mesma da action round-failure; a chave default_responsible
+# e lida de .github/ai-workflows.yml no diretorio de trabalho, que e o
+# checkout do consumidor (o checkout vem antes deste passo).
+
+inputs:
+  number:
+    description: Issue da rodada.
+    required: true
+  default_responsible:
+    description: >-
+      Input default_responsible do workflow. A chave de mesmo nome em
+      .github/ai-workflows.yml, no checkout do consumidor, vence.
+    required: false
+    default: ""
+
+outputs:
+  sentence:
+    description: >-
+      Frase que comeca por "Responsavel:", sem aspas duplas, crase nem cifrao:
+      vai entre aspas em claude_args.
+    value: ${{ steps.resolve.outputs.sentence }}
+  logins:
+    description: Logins a marcar, separados por espaco, sem @. Vazio sem responsavel.
+    value: ${{ steps.resolve.outputs.logins }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolver responsavel
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ inputs.number }}
+        DEFAULT_RESPONSIBLE: ${{ inputs.default_responsible }}
+        # A resolucao vem junto com a action, na mesma ref: a raiz do
+        # repositorio fica tres niveis acima de .github/actions/responsible.
+        RESPONSIBLE_PY: ${{ github.action_path }}/../../../scripts/responsible.py
+      run: |
+        set +o pipefail
+        NONE="Responsavel: sem responsavel (resolvido pelo workflow). Nao marque ninguem: no handoff e no comentario final da etapa que deixa o issue esperando go, diga numa linha que nao ha responsavel identificavel."
+        # Sai primeiro o caso sem responsavel: se algo abaixo quebrar, a
+        # rodada segue com ele. A ultima linha de cada chave vence.
+        { echo "sentence=$NONE"; echo "logins="; } >> "$GITHUB_OUTPUT"
+        ERR=$(mktemp)
+        # So login de conta do GitHub vira mencao: bot ([bot]) ou texto que
+        # quebraria as aspas do system prompt fica de fora.
+        if RESP=$(python3 -I "$RESPONSIBLE_PY" "$NUMBER" --default "$DEFAULT_RESPONSIBLE" 2>"$ERR") \
+            && LOGINS=$(jq -er '.logins | map(select(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9-]*$"))) | join(" ")' <<<"$RESP" 2>/dev/null); then
+          RULE=$(jq -r '.rule // "?"' <<<"$RESP" | tr -cd 'a-z')
+        else
+          echo "::warning::Nao consegui resolver o responsavel do #${NUMBER}; a rodada segue sem responsavel. $(head -c 500 "$ERR" | tr '\n' ' ') ${RESP:0:200}"
+          LOGINS=""
+        fi
+        if [ -n "$LOGINS" ]; then
+          MENTION=$(sed -E 's/(^| )/\1@/g' <<<"$LOGINS")
+          SENTENCE="Responsavel: ${MENTION} (resolvido pelo workflow, regra ${RULE}). Marque exatamente esses logins, com @, no pedido de acao do handoff e na linha do proximo passo do comentario final da etapa que deixa o issue esperando go; nao marque mais ninguem e nunca edite um comentario existente para marcar."
+          { echo "sentence=$SENTENCE"; echo "logins=$LOGINS"; } >> "$GITHUB_OUTPUT"
+          echo "::notice::Responsavel do #${NUMBER}: ${MENTION} (regra ${RULE})."
+        else
+          echo "::notice::#${NUMBER} sem responsavel identificavel: a skill nao marca ninguem."
+        fi

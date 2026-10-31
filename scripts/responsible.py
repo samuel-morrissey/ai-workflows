@@ -2,8 +2,9 @@
 """Resolve o responsavel humano de um issue do fluxo.
 
 Fonte unica da regra, usada pela action round-failure (o comentario
-"## Rodada com falha" marca quem ela devolve) e, nas fatias seguintes, pelas
-outras paradas que notificam. Fala com o GitHub so por `gh api` (token em
+"## Rodada com falha" marca quem ela devolve) e pela action responsible, que
+entrega o resultado ao agente das etapas de issue para o handoff e o
+comentario final da etapa. Fala com o GitHub so por `gh api` (token em
 GH_TOKEN, repositorio em GH_REPO como `owner/repo`). Nao roda agente.
 
 A primeira regra que acha um humano vence:

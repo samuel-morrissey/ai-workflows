@@ -19,7 +19,16 @@ Siga estas skills:
 
 - `issue-labeling`: tipos, labels e transicoes. Invoque antes de mexer em
   label.
-- `issue-async-first`: intervencao humana.
+- `issue-async-first`: intervencao humana e a mencao ao responsavel.
+
+O handoff e o `## Quebra` esperam uma pessoa e marcam o responsavel que o
+workflow informa no system prompt (frase "Responsavel:"; ver "Mencao ao
+responsavel" da `issue-async-first`): o handoff no **Preciso de voce**, o
+`## Quebra` na linha **Proximo passo**, no proprio comentario. Sem
+responsavel, nenhum `@`: a linha **Responsavel:** diz que nao ha
+responsavel identificavel. As sub-tasks criadas aqui nao precisam do campo
+`Responsavel:`: herdam o responsavel do pai. O fechamento em `wontfix` ou
+`deferred` nao marca ninguem.
 
 O formato de brief esta em [AGENT-BRIEF.md](../issue-triage/AGENT-BRIEF.md).
 Leia antes de escrever a primeira sub-task.
@@ -136,12 +145,15 @@ issue.
    | 2 | #<n> <titulo curto> | #<n> |
 
    **Por que nessa ordem:** <o que cada bloqueio protege, em uma ou duas frases>
-   **Proximo passo:** aplique o label `go` neste issue. O agente implementa
-   as sub-tasks uma por vez, nessa ordem, e empilha os PRs numa stack; este
-   issue recebe um comentario de status a cada rodada.
+   **Proximo passo** (@responsavel): aplique o label `go` neste issue. O
+   agente implementa as sub-tasks uma por vez, nessa ordem, e empilha os PRs
+   numa stack; este issue recebe um comentario de status a cada rodada.
    **Antes do `go`:** discordou de uma fatia? Edite o corpo da
    sub-task. O implement le o corpo na hora de rodar.
    ```
+
+   Sem responsavel, o **Proximo passo** fica sem `@` e ganha, logo abaixo,
+   `**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado.`
 
 7. Responda com a URL do comentario e a lista de sub-tasks.
 
