@@ -269,6 +269,48 @@ jobs:
           access_key_id: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
           secret_access_key: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
 
+      # Rede de seguranca do label de estado. Quem troca ready-for-agent por
+      # awaiting-pr-review e a skill, logo depois de abrir o PR; se a rodada
+      # morre entre uma coisa e outra (teto de turnos, erro ou timeout da
+      # action), o workflow garante a troca aqui. So troca com o issue aberto,
+      # ainda em ready-for-agent e com PR aberto que fecha exatamente este
+      # numero (`Closes #<numero>` com fronteira de palavra, ou o vinculo
+      # nativo em closingIssuesReferences): `#4` nao casa `#40`, e `Parte de
+      # #4` nao fecha. Handoff sem PR mantem ready-for-agent, que e o que
+      # deixa a resposta humana retomar. Roda antes de remover o WIP, e uma
+      # falha da conferencia nao impede que ele saia.
+      - name: Garantir awaiting-pr-review se ha PR aberto
+        if: always() && steps.target.outputs.kind == 'pontual' && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          INFO=$(gh issue view "$NUMBER" --json state,labels)
+          STATE=$(jq -r '.state' <<<"$INFO")
+          LABELS=$(jq -r '.labels[].name' <<<"$INFO")
+          if [ "$STATE" != "OPEN" ]; then
+            echo "::notice::Issue #$NUMBER fechado durante a rodada; label de estado nao muda."
+            exit 0
+          fi
+          if ! grep -Fqx 'ready-for-agent' <<<"$LABELS"; then
+            echo "::notice::Issue #$NUMBER ja saiu de ready-for-agent; label de estado nao muda."
+            exit 0
+          fi
+          PRS=$(gh pr list --state open --limit 100 --json number,body,closingIssuesReferences)
+          PR=$(jq -r --argjson n "$NUMBER" '
+            [.[] | select(((.body // "") | test("Closes #\($n)\\b"))
+                          or any(.closingIssuesReferences[]?; .number == $n))]
+            | first | .number // empty' <<<"$PRS")
+          if [ -z "$PR" ]; then
+            echo "::notice::Nenhum PR aberto fecha #$NUMBER; ready-for-agent mantido."
+            exit 0
+          fi
+          gh label create awaiting-pr-review --color 5319E7 \
+            --description "Implementacao concluida pelo agente; PR aberto e pronto para analise" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label awaiting-pr-review --remove-label ready-for-agent
+          echo "::notice::A rede de seguranca trocou ready-for-agent por awaiting-pr-review em #$NUMBER: a rodada abriu o PR #$PR e nao trocou o label."
+
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker
       # que o aplicou (skip vazio), para nao apagar o label de outro worker.
       # Um `go` que chegou durante a rodada tambem sai: o evento dele foi
