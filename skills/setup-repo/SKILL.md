@@ -82,6 +82,15 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
      e encerra (ex.: `npm run evidencias`), quando ele existe ou quando o
      projeto ja tem onde colocar um.
 
+   Proponha tambem a chave `default_responsible`: o login do GitHub marcado
+   quando um issue nao tem responsavel humano (autor bot ou agente, sem
+   assignee, sem pai e sem o campo `Responsável: @usuario`; ordem completa
+   na secao Notificacao do README). A proposta e quem mais aparece como
+   autor ou assignee dos issues recentes do repositorio
+   (`gh api "repos/{owner}/{repo}/issues?state=all&per_page=50"`), ou o dono,
+   quando o dono e uma conta pessoal. Sem a chave, issue de bot sem
+   responsavel fica sem mencao, sem erro.
+
 3. **Redija a skill `evidencias`** quando o `doctor` a reportou `manual` ou
    `diverge`. Modelo em `skills/issue-qa/EVIDENCIAS-PROJETO.md` deste plugin
    (ou pela mesma URL raw do passo 1). Preencha as cinco secoes com o que o
@@ -101,6 +110,7 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
    verificaveis no repositorio nao sao pergunta. O que costuma ser:
 
    - os tres blocos de comandos propostos, para confirmar ou ajustar;
+   - o `default_responsible` proposto, ou nenhum;
    - QA ligado agora ou depois, e `PROJECT_ENV` ou nao, com o custo em uma
      frase (o agente mais ate dois QAs, cada um subindo o app);
    - bucket: usar o do dono (variaveis ja existem) ou nenhum (artifact);

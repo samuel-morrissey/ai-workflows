@@ -50,6 +50,10 @@ inputs:
     description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
     required: false
     default: ""
+  default_responsible:
+    description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
+    required: false
+    default: ""
   project_env:
     description: Conteudo do secret PROJECT_ENV, no formato de um .env.
     required: false
@@ -74,6 +78,11 @@ outputs:
   evidence_endpoint:
     description: Valor final, depois de .github/ai-workflows.yml.
     value: ${{ steps.config.outputs.evidence_endpoint }}
+  default_responsible:
+    description: >-
+      Valor final, depois de .github/ai-workflows.yml. Quem resolve o
+      responsavel e scripts/responsible.py, que le o arquivo por conta propria.
+    value: ${{ steps.config.outputs.default_responsible }}
   allow:
     description: >-
       Prefixos de quality_checks e evidence_tools ja no formato da allowlist
@@ -118,9 +127,10 @@ runs:
         IN_EVIDENCE_BUCKET: ${{ inputs.evidence_bucket }}
         IN_EVIDENCE_PUBLIC_URL: ${{ inputs.evidence_public_url }}
         IN_EVIDENCE_ENDPOINT: ${{ inputs.evidence_endpoint }}
+        IN_DEFAULT_RESPONSIBLE: ${{ inputs.default_responsible }}
       run: |
         set +o pipefail
-        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint"
+        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint default_responsible"
         emit() {
           local d="EOF_$(openssl rand -hex 8)"
           { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_OUTPUT"

@@ -7,13 +7,16 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
 from test_workflows import (  # noqa: E402,F401
-    Run as WorkflowRun, SafetyNetRun, SafetyNetShape, Shape as WorkflowShape)
+    AgentEnvConfig, Run as WorkflowRun, SafetyNetRun, SafetyNetShape, Shape as WorkflowShape)
 from test_sub_tasks import (  # noqa: E402,F401
     Finish as SubTasksFinish, Stack as SubTasksStack, Worker as SubTasksWorker)
+from test_responsible import (  # noqa: E402,F401
+    Cli as ResponsibleCli, Rules as ResponsibleRules)
 
 TEMPLATE = """name: AI
 on:
@@ -131,6 +134,24 @@ class SkillSections(unittest.TestCase):
         text = "# Evidências deste projeto\n## Evidência ideal\n## Como subir\n## Dados e acesso\n## Antes\n## Limites\n"
         self.assertEqual(doctor.skill_missing_sections(text), [])
         self.assertEqual(doctor.skill_missing_sections("## Como subir\n## Antes\n"), ["evidencia ideal", "dados e acesso", "limites"])
+
+
+class ConfigCheck(unittest.TestCase):
+    """O item `config` (`doctor check --only config`) com o arquivo ja lido."""
+
+    def check(self, text):
+        repo = SimpleNamespace(config_text=text, config_error=None, inline={},
+                               config=doctor.parse_simple_yaml(text))
+        return doctor.check_config(repo)
+
+    def test_default_responsible_e_chave_conhecida(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\ndefault_responsible: fulano\n")
+        self.assertEqual(f.status, "ok", f.detail)
+
+    def test_chave_desconhecida_continua_diverge(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\nresponsavel: fulano\n")
+        self.assertEqual(f.status, "diverge")
+        self.assertIn("responsavel", f.detail)
 
 
 class Report(unittest.TestCase):

@@ -62,7 +62,8 @@ TOPIC = "ai-workflows"
 BRANCH_PREFIX = "ai-workflows/"
 DOCTOR_BRANCH = BRANCH_PREFIX + "doctor"
 CONFIG_KEYS = ("setup_commands", "quality_checks", "evidence_tools",
-               "evidence_bucket", "evidence_public_url", "evidence_endpoint")
+               "evidence_bucket", "evidence_public_url", "evidence_endpoint",
+               "default_responsible")
 VAR_NAMES = ("EVIDENCE_BUCKET", "EVIDENCE_PUBLIC_URL", "EVIDENCE_ENDPOINT")
 SECRET_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
 SECRET_BUCKET = ("EVIDENCE_ACCESS_KEY_ID", "EVIDENCE_SECRET_ACCESS_KEY")

@@ -25,6 +25,21 @@ inputs:
     description: Fim da frase "Veja o log da run, corrija a causa e ...".
     required: false
     default: "aplique `go` de novo. Esta falha nao mudou o label de estado."
+  mencionar:
+    description: >-
+      Quem o comentario marca. `responsavel`: o responsavel do issue,
+      resolvido por scripts/responsible.py. `quem-disparou`: o autor do
+      comentario ou da review do evento (correcao de PR). `auto` (padrao):
+      `quem-disparou` quando o evento e de PR (review, ou comentario num PR),
+      que so a correcao de PR comenta; `responsavel` no resto.
+    required: false
+    default: "auto"
+  default_responsible:
+    description: >-
+      Input default_responsible do workflow. A chave de mesmo nome em
+      .github/ai-workflows.yml, no checkout do consumidor, vence.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -39,6 +54,14 @@ runs:
         EVENT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
         PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}
         RETOMAR: ${{ inputs.retomar }}
+        MENCIONAR: ${{ inputs.mencionar }}
+        DEFAULT_RESPONSIBLE: ${{ inputs.default_responsible }}
+        # A resolucao vem junto com a action, na mesma ref: a raiz do
+        # repositorio fica tres niveis acima de .github/actions/round-failure.
+        RESPONSIBLE_PY: ${{ github.action_path }}/../../../scripts/responsible.py
+        TRIGGER_LOGIN: ${{ github.event.comment.user.login || github.event.review.user.login }}
+        TRIGGER_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type }}
+        IS_PR: ${{ github.event.pull_request != null || github.event.issue.pull_request != null }}
       run: |
         NUMBER="${NUMBER:-${EVENT_NUMBER:-$PAYLOAD_NUMBER}}"
         if [ -z "$NUMBER" ]; then
@@ -61,10 +84,36 @@ runs:
           echo "::warning::Nao consegui ler pela API qual passo falhou; o comentario sai so com o link da run."
           ONDE="em um passo que nao consegui identificar (veja o log)"
         fi
+        # Quem o comentario marca. Na correcao de PR, quem disparou a rodada;
+        # no resto, o responsavel do issue (scripts/responsible.py, que le
+        # default_responsible de .github/ai-workflows.yml no checkout). A
+        # resolucao falhando nao impede o comentario: ele sai sem mencao.
+        if [ "$MENCIONAR" = "auto" ]; then
+          if [ "$IS_PR" = "true" ]; then MENCIONAR=quem-disparou; else MENCIONAR=responsavel; fi
+        fi
+        if [ "$MENCIONAR" = "quem-disparou" ]; then
+          if [ -n "$TRIGGER_LOGIN" ] && [ "$TRIGGER_TYPE" != "Bot" ] && [[ "$TRIGGER_LOGIN" != *"[bot]" ]]; then
+            QUEM="**Quem disparou a rodada:** @${TRIGGER_LOGIN}"
+          else
+            QUEM="**Quem disparou a rodada:** nao identifiquei quem disparou; ninguem foi marcado."
+          fi
+        elif RESP=$(python3 -I "$RESPONSIBLE_PY" "$NUMBER" --default "$DEFAULT_RESPONSIBLE" 2>&1) \
+            && LOGINS=$(jq -er '.logins | map("@" + .) | join(" ")' <<<"$RESP" 2>/dev/null); then
+          if [ -n "$LOGINS" ]; then
+            QUEM="**Responsavel:** ${LOGINS}"
+          else
+            QUEM="**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado."
+          fi
+        else
+          echo "::warning::Nao consegui resolver o responsavel do #${NUMBER}; o comentario sai sem mencao. ${RESP:-}"
+          QUEM=""
+        fi
         BODY="## Rodada com falha
 
         A rodada de **${ETAPA}** falhou fora do que a skill registra, ${ONDE}.
-
+        ${QUEM:+
+        ${QUEM}
+        }
         Run: ${RUN_URL}
 
         Veja o log da run, corrija a causa e ${RETOMAR}"
