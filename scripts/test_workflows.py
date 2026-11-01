@@ -9,7 +9,9 @@ Tambem testa o passo "Garantir awaiting-pr-review se ha PR aberto" do
 issue-remote-implement.yml, com um `gh` falso que guarda o estado do issue,
 e o passo "Resolver responsavel" (action responsible) das etapas de issue: a
 posicao antes do agente, a frase que chega ao system prompt e os modelos de
-comentario das skills que levam a mencao.
+comentario das skills que levam a mencao. Do pr-fix.yml, testa a frase "Quem
+disparou a rodada:" que o passo "Resolver alvo" monta para o handoff no PR; da
+remote-to-pr, o pedido de review e o fallback com `@`.
 
     python3 scripts/test_workflows.py
 """
@@ -816,6 +818,155 @@ class SkillsMention(unittest.TestCase):
         text = self.skill("issue-remote-implement")
         self.assertIn('**"Responsavel:"**', text)
         self.assertIn("nunca marque o\nbot autor da sub-task", text)
+
+    def test_implement_relata_o_review_no_comentario_final(self):
+        text = self.skill("issue-remote-implement")
+        self.assertIn("**Review:**", text)
+        self.assertIn("nao ha responsavel identificavel; nenhum review pedido", text)
+
+    def test_remote_to_pr_pede_review_e_cai_para_mencao(self):
+        text = self.skill("remote-to-pr")
+        self.assertIn("## Pedido de review", text)
+        # Um login por chamada: falha parcial so atinge quem falhou.
+        self.assertIn("gh api -X POST repos/{owner}/{repo}/pulls/<numero>/requested_reviewers "
+                      "-f 'reviewers[]=<login>'", text)
+        self.assertIn("gh pr view <url> --json reviewRequests", text)
+        # Fallback: um comentario no PR, com @ so a quem falhou.
+        self.assertIn("gh api -X POST repos/{owner}/{repo}/issues/<numero>/comments", text)
+        self.assertIn("so para quem falhou", text)
+        self.assertIn("ja esta em `reviewRequests`", text)
+        self.assertIn("nenhum review e pedido", text)
+        self.assertIn("O corpo do PR nao leva `@`", text)
+        self.assertIn("A rodada segue", text)
+        # PR existente nao pede review de novo.
+        existing = text.split("## PR existente", 1)[1]
+        self.assertIn("Nao peca review", existing)
+
+    def test_remote_to_pr_so_usa_comandos_da_allowlist(self):
+        # O pedido de review e o fallback rodam dentro do implement e da
+        # sub-task: so com o que a allowlist delas libera.
+        section = self.skill("remote-to-pr").split("## Pedido de review", 1)[1].split("\n## ", 1)[0]
+        cmds = re.findall(r"(?m)^ *(gh [a-z]+(?: [a-z]+)?)", section)
+        self.assertTrue(cmds)
+        for f in ("issue-remote-implement.yml", "issue-sub-task.yml"):
+            allow = (WORKFLOWS / f).read_text()
+            for cmd in cmds:
+                self.assertIn(f"Bash({cmd}:*)", allow, (f, cmd))
+
+    def test_pr_fix_marca_quem_disparou_no_handoff(self):
+        text = self.skill("pr-fix")
+        self.assertIn('**"Quem disparou a rodada:"**', text)
+        self.assertIn("**Preciso de voce** (@quem-disparou):", text)
+        self.assertIn("nao o responsavel do issue", text)
+        self.assertIn("**Quem disparou a rodada:** nao identifiquei quem disparou; ninguem foi marcado.", text)
+
+    def test_issue_labeling_review_por_camada(self):
+        section = self.skill("issue-labeling").split("## Pai e sub-tasks", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("pede review do responsavel do pai", section)
+        self.assertIn("cada camada", section)
+
+    def test_readme_cobre_o_pr(self):
+        readme = (ROOT / "README.md").read_text()
+        notif = readme.split("### Notificação", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("pedido de review", notif)
+        self.assertIn("Handoff da correção de PR", notif)
+        self.assertNotIn("ainda não marcam", notif)
+
+
+def workflow_run(block):
+    """Texto do `run: |` de um passo de workflow (indentacao de 10)."""
+    run = block.split("        run: |\n", 1)[1]
+    lines = []
+    for line in run.splitlines():
+        if line.strip() == "":
+            lines.append("")
+        elif line.startswith("          "):
+            lines.append(line[10:])
+        else:
+            break
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+# gh falso do "Resolver alvo" do pr-fix: `gh pr view` responde $FAKE_PR.
+FAKE_GH_PR = r'''#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_GH_LOG"
+case "$1 $2" in
+  "pr view") printf '%s' "$FAKE_PR" ;;
+  "pr comment") ;;
+  *) echo "gh falso: comando inesperado: $*" >&2; exit 2 ;;
+esac
+'''
+QUEM_OUT = "${{ steps.target.outputs.quem }}"
+
+
+class PrFixTrigger(unittest.TestCase):
+    """O pr-fix.yml passa ao agente quem disparou a rodada, para o handoff."""
+
+    def steps(self):
+        return dict(steps_of((WORKFLOWS / PR_FIX).read_text()))
+
+    def test_login_vem_do_autor_do_comentario_ou_da_review(self):
+        target = self.steps()["Resolver alvo"]
+        self.assertIn("TRIGGER_LOGIN: ${{ github.event.comment.user.login || github.event.review.user.login }}", target)
+        self.assertIn("TRIGGER_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type }}", target)
+
+    def test_frase_chega_ao_system_prompt(self):
+        steps = self.steps()
+        prefix = parse_step(steps["Preparar ambiente do agente"])["with"]["prompt_prefix"]
+        self.assertTrue(prefix.startswith('"Correcao de PR: #'), prefix)
+        self.assertTrue(prefix.endswith(f' {QUEM_OUT}"'), prefix)
+        self.assertIn("${{ steps.ambiente.outputs.sysprompt }}", steps[AGENT])
+        self.assertLessEqual(steps[AGENT].count("--append-system-prompt"), 1)
+
+    def execute(self, login, kind="User", event="issue_comment"):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prfix-"))
+        (tmp / "step.sh").write_text(workflow_run(self.steps()["Resolver alvo"]))
+        gh = tmp / "gh"
+        gh.write_text(FAKE_GH_PR)
+        gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+        env = {"PATH": f"{tmp}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(tmp / "out"),
+               "FAKE_GH_LOG": str(tmp / "log"), "GH_TOKEN": "x", "GH_REPO": "o/r",
+               "EVENT_NAME": event, "PR_NUMBER": "71", "REVIEW_ID": "9", "COMMENT_ID": "8",
+               "TRIGGER_LOGIN": login, "TRIGGER_TYPE": kind,
+               "FAKE_PR": json.dumps({"state": "OPEN", "isCrossRepository": False,
+                                      "headRefName": "sub-task-67", "baseRefName": "sub-task-66",
+                                      "closingIssuesReferences": [{"number": 67}]})}
+        proc = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(tmp / "step.sh")],
+                              env=env, capture_output=True, text=True)
+        out = outputs_of((tmp / "out").read_text()) if (tmp / "out").exists() else {}
+        return proc, out
+
+    def assertSafe(self, sentence):
+        for ch in '"`$\\\n':
+            self.assertNotIn(ch, sentence)
+
+    def test_comentario_marca_quem_comentou(self):
+        proc, out = self.execute("revisora")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["quem"].startswith("Quem disparou a rodada: @revisora "), out)
+        self.assertIn("nao o responsavel do issue", out["quem"])
+        self.assertEqual(out["trigger"], "comentario 8")
+        self.assertSafe(out["quem"])
+
+    def test_review_marca_quem_revisou(self):
+        proc, out = self.execute("revisor", event="pull_request_review")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["quem"].startswith("Quem disparou a rodada: @revisor "), out)
+        self.assertEqual(out["trigger"], "review 9")
+
+    def test_bot_ou_vazio_nao_marca(self):
+        for login, kind in (("claude[bot]", "Bot"), ("algum", "Bot"), ("", "")):
+            proc, out = self.execute(login, kind)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue(out["quem"].startswith("Quem disparou a rodada: nao identificado"), (login, out))
+            self.assertNotIn("@", out["quem"])
+            self.assertSafe(out["quem"])
+
+    def test_login_estranho_nunca_vira_mencao(self):
+        proc, out = self.execute('a" --x $(id)')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["quem"].startswith("Quem disparou a rodada: nao identificado"), out)
+        self.assertSafe(out["quem"])
 
 
 if __name__ == "__main__":

@@ -148,6 +148,10 @@ numa stack do GitHub (ver `issue-git-flow`). Os labels se dividem assim:
 - **A sub-task ganha `awaiting-pr-review`** quando o PR dela abre. Ganha
   `awaiting-reply` quando a rodada dela para numa pergunta; a resposta roda
   a sub-task de novo e a cadeia segue.
+- **Cada camada pede review assim que o PR dela abre** (`remote-to-pr`): o
+  PR de cada camada da stack pede review do responsavel do pai, herdado
+  pela sub-task, com `@` num comentario no PR quando o pedido falha. A
+  revisao anda de baixo para cima enquanto a cadeia ainda roda.
 - **`go` numa sub-task roda so ela**, como mais uma camada da stack. Nao
   roda sub-task com PR aberto, humana ou bloqueada por outra ainda sem PR.
 - **O pai ganha `awaiting-pr-review`** quando toda sub-task tem PR: a stack

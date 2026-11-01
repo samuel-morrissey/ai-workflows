@@ -109,8 +109,12 @@ Quando o fluxo para e só anda com uma pessoa, o comentário que pede a ação m
 | Fim do refinamento, esperando `go` (`needs-break-down`) | `## Refinamento` final | na linha **Próximo passo** |
 | Fim da quebra, esperando `go` (`ready-for-*`) | `## Quebra` | na linha **Próximo passo** |
 | Passo que falha fora do agente | **Rodada com falha** (veja [Testar](#testar)) | na linha **Responsável** |
+| PR aberto pela implementação ou pela sub-task (`awaiting-pr-review`) | nenhum: é um pedido de review | em `reviewRequests` do PR; `@` num comentário no PR só se o pedido falhar |
+| Handoff da correção de PR (`awaiting-reply` no PR) | `## Status`, no PR | na linha **Preciso de você**, para quem disparou a rodada |
 
-A menção vai no próprio comentário que pede a ação, nunca num segundo comentário só para avisar, e só em comentário novo: nenhuma etapa edita um comentário existente para acrescentar `@`. Encerramento em `wontfix` ou `deferred` não é espera e não marca ninguém. Handoff no chat continua sem menção. O handoff da correção de PR e o pedido de review ao abrir o PR ainda não marcam.
+A menção vai no próprio comentário que pede a ação, nunca num segundo comentário só para avisar, e só em comentário novo: nenhuma etapa edita um comentário existente para acrescentar `@`. Encerramento em `wontfix` ou `deferred` não é espera e não marca ninguém. Handoff no chat continua sem menção.
+
+**No PR**, o aviso é um pedido de review. Ao abrir o PR, a `remote-to-pr` pede review de cada responsável do issue, um login por vez, e confere em `reviewRequests`. O corpo do PR não leva `@`. Com vários assignees, o review é pedido a todos; quem já é reviewer fica como está, sem erro nem pedido duplicado. Se o pedido falhar para alguém (por exemplo, usuário sem acesso ao repositório), um comentário no PR marca com `@` só quem falhou, avisando que o PR espera revisão. O PR continua aberto e a rodada segue até o fim, com `awaiting-pr-review`. Sem responsável, nenhum review é pedido e o comentário **Implement** no issue diz que não há responsável identificável. Numa stack, cada camada pede review assim que o PR dela abre, ao responsável herdado do pai. A rodada que só atualiza o corpo de um PR existente (correção de PR) não pede review de novo. Se a rodada morrer entre abrir o PR e pedir o review, o review fica sem pedir; o issue ganha `awaiting-pr-review` do mesmo jeito.
 
 Quem a etapa marca não é decisão do agente. Antes de cada rodada de agente num issue (`issue-triage.yml`, `issue-refinement.yml`, `issue-break-down.yml`, `issue-remote-implement.yml` e `issue-sub-task.yml`), o passo **Resolver responsavel** (action `responsible`) roda a resolução abaixo, com `default_responsible` lido do checkout do repositório, e entrega ao agente, no system prompt, uma frase `Responsavel:` com os logins a marcar ou "sem responsavel". A skill marca exatamente esses logins. Se a resolução falhar, a rodada segue como "sem responsável", com um aviso no log da run.
 
@@ -126,7 +130,7 @@ O responsável é resolvido por `scripts/responsible.py`, sempre da mesma forma.
 
 Bot ou agente nunca é marcado: conta como bot a conta do tipo `Bot` ou com login terminado em `[bot]`. Quem colocou o último `go` não conta como responsável. Se a resolução falhar (API indisponível, por exemplo), o comentário sai mesmo assim, sem menção.
 
-**Exceção, a correção de PR:** na falha de uma rodada do `pr-fix`, o aviso vai para quem disparou a rodada, ou seja, o autor da review ou do comentário que cita `@claude`. O responsável do issue não é marcado nesse caso.
+**Exceção, a correção de PR:** quando o `pr-fix` para numa pergunta no PR, e também na falha de uma rodada dele, o aviso vai para quem disparou a rodada, ou seja, o autor da review ou do comentário que cita `@claude` (ou que respondeu ao handoff), mesmo que não seja o responsável do issue. O `pr-fix.yml` lê esse login do evento e o passa ao agente no system prompt, numa frase `Quem disparou a rodada:`. Bot, ou evento sem autor, não é marcado: o handoff diz que não identificou quem disparou. O responsável do issue não é marcado nesses casos.
 
 #### O campo `Responsável:` (para agentes de fora do fluxo)
 

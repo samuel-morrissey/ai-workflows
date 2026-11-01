@@ -1,6 +1,6 @@
 ---
 name: remote-to-pr
-description: Abre um PR, ou atualiza o corpo de um PR existente, em fluxo remoto e assincrono, sem ninguem para responder - segue a to-pr inteira (formato, estilo da casa, vinculos), monta Evidencias e Criterios de aceite a partir do relatorio do QA e aplica direto, sem perguntar. Use dentro de um workflow, como na issue-remote-implement (PR novo) e na pr-fix (PR existente).
+description: Abre um PR, ou atualiza o corpo de um PR existente, em fluxo remoto e assincrono, sem ninguem para responder - segue a to-pr inteira (formato, estilo da casa, vinculos), monta Evidencias e Criterios de aceite a partir do relatorio do QA, aplica direto, sem perguntar, e no PR novo pede review do responsavel do issue (com @ num comentario quando o pedido falha). Use dentro de um workflow, como na issue-remote-implement (PR novo) e na pr-fix (PR existente).
 ---
 
 # Remote to PR
@@ -77,20 +77,75 @@ Dois ramos, pelo que quem chama passa:
    sem link de sessao e sem mencao a agente. Excecao do fluxo remoto: os
    **commits** podem levar o trailer `Co-Authored-By`.
 
-6. Devolva a URL do PR para quem chamou.
+6. **Peca review do responsavel**, logo depois do vinculo, como diz o
+   "Pedido de review" abaixo.
+
+7. Devolva a quem chamou a URL do PR e o resultado do pedido de review.
 
 Pronto quando o PR esta aberto da head para a base recebidas, o corpo comeca
 pelas linhas de vinculo da `issue-git-flow`, o `closingIssuesReferences` do
 PR lista cada issue do `Closes`, segue o `TEMPLATE.md` da `to-pr`, as
 Evidencias e os Criterios de aceite vem do relatorio do QA (ou declaram por
-que nao) e termina na ultima secao de conteudo.
+que nao), termina na ultima secao de conteudo e o responsavel ou esta em
+`reviewRequests`, ou recebeu o `@` do fallback, ou nao existe.
+
+## Pedido de review
+
+So no PR novo. Quem pedir nao e decisao sua: o workflow da rodada ja
+resolveu o responsavel do issue e o informa no system prompt, numa frase que
+comeca por **"Responsavel:"** (a mesma do handoff da `issue-async-first`).
+Numa camada da stack, o responsavel ja vem como o do pai: cada camada pede
+review assim que o PR dela abre. O corpo do PR nao leva `@` a ninguem: o
+pedido de review ja poe o PR na fila de revisao, e o `@` so entra no
+fallback.
+
+1. **Sem responsavel** (`Responsavel: sem responsavel ...`, ou sem a frase
+   no system prompt): nenhum review e pedido e ninguem e marcado. Devolva a
+   quem chamou "sem responsavel identificavel", para o comentario final da
+   rodada no issue dizer isso.
+
+2. **Com logins**, leia quem ja esta pedido:
+
+   ```bash
+   gh pr view <url> --json reviewRequests --jq '[.reviewRequests[].login]'
+   ```
+
+   O `<numero>` dos comandos abaixo e o do PR, o fim da `<url>`.
+
+   Login que ja esta em `reviewRequests` fica como esta: nada de pedir de
+   novo nem de comentar. Para cada outro login, **um pedido por login**,
+   para que uma falha so atinja aquele login:
+
+   ```bash
+   gh api -X POST repos/{owner}/{repo}/pulls/<numero>/requested_reviewers -f 'reviewers[]=<login>'
+   ```
+
+   Confira com o mesmo `gh pr view` do comeco. Falhou quem teve erro na
+   chamada (usuario sem acesso ao repositorio, por exemplo, devolve HTTP
+   422) ou nao aparece em `reviewRequests` depois dela.
+
+3. **Fallback, so para quem falhou:** um comentario no PR, um so, que marca
+   com `@` cada login que falhou e avisa que o PR espera a revisao dele:
+
+   ```bash
+   gh api -X POST repos/{owner}/{repo}/issues/<numero>/comments -f body='@<login> este PR espera a sua revisao. Nao consegui pedir a review pelo GitHub (<motivo curto>).'
+   ```
+
+   Ninguem falhou: nenhum comentario. O comentario tambem falhou? Registre
+   para quem chamou e siga.
+
+4. **A rodada segue.** Pedido de review ou fallback que falham nunca param
+   a rodada nem impedem o PR, os labels ou o comentario final de quem
+   chamou. Devolva, por login, o que aconteceu: review pedido, ja era
+   reviewer, avisado por `@` no PR (com o motivo), ou nem isso.
 
 ## PR existente
 
 Quem chama (a `pr-fix`) passa o numero do PR, a lista de pedidos feitos
 com os commits, a bateria que rodou e o relatorio do QA (ou o motivo de nao
 ter rodado). O corpo atual e o ponto de partida: a rodada acrescenta, nao
-reescreve.
+reescreve. Nao peca review nem marque ninguem aqui: o review foi pedido
+quando o PR abriu, e quem esta revisando ja acompanha o PR.
 
 1. **Leia o corpo atual:** `gh pr view <pr> --json body,closingIssuesReferences`.
    Corpo que nao segue o `TEMPLATE.md` da `to-pr` (PR escrito por uma
