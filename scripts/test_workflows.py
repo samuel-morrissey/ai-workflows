@@ -969,5 +969,177 @@ class PrFixTrigger(unittest.TestCase):
         self.assertSafe(out["quem"])
 
 
+DECIDE = "Decidir e agir"
+NOTICE_RESP = "Resolver responsavel do pai"
+PAI_IF = "steps.target.outputs.kind == 'pai' && steps.chain.outputs.skip != 'true'"
+
+# Planner falso no lugar de $RUNNER_TEMP/sub_tasks.py: registra cada chamada
+# (argv em JSON) em $FAKE_PLANNER_LOG e falha o subcomando em $FAKE_PLANNER_FAIL.
+FAKE_PLANNER = r'''import json, os, sys
+with open(os.environ["FAKE_PLANNER_LOG"], "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\n")
+if sys.argv[1] in os.environ.get("FAKE_PLANNER_FAIL", "").split():
+    print("gh api repos/o/r/issues/56/comments: HTTP 503", file=sys.stderr)
+    sys.exit(2)
+print("{}")
+'''
+
+# gh falso do "Decidir e agir": labels do pai em $FAKE_LABELS, aceita as
+# escritas de label e o dispatch, e registra tudo em $FAKE_GH_LOG.
+FAKE_GH_DECIDE = r'''#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_GH_LOG"
+case "$1 $2" in
+  "issue view") printf '%s\n' $FAKE_LABELS ;;
+  "issue edit"|"label create") ;;
+  "api --method") ;;
+  *) echo "gh falso: comando inesperado: $*" >&2; exit 2 ;;
+esac
+'''
+
+
+class ChainNoticeShape(unittest.TestCase):
+    """O planner resolve o responsavel do pai e o passa ao "Decidir e agir"."""
+
+    def steps(self):
+        return steps_of((WORKFLOWS / "issue-remote-implement.yml").read_text())
+
+    def test_resolve_o_responsavel_do_pai_antes_de_decidir_sem_derrubar(self):
+        names = [n for n, _ in self.steps()]
+        self.assertLess(names.index("Entrar na cadeia"), names.index(NOTICE_RESP))
+        self.assertLess(names.index(NOTICE_RESP), names.index(DECIDE))
+        step = parse_step(dict(self.steps())[NOTICE_RESP])
+        self.assertEqual(step["uses"], RESP_USES)
+        self.assertEqual(step["continue_on_error"], "true")
+        self.assertEqual(step["with"]["number"], "${{ steps.target.outputs.number }}")
+        self.assertEqual(step["if"], PAI_IF)
+
+    def test_decidir_recebe_os_logins(self):
+        block = dict(self.steps())[DECIDE]
+        self.assertIn("RESP_LOGINS: ${{ steps.responsavel_pai.outputs.logins }}", block)
+        self.assertIn("id: responsavel_pai", dict(self.steps())[NOTICE_RESP])
+
+    def test_docs_cobrem_o_aviso_da_cadeia(self):
+        labeling = (SKILLS / "issue-labeling" / "SKILL.md").read_text()
+        section = labeling.split("## Pai e sub-tasks", 1)[1].split("\n## ", 1)[0]
+        section = " ".join(section.split())
+        self.assertIn("comentario novo no pai", section)
+        self.assertIn("marca o responsavel do pai", section)
+        self.assertIn("stack completa", section)
+        readme = (ROOT / "README.md").read_text()
+        notif = readme.split("### Notificação", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("Cadeia parada", notif)
+        self.assertIn("Stack completa", notif)
+
+
+class ChainNoticeRun(unittest.TestCase):
+    """Roda o "Decidir e agir" num bash, com gh e planner falsos, e confere
+    quais caminhos postam o aviso novo no pai (subcomando `notify`)."""
+
+    def execute(self, fail="", labels="ready-for-agent work-in-progress", **env):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="decide-"))
+        block = dict(steps_of((WORKFLOWS / "issue-remote-implement.yml").read_text()))[DECIDE]
+        (tmp / "step.sh").write_text(workflow_run(block))
+        (tmp / "sub_tasks.py").write_text(FAKE_PLANNER)
+        gh = tmp / "gh"
+        gh.write_text(FAKE_GH_DECIDE)
+        gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+        base = {"PATH": f"{tmp}:{os.environ['PATH']}", "RUNNER_TEMP": str(tmp), "GH_TOKEN": "x",
+                "GH_REPO": "o/r", "NUMBER": "56", "CHAIN": "true", "FROM": "", "OUTCOME": "",
+                "FROM_SOURCE": "", "FROM_RUN": "", "NEXT": "", "COMPLETE": "false",
+                "WAIT_KIND": "none", "WAIT_NOTE": "", "STACK_ERROR": "", "RESP_LOGINS": "ana",
+                "FAKE_PLANNER_LOG": str(tmp / "planner.log"), "FAKE_PLANNER_FAIL": fail,
+                "FAKE_GH_LOG": str(tmp / "gh.log"), "FAKE_LABELS": labels}
+        base.update(env)
+        # O shell padrao do GitHub Actions: bash -e com pipefail.
+        proc = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(tmp / "step.sh")],
+                              env=base, capture_output=True, text=True)
+        log = tmp / "planner.log"
+        calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        ghlog = (tmp / "gh.log").read_text() if (tmp / "gh.log").exists() else ""
+        return proc, calls, ghlog
+
+    def notices(self, calls):
+        return [c for c in calls if c[0] == "notify"]
+
+    def opt(self, call, name):
+        return call[call.index(name) + 1]
+
+    def assertNotice(self, proc, calls, kind, note=None):
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        [notice] = self.notices(calls)
+        self.assertEqual(notice[1], "56")
+        self.assertEqual(self.opt(notice, "--kind"), kind)
+        self.assertEqual(self.opt(notice, "--logins"), "ana")
+        if note is not None:
+            self.assertEqual(self.opt(notice, "--note"), note)
+        # O status continua sendo editado na mesma rodada, sem `@`, e antes do aviso.
+        status = [c for c in calls if c[0] == "status"]
+        self.assertEqual(len(status), 1)
+        self.assertNotIn("@", self.opt(status[0], "--note"))
+        self.assertLess(calls.index(status[0]), calls.index(notice))
+        return notice
+
+    def test_sub_task_humana_para_e_avisa(self):
+        note = "#57 e humana: faca a parte dela e aplique `go` aqui para a cadeia seguir."
+        proc, calls, gh = self.execute(WAIT_KIND="human", WAIT_NOTE=note)
+        self.assertNotice(proc, calls, "parada", note)
+        self.assertEqual(self.opt([c for c in calls if c[0] == "status"][0], "--note"), note)
+        self.assertIn("--remove-label work-in-progress", gh)
+
+    def test_bloqueio_externo_para_e_avisa(self):
+        note = "#58 esta bloqueada por #9, sem PR e ainda aberto."
+        proc, calls, _ = self.execute(WAIT_KIND="blocked", WAIT_NOTE=note)
+        self.assertNotice(proc, calls, "parada", note)
+
+    def test_rodada_sem_pr_e_sem_pergunta_para_e_avisa(self):
+        for outcome in ("none", "skipped"):
+            proc, calls, _ = self.execute(FROM_SOURCE="chain", OUTCOME=outcome, FROM="57", FROM_RUN="123")
+            notice = self.assertNotice(proc, calls, "parada")
+            self.assertIn("#57 terminou sem PR e sem pergunta", self.opt(notice, "--note"))
+            self.assertIn("actions/runs/123", self.opt(notice, "--note"))
+
+    def test_falha_ao_empilhar_para_e_avisa(self):
+        proc, calls, _ = self.execute(STACK_ERROR="PR #70 tem base `x`.")
+        notice = self.assertNotice(proc, calls, "parada")
+        self.assertIn("Nao consegui empilhar os PRs: PR #70 tem base `x`.", self.opt(notice, "--note"))
+
+    def test_stack_completa_aplica_o_label_e_avisa(self):
+        proc, calls, gh = self.execute(COMPLETE="true")
+        self.assertNotice(proc, calls, "completa")
+        self.assertIn("--add-label awaiting-pr-review --remove-label ready-for-agent", gh)
+        self.assertEqual([c[0] for c in calls], ["finish", "status", "notify"])
+
+    def test_cadeia_que_segue_nao_avisa(self):
+        for env in ({"NEXT": "59"}, {"WAIT_KIND": "handoff", "WAIT_NOTE": "#57 parou numa pergunta."},
+                    {"WAIT_KIND": "running", "WAIT_NOTE": "#57 esta em execucao."}):
+            proc, calls, _ = self.execute(**env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(self.notices(calls), [], env)
+            self.assertEqual([c[0] for c in calls], ["status"], env)
+
+    def test_pai_fora_da_cadeia_so_atualiza_o_status(self):
+        for env in ({}, {"STACK_ERROR": "PR #70 tem base `x`."}, {"WAIT_KIND": "human", "WAIT_NOTE": "humana"}):
+            proc, calls, _ = self.execute(CHAIN="false", **env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(self.notices(calls), [], env)
+            self.assertEqual([c[0] for c in calls], ["status"], env)
+
+    def test_sem_responsavel_ainda_avisa(self):
+        proc, calls, _ = self.execute(WAIT_KIND="human", WAIT_NOTE="humana", RESP_LOGINS="")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        [notice] = self.notices(calls)
+        self.assertEqual(self.opt(notice, "--logins"), "")
+
+    def test_aviso_falhando_nao_falha_a_rodada(self):
+        proc, calls, gh = self.execute(fail="notify", COMPLETE="true")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("::warning::", proc.stdout)
+        self.assertEqual([c[0] for c in calls], ["finish", "status", "notify"])
+        self.assertIn("--add-label awaiting-pr-review", gh)
+        proc, calls, gh = self.execute(fail="notify", WAIT_KIND="human", WAIT_NOTE="humana")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("--remove-label work-in-progress", gh)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

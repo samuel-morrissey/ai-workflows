@@ -32,7 +32,8 @@ class FakeGitHub:
 
     def __init__(self, subs, prs):
         self.calls = []
-        self.subs = [{"number": n, "title": f"[SUB-TASK] parte {n}", "state": "open",
+        self.comments = {}
+        self.subs =[{"number": n, "title": f"[SUB-TASK] parte {n}", "state": "open",
                       "body": f"Parte de #{PARENT}", "labels": []} for n in subs]
         self.prs = {}
         for i, (sub, state, base, stack) in enumerate(prs):
@@ -82,6 +83,20 @@ class FakeGitHub:
             for n in body["pull_requests"]:
                 self.prs[n]["stack"] = {"number": int(m.group(1))}
             return {}
+        m = re.fullmatch(rf"{r}/issues/(\d+)/comments(\?per_page=100)?", path)
+        if m:
+            comments = self.comments.setdefault(int(m.group(1)), [])
+            if method == "POST":
+                comment = {"id": 900 + len(comments), "body": body["body"],
+                           "html_url": f"https://github.com/o/r/issues/{m.group(1)}#issuecomment-{900 + len(comments)}"}
+                comments.append(comment)
+                return comment
+            return comments
+        m = re.fullmatch(rf"{r}/issues/comments/(\d+)", path)
+        if m and method == "PATCH":
+            comment = next(c for cs in self.comments.values() for c in cs if c["id"] == int(m.group(1)))
+            comment["body"] = body["body"]
+            return comment
         m = re.fullmatch(rf"{r}/issues/(\d+)/parent", path)
         if m:
             return {"number": PARENT}
@@ -223,6 +238,72 @@ class Worker(Base):
         # worker; o worker termina sempre devolvendo o controle ao pai.
         self.assertIn("event_type=ai-implement", WORKER.read_text())
         self.assertIn('sub_tasks.py" stack "$NUMBER"', PLANNER.read_text())
+
+
+class Notify(Base):
+    """O aviso no pai: comentario novo, com mencao, na parada e na stack completa."""
+
+    def notify(self, gh, kind, note="", logins=""):
+        return self.run_cmd(gh, "notify", parent=PARENT, kind=kind, note=note, logins=logins)
+
+    def posted(self, gh):
+        return [b["body"] for m, p, b in gh.writes() if m == "POST" and p == f"repos/o/r/issues/{PARENT}/comments"]
+
+    def test_parada_marca_o_responsavel_com_motivo_e_como_retomar(self):
+        gh = FakeGitHub([101], [])
+        note = "#101 e humana: faca a parte dela e aplique `go` aqui para a cadeia seguir."
+        out = self.notify(gh, "parada", note, "ana bia")
+        [body] = self.posted(gh)
+        self.assertTrue(body.startswith("## Cadeia parada"), body)
+        self.assertIn("@ana @bia", body)
+        self.assertIn(note, body)
+        self.assertIn("aplique `go` neste issue para retomar", body)
+        self.assertNotIn(sub_tasks.MARKER, body)
+        self.assertIn("issuecomment", out["comment"])
+
+    def test_stack_completa_pede_revisao_de_baixo_para_cima(self):
+        gh = FakeGitHub([101], [])
+        self.notify(gh, "completa", logins="ana")
+        [body] = self.posted(gh)
+        self.assertTrue(body.startswith("## Stack completa"), body)
+        self.assertIn("@ana", body)
+        self.assertIn("de baixo para cima", body)
+        self.assertNotIn(sub_tasks.MARKER, body)
+
+    def test_sem_responsavel_diz_e_nao_marca(self):
+        gh = FakeGitHub([101], [])
+        for kind in ("parada", "completa"):
+            self.notify(gh, kind, "motivo qualquer", "")
+        bodies = self.posted(gh)
+        self.assertEqual(len(bodies), 2)
+        for body in bodies:
+            self.assertIn("nao ha responsavel identificavel; ninguem foi marcado.", body)
+            self.assertNotIn("@", body)
+
+    def test_login_que_nao_e_de_usuario_nunca_vira_mencao(self):
+        gh = FakeGitHub([101], [])
+        self.notify(gh, "parada", "m", "x[bot] a\"b ana")
+        [body] = self.posted(gh)
+        self.assertIn("**Responsavel:** @ana\n", body)
+        self.assertNotIn("bot", body)
+
+    def test_repeticao_gera_comentario_novo_e_nao_edita(self):
+        gh = FakeGitHub([101], [])
+        self.notify(gh, "parada", "mesmo motivo", "ana")
+        self.notify(gh, "parada", "mesmo motivo", "ana")
+        self.assertEqual(len(self.posted(gh)), 2)
+        self.assertFalse([w for w in gh.writes() if w[0] == "PATCH"])
+
+    def test_status_continua_editado_e_sem_mencao(self):
+        gh = FakeGitHub([101, 102], [(101, "open", "main", None)])
+        self.run_cmd(gh, "status", parent=PARENT, chain="rodando", note="#102 despachada para o agente.")
+        self.notify(gh, "parada", "#102 e humana: faca a parte dela.", "ana")
+        self.run_cmd(gh, "status", parent=PARENT, chain="parada", note="#102 e humana: faca a parte dela.")
+        status = [c for c in gh.comments[PARENT] if sub_tasks.MARKER in c["body"]]
+        self.assertEqual(len(status), 1, "um so comentario de status, editado")
+        self.assertIn("**Cadeia:** parada", status[0]["body"])
+        self.assertNotIn("@", status[0]["body"])
+        self.assertEqual(len(gh.comments[PARENT]), 2)
 
 
 if __name__ == "__main__":

@@ -428,6 +428,18 @@ jobs:
             echo "stack_error=$STACK_ERROR"
           } >> "$GITHUB_OUTPUT"
 
+      # Quem o aviso no pai marca, quando a cadeia para ou a stack completa: o
+      # responsavel do pai, pela mesma resolucao das outras etapas (action
+      # responsible, com default_responsible lido deste checkout). Falha aqui
+      # nao para a rodada: o aviso sai como "sem responsavel".
+      - name: Resolver responsavel do pai
+        id: responsavel_pai
+        if: steps.target.outputs.kind == 'pai' && steps.chain.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/responsible@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+
       # A decisao, em ordem:
       # 1. nao conseguiu empilhar: para a cadeia e explica;
       # 2. pai fora da cadeia (worker de um `go` num filho): so o status;
@@ -439,7 +451,12 @@ jobs:
       # 6. espera: resposta humana ou worker em execucao mantem a cadeia
       #    (work-in-progress fica); sub-task humana ou bloqueio externo param
       #    a cadeia (`go` retoma).
-      # O comentario de status no pai e um so, atualizado a cada rodada.
+      # O comentario de status no pai e um so, atualizado a cada rodada, sem
+      # `@`. Editar nao notifica: por isso, com o pai em cadeia, cada parada
+      # (1, 3 e 6) e a stack completa (4) postam tambem um aviso novo no pai,
+      # que marca o responsavel (`notify`). Despacho e espera nao avisam; na
+      # espera por resposta, quem avisa e o handoff da sub-task. O aviso
+      # falhando vira so um warning: status e labels seguem como estao.
       - name: Decidir e agir
         if: steps.target.outputs.kind == 'pai' && steps.chain.outputs.skip != 'true'
         env:
@@ -456,6 +473,7 @@ jobs:
           WAIT_KIND: ${{ steps.plan.outputs.wait_kind }}
           WAIT_NOTE: ${{ steps.plan.outputs.wait_note }}
           STACK_ERROR: ${{ steps.plan.outputs.stack_error }}
+          RESP_LOGINS: ${{ steps.responsavel_pai.outputs.logins }}
         run: |
           PLANNER="$RUNNER_TEMP/sub_tasks.py"
           status() { python3 -I "$PLANNER" status "$NUMBER" --chain "$1" --note "$2"; }
@@ -464,9 +482,19 @@ jobs:
               gh issue edit "$NUMBER" --remove-label work-in-progress
             fi
           }
-          if [ -n "$STACK_ERROR" ]; then
+          # Aviso novo no pai, so com o pai em cadeia. Nunca falha a rodada.
+          notify() {
+            [ "$CHAIN" = "true" ] || return 0
+            python3 -I "$PLANNER" notify "$NUMBER" --kind "$1" --note "${2:-}" --logins "$RESP_LOGINS" \
+              || echo "::warning::Nao consegui postar o aviso de cadeia $1 no #${NUMBER}; o status e os labels seguem como estao."
+          }
+          stop() {
             leave_chain
-            status "parada" "Nao consegui empilhar os PRs: ${STACK_ERROR} Corrija e aplique \`go\` aqui para retomar."
+            status "parada" "$1"
+            notify "parada" "$1"
+          }
+          if [ -n "$STACK_ERROR" ]; then
+            stop "Nao consegui empilhar os PRs: ${STACK_ERROR} Corrija e aplique \`go\` aqui para retomar."
             exit 0
           fi
           if [ "$CHAIN" != "true" ]; then
@@ -474,8 +502,7 @@ jobs:
             exit 0
           fi
           if [ "$FROM_SOURCE" = "chain" ] && { [ "$OUTCOME" = "none" ] || [ "$OUTCOME" = "skipped" ]; }; then
-            leave_chain
-            status "parada" "A rodada de #${FROM} terminou sem PR e sem pergunta (run https://github.com/${GH_REPO}/actions/runs/${FROM_RUN}). Veja o log, corrija o que for preciso e aplique \`go\` aqui para retomar."
+            stop "A rodada de #${FROM} terminou sem PR e sem pergunta (run https://github.com/${GH_REPO}/actions/runs/${FROM_RUN}). Veja o log, corrija o que for preciso e aplique \`go\` aqui para retomar."
             exit 0
           fi
           if [ "$COMPLETE" = "true" ]; then
@@ -485,6 +512,7 @@ jobs:
             gh issue edit "$NUMBER" --add-label awaiting-pr-review --remove-label ready-for-agent
             leave_chain
             status "completa" "Toda sub-task tem PR. Revise a stack de baixo para cima e faca o merge pela interface do GitHub; o merge do topo fecha este issue."
+            notify "completa"
             exit 0
           fi
           if [ -n "$NEXT" ]; then
@@ -500,8 +528,7 @@ jobs:
               status "esperando" "$WAIT_NOTE"
               ;;
             *)
-              leave_chain
-              status "parada" "$WAIT_NOTE"
+              stop "$WAIT_NOTE"
               ;;
           esac
 
