@@ -99,7 +99,20 @@ O push da correção usa o `GITHUB_TOKEN`, e o GitHub não dispara workflows a p
 
 ### Notificação
 
-Quando o fluxo para e só anda com uma pessoa, o comentário que pede a ação marca o **responsável** do issue com `@`. Hoje isso vale para o comentário **Rodada com falha** (veja [Testar](#testar)); as outras paradas passam a marcar nas próximas versões, com a mesma regra.
+Quando o fluxo para e só anda com uma pessoa, o comentário que pede a ação marca o **responsável** do issue com `@`. Os pontos de espera que marcam hoje:
+
+| Ponto de espera | Comentário | Onde vai o `@` |
+| --- | --- | --- |
+| Pergunta impeditiva (handoff) na triagem, na quebra, na implementação e na sub-task | `## Status`, com `awaiting-reply` | na linha **Preciso de você** |
+| Rodada de perguntas do refinamento | `## Refinamento — rodada N`, com `awaiting-reply` | na linha **Ao responder** |
+| Fim da triagem, esperando `go` (`needs-refinement`, `needs-break-down` ou `ready-for-*`) | `## Triagem` | na linha **Próximo passo** |
+| Fim do refinamento, esperando `go` (`needs-break-down`) | `## Refinamento` final | na linha **Próximo passo** |
+| Fim da quebra, esperando `go` (`ready-for-*`) | `## Quebra` | na linha **Próximo passo** |
+| Passo que falha fora do agente | **Rodada com falha** (veja [Testar](#testar)) | na linha **Responsável** |
+
+A menção vai no próprio comentário que pede a ação, nunca num segundo comentário só para avisar, e só em comentário novo: nenhuma etapa edita um comentário existente para acrescentar `@`. Encerramento em `wontfix` ou `deferred` não é espera e não marca ninguém. Handoff no chat continua sem menção. O handoff da correção de PR e o pedido de review ao abrir o PR ainda não marcam.
+
+Quem a etapa marca não é decisão do agente. Antes de cada rodada de agente num issue (`issue-triage.yml`, `issue-refinement.yml`, `issue-break-down.yml`, `issue-remote-implement.yml` e `issue-sub-task.yml`), o passo **Resolver responsavel** (action `responsible`) roda a resolução abaixo, com `default_responsible` lido do checkout do repositório, e entrega ao agente, no system prompt, uma frase `Responsavel:` com os logins a marcar ou "sem responsavel". A skill marca exatamente esses logins. Se a resolução falhar, a rodada segue como "sem responsável", com um aviso no log da run.
 
 O responsável é resolvido por `scripts/responsible.py`, sempre da mesma forma. A primeira regra que acha uma pessoa vence:
 
@@ -236,7 +249,7 @@ O `ai.yml` lê as três variáveis com `vars.EVIDENCE_*` e as passa ao router. V
 
 ### O arquivo `.github/ai-workflows.yml`
 
-Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente, e o responsável padrão, lido por todas as etapas na falha de rodada. Só escalares de texto e blocos literais (`|`), um comando por linha:
+Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente, e o responsável padrão, lido pelas etapas de issue antes do agente e por todas as etapas na falha de rodada. Só escalares de texto e blocos literais (`|`), um comando por linha:
 
 ```yaml
 # Comandos deste repositório para o fluxo de IA (samuel-morrissey/ai-workflows).
@@ -406,7 +419,7 @@ Problemas comuns:
 - `pr-fix.yml`: a correção de PR. Resolve o PR do evento (recusa PR fechado ou de fork), coloca `work-in-progress` no PR, faz o checkout da head com histórico completo e roda o Claude com a skill `pr-fix`, com as mesmas actions de ambiente e de evidências da implementação.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, o link da run e a menção ao responsável, resolvido por `scripts/responsible.py` (que vem junto com a action, na mesma ref); a run continua marcada como falha.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas (action `agent-env`); depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR (action `publish-evidence`).
-- `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence` e `round-failure`. Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
+- `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence`, `responsible` (o responsável do issue, resolvido antes do agente e entregue a ele no system prompt) e `round-failure`. Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
 - `.claude-plugin/` e `skills/`: o marketplace e o plugin. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um único plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas instalam o plugin pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
 - `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 
