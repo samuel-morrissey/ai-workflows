@@ -97,7 +97,9 @@ jobs:
       # head), por isso o resto vem do gh. PR fechado nao tem o que corrigir.
       # PR de fork e recusado: issue_comment roda com os secrets do
       # repositorio, e o checkout da head de um fork executaria codigo de fora
-      # com eles.
+      # com eles. O autor do comentario ou da review e quem o handoff marca
+      # (nao o responsavel do issue): bot, evento sem autor ou login fora do
+      # padrao de conta do GitHub nao vira mencao.
       - name: Resolver alvo
         id: target
         env:
@@ -107,6 +109,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           REVIEW_ID: ${{ github.event.review.id }}
           COMMENT_ID: ${{ github.event.comment.id }}
+          TRIGGER_LOGIN: ${{ github.event.comment.user.login || github.event.review.user.login }}
+          TRIGGER_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type }}
         run: |
           if [ -z "$PR_NUMBER" ]; then
             echo "::error::Evento sem PR: dispare o workflow chamador por review ou comentario num PR."
@@ -143,8 +147,15 @@ jobs:
           else
             TRIGGER="comentario ${COMMENT_ID}"
           fi
+          # A frase vai entre aspas no system prompt: o login so entra se for
+          # de conta do GitHub, e nunca de bot.
+          if [ "$TRIGGER_TYPE" != "Bot" ] && [[ "$TRIGGER_LOGIN" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+            QUEM="Quem disparou a rodada: @${TRIGGER_LOGIN} (autor do gatilho, resolvido pelo workflow). Marque so esse login, com @, no pedido de acao do handoff no PR, nao o responsavel do issue."
+          else
+            QUEM="Quem disparou a rodada: nao identificado (bot ou evento sem autor). Nao marque ninguem: no handoff no PR, diga numa linha que nao identificou quem disparou."
+          fi
           {
-            echo "head=$HEAD"; echo "base=$BASE"; echo "issues=${ISSUES:-nenhum}"; echo "trigger=$TRIGGER"
+            echo "head=$HEAD"; echo "base=$BASE"; echo "issues=${ISSUES:-nenhum}"; echo "trigger=$TRIGGER"; echo "quem=$QUEM"
           } >> "$GITHUB_OUTPUT"
           echo "::notice::PR #$NUMBER ($HEAD -> $BASE), gatilho: $TRIGGER, issues: ${ISSUES:-nenhum}."
 
@@ -191,7 +202,7 @@ jobs:
         uses: samuel-morrissey/ai-workflows/.github/actions/agent-env@main
         with:
           number: ${{ steps.target.outputs.number }}
-          prompt_prefix: "Correcao de PR: #${{ steps.target.outputs.number }}, head ${{ steps.target.outputs.head }}, base ${{ steps.target.outputs.base }}. Gatilho: ${{ steps.target.outputs.trigger }}. Issues que o PR fecha: ${{ steps.target.outputs.issues }}. O workflow ja resolveu esses fatos e fez o checkout da head; use-os como estao."
+          prompt_prefix: "Correcao de PR: #${{ steps.target.outputs.number }}, head ${{ steps.target.outputs.head }}, base ${{ steps.target.outputs.base }}. Gatilho: ${{ steps.target.outputs.trigger }}. Issues que o PR fecha: ${{ steps.target.outputs.issues }}. O workflow ja resolveu esses fatos e fez o checkout da head; use-os como estao. ${{ steps.target.outputs.quem }}"
           setup_commands: ${{ inputs.setup_commands }}
           quality_checks: ${{ inputs.quality_checks }}
           evidence_tools: ${{ inputs.evidence_tools }}
