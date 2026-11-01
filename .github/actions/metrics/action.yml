@@ -1,0 +1,54 @@
+name: Registrar metricas da rodada
+description: >-
+  Mede o tempo da rodada por grupo fixo de passos (preparo, ambiente, agente,
+  pos-agente), lido da run pela API de jobs, e publica no summary do job e no
+  artifact `metrics` (metrics.json).
+
+# O chamador usa esta action como penultimo passo do job (o round-failure,
+# quando existe, continua o ultimo), com `if: always()` e
+# `continue-on-error: true`: ela roda tambem quando o agente falhou ou
+# estourou turnos, e nunca muda o resultado da run. Exige `actions: read` no
+# workflow chamador. O mapeamento passo -> grupo de cada etapa mora em
+# metrics.py, ao lado desta action.
+
+inputs:
+  etapa:
+    description: >-
+      Etapa da rodada, pelo nome do workflow sem `.yml` (ex.: issue-triage,
+      pr-merged). Escolhe o mapeamento passo -> grupo.
+    required: true
+  number:
+    description: Issue ou PR da rodada; vazio quando nao foi resolvido.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Medir os grupos de passos
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        ETAPA: ${{ inputs.etapa }}
+        NUMBER: ${{ inputs.number }}
+        METRICS_PY: ${{ github.action_path }}/metrics.py
+        METRICS_DIR: ${{ runner.temp }}/metrics
+      run: |
+        # Erro de leitura da API ja vira aviso e `n/d` dentro do script; aqui
+        # so resta o script em si quebrar, e nem isso falha o passo.
+        if ! python3 -I "$METRICS_PY"; then
+          echo "::warning::Nao consegui medir a rodada; sem metricas nesta run."
+          printf '### Metricas da rodada: %s\n\n> [!WARNING]\n> Nao consegui medir a rodada; veja o log do passo.\n' "$ETAPA" >> "$GITHUB_STEP_SUMMARY" || true
+        fi
+
+    # Nome fixo para a comparacao entre runs achar o artifact. Num re-run
+    # (attempt > 1) o artifact da tentativa anterior e substituido em vez de
+    # falhar por nome repetido; o metrics.json registra o attempt.
+    - uses: actions/upload-artifact@v4
+      continue-on-error: true
+      with:
+        name: metrics
+        path: ${{ runner.temp }}/metrics/metrics.json
+        if-no-files-found: ignore
+        overwrite: true

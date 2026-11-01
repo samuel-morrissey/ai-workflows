@@ -20,6 +20,8 @@ from test_sub_tasks import (  # noqa: E402,F401
     Worker as SubTasksWorker)
 from test_responsible import (  # noqa: E402,F401
     Cli as ResponsibleCli, Rules as ResponsibleRules)
+from test_metrics import (  # noqa: E402,F401
+    Mapping as MetricsMapping, Readme as MetricsReadme, Run as MetricsRun, Shape as MetricsShape)
 
 TEMPLATE = """name: AI
 on:

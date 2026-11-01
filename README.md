@@ -361,7 +361,7 @@ EVIDENCE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 
 O GitHub não devolve o valor de um secret, então o `doctor` confirma a existência e regrava a partir do arquivo só quando falta. Variáveis são legíveis: aí ele compara o valor e reporta `diverge`. Sem o arquivo, ou sem a chave, o item sai como `manual` com o `gh secret set` ou `gh variable set` para fazer à mão. Num repositório sem build nem testes, crie `.github/ai-workflows.yml` só com comentários: é o jeito de dizer ao `doctor` que a ausência de comandos é decisão, não esquecimento.
 
-Os testes das partes puras do script (leitor do arquivo de configuração, extração dos inputs inline, `config.env`, comparação e relatório) rodam com `python3 scripts/test_doctor.py`, que também inclui os de `scripts/test_workflows.py`: o passo de comentário de falha dos workflows reutilizáveis, rodado num bash com um `gh` falso.
+Os testes das partes puras do script (leitor do arquivo de configuração, extração dos inputs inline, `config.env`, comparação e relatório) rodam com `python3 scripts/test_doctor.py`, que também inclui os de `scripts/test_workflows.py` (o passo de comentário de falha dos workflows reutilizáveis, rodado num bash com um `gh` falso) e os das outras suítes listadas em [Testar](#testar).
 
 Os labels do fluxo (`needs-triage`, `ready-for-agent`, `awaiting-reply`, `awaiting-pr-review`, `deferred`, `priority`...) são criados de uma vez pelo `doctor fix`, com a cor e a descrição da `issue-labeling`. Sem o `doctor`, as skills criam os que faltarem na hora de aplicar, e os workflows criam `work-in-progress` e `go`. Um label que já existia com outra cor ou descrição só é corrigido pelo `doctor`: as skills nunca editam label.
 
@@ -405,7 +405,35 @@ Tudo isso é **opcional por repositório** e liga pela chave `evidence_tools` de
 
 Custo: a run passa a rodar o agente desenvolvedor mais até dois subagentes de QA, cada um subindo o app. Num projeto com banco e seed pesado, meça uma run antes de ligar; o teto de turnos do agente subiu de 150 para 250 por causa do QA. Vídeo: o Playwright grava `.webm`, mas o GitHub só mostra player para vídeo enviado pela interface; o QA converte para GIF com ffmpeg, e o `.webm` fica no bucket ou no artifact.
 
+## Métricas
+
+Toda run das 7 etapas (`issue-triage`, `issue-refinement`, `issue-break-down`, `issue-remote-implement`, `issue-sub-task`, `pr-fix` e `pr-merged`) mede o próprio tempo. O penúltimo passo do job, **Registrar metricas da rodada** (action `metrics`; no `pr-merged`, que não tem `round-failure`, o último), roda com `if: always()` e `continue-on-error: true`: sai também quando o agente falha ou estoura os turnos, e nunca muda o resultado da run. Ele lê os passos do job pela API de jobs da run (`actions: read`, como a `round-failure`), soma as durações (`started_at`/`completed_at`) e publica o resultado em dois lugares. Nenhum comentário vai para o issue ou o PR.
+
+- **Summary do job** (`$GITHUB_STEP_SUMMARY`, na página da run): uma tabela com os quatro grupos, sempre as mesmas linhas e na mesma ordem, mais o total do job até o passo de métricas e a conclusão do job até ali. Duas runs da mesma etapa ficam lado a lado.
+- **Artifact `metrics`**, com um `metrics.json` de esquema fixo: `schema_version`, `etapa`, `numero` (issue ou PR, `null` quando não foi resolvido), `run` (`id` e `attempt`), `job` (`nome`, `conclusao` e `segundos` até o passo de métricas), `grupos` (lista na ordem fixa, cada um com `nome`, `estado` e `segundos`), `agente` (reservado para as métricas da sessão do agente; por enquanto `null`) e `avisos`. Num re-run, o artifact da tentativa anterior é substituído, e o `attempt` diz de qual tentativa ele é.
+
+Os grupos:
+
+| Grupo | O que soma |
+|---|---|
+| `preparo` | checkout, resolução do alvo, guarda de concorrência, `work-in-progress`, consumo do `go`, resolução do responsável, download do planner e o *Set up job* do Actions |
+| `ambiente` | a composite `agent-env` (**Preparar ambiente do agente**) |
+| `agente` | o passo `anthropics/claude-code-action@v1`, só a duração do passo do Actions |
+| `pos-agente` | `publish-evidence`, redes de segurança de label, remoção do `work-in-progress`, os passos do planner da cadeia (**Entrar na cadeia**, **Planejar e empilhar**, **Resolver responsavel do pai**, **Decidir e agir**, **Devolver o controle ao pai**) e, no `pr-merged`, o fechamento dos issues |
+
+Cada grupo sai como duração ou num destes estados:
+
+- `pulado`: o grupo existe na etapa, mas nenhum passo dele rodou (handoff, `skip` da guarda de concorrência, o lado pontual numa run de pai);
+- `n/a`: o grupo não existe na etapa: `ambiente` na triagem, no refinamento e na quebra; `ambiente` e `agente` no `pr-merged`;
+- `n/d`: a API de jobs não respondeu, a resposta veio ilegível ou nenhum job casou. O summary traz um aviso e o passo termina sem erro.
+
+O próprio passo de métricas e o `round-failure` rodam depois da leitura e não entram na soma. O job lido é o deste runner; sem ele, o da etapa pelo nome, e nunca o `check-caller` do router. O mapeamento passo → grupo de cada etapa mora em [`.github/actions/metrics/metrics.py`](.github/actions/metrics/metrics.py): um passo novo ou renomeado num workflow precisa entrar lá, e o teste falha enquanto não entrar.
+
 ## Testar
+
+Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar).
+
+Para testar o fluxo de ponta a ponta:
 
 1. Abra um issue de teste e coloque o label `needs-triage` (ou só `go`: sem label de estado, o `go` vai para a triagem).
 2. Abra a aba **Actions**. O workflow **AI** roda o job **issue-triage**, e o issue ganha `work-in-progress` enquanto ele roda.
@@ -427,7 +455,7 @@ Problemas comuns:
 - `pr-fix.yml`: a correção de PR. Resolve o PR do evento (recusa PR fechado ou de fork), coloca `work-in-progress` no PR, faz o checkout da head com histórico completo e roda o Claude com a skill `pr-fix`, com as mesmas actions de ambiente e de evidências da implementação.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, o link da run e a menção ao responsável, resolvido por `scripts/responsible.py` (que vem junto com a action, na mesma ref); a run continua marcada como falha.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas (action `agent-env`); depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR (action `publish-evidence`).
-- `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence`, `responsible` (o responsável do issue, resolvido antes do agente e entregue a ele no system prompt) e `round-failure`. Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
+- `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence`, `responsible` (o responsável do issue, resolvido antes do agente e entregue a ele no system prompt), `metrics` (o tempo da rodada por grupo de passos; veja [Métricas](#métricas)) e `round-failure`. Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
 - `.claude-plugin/` e `skills/`: o marketplace e o plugin. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um único plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas instalam o plugin pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
 - `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 
