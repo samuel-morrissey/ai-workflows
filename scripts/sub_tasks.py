@@ -3,8 +3,8 @@
 
 Usado por dois workflows reutilizaveis deste repositorio:
 
-- issue-remote-implement.yml, o planner do pai: `plan`, `stack`, `finish`
-  e `status`;
+- issue-remote-implement.yml, o planner do pai: `plan`, `stack`, `finish`,
+  `status` e `notify`;
 - issue-sub-task.yml, o worker de uma sub-task: `base`.
 
 Fala com o GitHub so por `gh api` (token do workflow em GH_TOKEN, repositorio
@@ -36,7 +36,10 @@ Subcomandos:
                                   abertos (o `stack` e o `finish` tambem o fazem)
   status <pai> --chain <estado> [--note <texto>]
                                   cria ou atualiza o comentario de status do pai
-  base <sub>                      JSON com pai, base da branch e bloqueios
+  notify <pai> --kind parada|completa [--note <motivo>] [--logins "<a b>"]
+                                  posta no pai um aviso novo, com mencao, de
+                                  cadeia parada ou stack completa
+  base <sub>                     JSON com pai, base da branch e bloqueios
 
 Saida de `plan`:
 
@@ -66,6 +69,7 @@ OWNER = REPO.split("/", 1)[0]
 MARKER = "<!-- ai:sub-tasks-status -->"
 HUMAN_RE = re.compile(r"\*\*Executor:\*\*\s*humano", re.IGNORECASE)
 PARENT_RE = re.compile(r"Parte de #(\d+)")
+LOGIN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")
 
 
 class ApiError(Exception):
@@ -384,6 +388,35 @@ def cmd_status(args):
         print(json.dumps({"comment": created["html_url"], "updated": False}))
 
 
+def render_notice(kind, note, logins):
+    """Aviso novo no pai, quando a cadeia para ou a stack completa.
+
+    Editar um comentario nao gera notificacao: por isso o aviso e sempre um
+    comentario novo, com a mencao, e o de status segue sem `@`. So login de
+    usuario vira mencao; sem nenhum, o aviso diz que nao ha responsavel.
+    """
+    valid = [login for login in (logins or "").split() if LOGIN_RE.fullmatch(login)]
+    if valid:
+        quem = "**Responsavel:** " + " ".join(f"@{login}" for login in valid)
+    else:
+        quem = "**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado."
+    if kind == "completa":
+        lines = ["## Stack completa", "", quem, "",
+                 "Toda sub-task tem PR e este issue esta em `awaiting-pr-review`. Revise a stack "
+                 "de baixo para cima, a partir da camada 1 do comentario de status, e faca o merge "
+                 "pela interface do GitHub; o merge do topo fecha este issue."]
+    else:
+        lines = ["## Cadeia parada", "", quem, "", f"**Motivo:** {note}", "",
+                 "Resolva o motivo e aplique `go` neste issue para retomar a cadeia."]
+    return "\n".join(lines)
+
+
+def cmd_notify(args):
+    body = render_notice(args.kind, args.note or "", args.logins)
+    created = api(f"repos/{REPO}/issues/{args.parent}/comments", "POST", {"body": body})
+    print(json.dumps({"comment": created["html_url"]}))
+
+
 def cmd_base(args):
     sub = api(f"repos/{REPO}/issues/{args.sub}")
     parent_issue = api(f"repos/{REPO}/issues/{args.sub}/parent", ok404=True)
@@ -423,6 +456,11 @@ def main():
     p.add_argument("parent", type=int)
     p.add_argument("--chain", required=True)
     p.add_argument("--note", default="")
+    p = subs.add_parser("notify")
+    p.add_argument("parent", type=int)
+    p.add_argument("--kind", required=True, choices=("parada", "completa"))
+    p.add_argument("--note", default="")
+    p.add_argument("--logins", default="")
     p = subs.add_parser("base")
     p.add_argument("sub", type=int)
     args = parser.parse_args()
@@ -430,7 +468,8 @@ def main():
         sys.exit("GH_REPO (owner/repo) e obrigatorio.")
     try:
         {"plan": cmd_plan, "stack": cmd_stack, "finish": cmd_finish,
-         "status": cmd_status, "base": cmd_base, "retarget": cmd_retarget}[args.cmd](args)
+         "status": cmd_status, "notify": cmd_notify, "base": cmd_base,
+         "retarget": cmd_retarget}[args.cmd](args)
     except ApiError as err:
         print(str(err), file=sys.stderr)
         sys.exit(2)

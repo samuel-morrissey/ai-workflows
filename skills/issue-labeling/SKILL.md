@@ -167,7 +167,21 @@ Lendo os labels de um pai:
 - pai `awaiting-pr-review`: stack completa, esperando revisao e merge.
 
 O comentario de status do planner, no pai, mostra a camada, o PR e o estado
-de cada sub-task e por que a cadeia parou, quando parou.
+de cada sub-task e por que a cadeia parou, quando parou. Ele e editado a
+cada rodada, sem `@`, e editar nao notifica ninguem. Por isso, com o pai em
+cadeia, o planner posta tambem um **comentario novo no pai** que marca o
+responsavel do pai em dois momentos:
+
+- **cadeia parada** (falha ao empilhar, rodada sem PR e sem pergunta,
+  sub-task humana ou bloqueio externo): traz o motivo e pede `go` no pai
+  para retomar. Toda parada gera um aviso novo, mesmo repetindo o motivo;
+- **stack completa** (o pai ganha `awaiting-pr-review`): pede a revisao da
+  stack de baixo para cima.
+
+Despacho da proxima e espera (resposta numa sub-task, worker rodando) nao
+avisam: na espera por resposta, quem avisa e o handoff da sub-task. Sem
+responsavel, o aviso sai mesmo assim e diz isso. Pai fora da cadeia so tem
+o status atualizado.
 
 ## Regras
 

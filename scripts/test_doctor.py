@@ -12,10 +12,12 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
 from test_workflows import (  # noqa: E402,F401
-    AgentEnvConfig, PrFixTrigger, ResponsibleRun, ResponsibleShape, Run as WorkflowRun,
-    SafetyNetRun, SafetyNetShape, Shape as WorkflowShape, SkillsMention)
+    AgentEnvConfig, ChainNoticeRun, ChainNoticeShape, PrFixTrigger, ResponsibleRun,
+    ResponsibleShape, Run as WorkflowRun, SafetyNetRun, SafetyNetShape, Shape as WorkflowShape,
+    SkillsMention)
 from test_sub_tasks import (  # noqa: E402,F401
-    Finish as SubTasksFinish, Stack as SubTasksStack, Worker as SubTasksWorker)
+    Finish as SubTasksFinish, Notify as SubTasksNotify, Stack as SubTasksStack,
+    Worker as SubTasksWorker)
 from test_responsible import (  # noqa: E402,F401
     Cli as ResponsibleCli, Rules as ResponsibleRules)
 
