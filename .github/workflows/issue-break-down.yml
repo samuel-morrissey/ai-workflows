@@ -140,6 +140,14 @@ jobs:
       # quando algum passo anterior falhou e comenta no issue a etapa, o passo
       # que falhou (lido da run) e o link da run. Nunca derruba o job nem
       # mascara a falha original: a run continua marcada como falha.
+      - name: Registrar metricas da rodada
+        if: always()
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/metrics@main
+        with:
+          etapa: issue-break-down
+          number: ${{ steps.target.outputs.number }}
+
       - name: Comentar falha da rodada
         if: failure()
         continue-on-error: true
