@@ -39,7 +39,7 @@ Subcomandos:
   notify <pai> --kind parada|completa [--note <motivo>] [--logins "<a b>"]
                                   posta no pai um aviso novo, com mencao, de
                                   cadeia parada ou stack completa
-  base <sub>                     JSON com pai, base da branch e bloqueios
+  base <sub>                      JSON com pai, base da branch e bloqueios
 
 Saida de `plan`:
 
