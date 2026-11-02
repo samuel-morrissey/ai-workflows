@@ -410,7 +410,7 @@ Custo: a run passa a rodar o agente desenvolvedor mais até dois subagentes de Q
 Toda run das 7 etapas (`issue-triage`, `issue-refinement`, `issue-break-down`, `issue-remote-implement`, `issue-sub-task`, `pr-fix` e `pr-merged`) mede o próprio tempo. O penúltimo passo do job, **Registrar metricas da rodada** (action `metrics`; no `pr-merged`, que não tem `round-failure`, o último), roda com `if: always()` e `continue-on-error: true`: sai também quando o agente falha ou estoura os turnos, e nunca muda o resultado da run. Ele lê os passos do job pela API de jobs da run (`actions: read`, como a `round-failure`), soma as durações (`started_at`/`completed_at`) e publica o resultado em dois lugares. Nenhum comentário vai para o issue ou o PR.
 
 - **Summary do job** (`$GITHUB_STEP_SUMMARY`, na página da run): uma tabela com os quatro grupos, sempre as mesmas linhas e na mesma ordem, mais o total do job até o passo de métricas e a conclusão do job até ali. Duas runs da mesma etapa ficam lado a lado.
-- **Artifact `metrics`**, com um `metrics.json` de esquema fixo: `schema_version`, `etapa`, `numero` (issue ou PR, `null` quando não foi resolvido), `run` (`id` e `attempt`), `job` (`nome`, `conclusao` e `segundos` até o passo de métricas), `grupos` (lista na ordem fixa, cada um com `nome`, `estado` e `segundos`), `agente` (reservado para as métricas da sessão do agente; por enquanto `null`) e `avisos`. Num re-run, o artifact da tentativa anterior é substituído, e o `attempt` diz de qual tentativa ele é.
+- **Artifact `metrics`**, com um `metrics.json` de esquema fixo: `schema_version`, `etapa`, `numero` (issue ou PR, `null` quando não foi resolvido), `run` (`id` e `attempt`), `job` (`nome`, `conclusao` e `segundos` até o passo de métricas), `grupos` (lista na ordem fixa, cada um com `nome`, `estado` e `segundos`), `agente` (a sessão do agente; veja abaixo) e `avisos`. Num re-run, o artifact da tentativa anterior é substituído, e o `attempt` diz de qual tentativa ele é.
 
 Os grupos:
 
@@ -427,11 +427,28 @@ Cada grupo sai como duração ou num destes estados:
 - `n/a`: o grupo não existe na etapa: `ambiente` na triagem, no refinamento e na quebra; `ambiente` e `agente` no `pr-merged`;
 - `n/d`: a API de jobs não respondeu, a resposta veio ilegível ou nenhum job casou. O summary traz um aviso e o passo termina sem erro.
 
+### Sessão do agente
+
+Nas 6 etapas com agente, o passo `anthropics/claude-code-action@v1` tem `id: claude`, e o passo de métricas recebe o `execution_file` dele (`steps.claude.outputs.execution_file`: as mensagens da sessão, com o evento final `result`) e o mesmo `--max-turns` do `claude_args` da etapa (50 na triagem, 80 no refinamento, 100 na quebra, 250 na implementação, na sub-task e no `pr-fix`). O objeto `agente` do `metrics.json` e a seção **Sessão do agente** do summary trazem, sempre com todas as chaves:
+
+| Campo | De onde vem |
+|---|---|
+| `estado` | `medido` (havia evento `result`), `parcial` (sessão sem `result`: estouro ou falha da action), `n/d`, `pulado` ou `n/a` |
+| `duracao_ms`, `duracao_api_ms` | `duration_ms` e `duration_api_ms` do `result` |
+| `turnos` | `num_turns` do `result` |
+| `max_turns` | o `--max-turns` configurado na etapa |
+| `fim` | o `subtype` do `result`: `success`, `error_max_turns`, `error_during_execution`... |
+| `tokens` | `entrada`, `saida`, `cache_leitura` e `cache_criacao`, do `usage` do `result` |
+| `ferramentas` | chamadas por nome de ferramenta (`Bash`, `Read`, `Edit`, `Agent`...) na sessão principal: só as mensagens sem `parent_tool_use_id`, então o que um subagente chama não entra |
+| `custo_usd` | `total_cost_usd` do `result`. É **informativo**: com token OAuth não reflete cobrança |
+
+Campo que a sessão não trouxe sai `n/d`. Sem `execution_file`, ou com o arquivo ilegível ou truncado, todos os campos da sessão saem `n/d` (menos o `max_turns`, que é da config), o summary avisa e o passo termina sem erro. Uma sessão sem `result` publica a contagem de ferramentas das mensagens que houver, com aviso. Quando o grupo `agente` é `pulado` (o pai no `issue-remote-implement`, o `skip` da guarda) ou `n/a` (o `pr-merged`), o `agente` vem com esse estado em todos os campos. O `schema_version` continua `1`: o `agente` era reservado, e campos novos entram sempre presentes; ele sobe quando o esquema mudar de forma incompatível.
+
 O próprio passo de métricas e o `round-failure` rodam depois da leitura e não entram na soma. O job lido é o deste runner; sem ele, o da etapa pelo nome, e nunca o `check-caller` do router. O mapeamento passo → grupo de cada etapa mora em [`.github/actions/metrics/metrics.py`](.github/actions/metrics/metrics.py): um passo novo ou renomeado num workflow precisa entrar lá, e o teste falha enquanto não entrar.
 
 ## Testar
 
-Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar).
+Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível).
 
 Para testar o fluxo de ponta a ponta:
 

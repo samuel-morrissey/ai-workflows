@@ -87,6 +87,7 @@ jobs:
           number: ${{ steps.target.outputs.number }}
 
       - uses: anthropics/claude-code-action@v1
+        id: claude
         if: steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -165,6 +166,8 @@ jobs:
         with:
           etapa: issue-triage
           number: ${{ steps.target.outputs.number }}
+          execution_file: ${{ steps.claude.outputs.execution_file }}
+          max_turns: 50
 
       - name: Comentar falha da rodada
         if: failure()

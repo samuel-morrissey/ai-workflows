@@ -212,6 +212,7 @@ jobs:
           project_env: ${{ secrets.PROJECT_ENV }}
 
       - uses: anthropics/claude-code-action@v1
+        id: claude
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -282,6 +283,8 @@ jobs:
         with:
           etapa: pr-fix
           number: ${{ steps.target.outputs.number }}
+          execution_file: ${{ steps.claude.outputs.execution_file }}
+          max_turns: 250
 
       - name: Comentar falha da rodada
         if: failure()
