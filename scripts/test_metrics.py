@@ -446,7 +446,7 @@ class Run(Harness, unittest.TestCase):
 
 
 SESSION_KEYS = ["estado", "duracao_ms", "duracao_api_ms", "turnos", "max_turns", "fim", "tokens",
-                "ferramentas", "custo_usd"]
+                "ferramentas", "custo_usd", "subagentes"]
 TOKEN_KEYS = ["entrada", "saida", "cache_leitura", "cache_criacao"]
 
 
@@ -468,7 +468,10 @@ class Session(Harness, unittest.TestCase):
             "estado": "medido", "duracao_ms": 330000, "duracao_api_ms": 250500, "turnos": 42,
             "max_turns": 250, "fim": "success",
             "tokens": {"entrada": 1200, "saida": 34000, "cache_leitura": 2500000, "cache_criacao": 98000},
-            "ferramentas": MAIN_TOOLS, "custo_usd": 1.2345})
+            "ferramentas": MAIN_TOOLS, "custo_usd": 1.2345,
+            # O Agent t4 nao tem description nem tool_result, e as mensagens nao tem tempo.
+            "subagentes": [{"descricao": "n/d", "tipo": "n/d", "turnos": 2, "duracao_ms": "n/d",
+                            "concluido": False}]})
         self.assertEqual(data["avisos"], [])
         section = summary.split("Sessão do agente", 1)[1]
         for cell in ("| duração | 5m 30s |", "| tempo de API | 4m 10s |", "| turnos | 42 |",
@@ -560,6 +563,172 @@ class Session(Harness, unittest.TestCase):
         self.assertEqual(data["agente"]["turnos"], 42)
 
 
+def at(sec):
+    return f"2026-11-01T11:{sec // 60:02d}:{sec % 60:02d}.000Z"
+
+
+def agent_call(uid, description, subagent_type=None):
+    inp = {"description": description, "prompt": "faca algo"}
+    if subagent_type:
+        inp["subagent_type"] = subagent_type
+    return {"type": "tool_use", "id": uid, "name": "Agent", "input": inp}
+
+
+def msg(kind, content, parent=None, ts=None, msg_id=None):
+    m = {"type": kind, "parent_tool_use_id": parent, "message": {"role": kind, "content": content}}
+    if msg_id:
+        m["message"]["id"] = msg_id
+    if ts is not None:
+        m["timestamp"] = at(ts)
+    return m
+
+
+def result_of(uid, parent=None, ts=None):
+    return msg("user", [{"type": "tool_result", "tool_use_id": uid, "content": "pronto"}], parent=parent, ts=ts)
+
+
+def text(parent=None, ts=None, msg_id=None):
+    return msg("assistant", [{"type": "text", "text": "ok"}], parent=parent, ts=ts, msg_id=msg_id)
+
+
+# Duas chamadas Agent em sequencia, as duas concluidas: a1 (QA, 3 turnos,
+# de 10s a 130s) e a2 (sem tipo, 2 turnos, de 140s a 200s).
+TWO_AGENTS = [
+    {"type": "system", "subtype": "init", "session_id": "s1"},
+    msg("assistant", [agent_call("a1", "QA rodada 1", "general-purpose")], ts=10),
+    text(parent="a1", ts=20), text(parent="a1", ts=60), text(parent="a1", ts=120),
+    result_of("a1", ts=130),
+    msg("assistant", [agent_call("a2", "QA rodada 2")], ts=140),
+    text(parent="a2", ts=150), text(parent="a2", ts=190),
+    result_of("a2", ts=200),
+    text(ts=210),
+    RESULT,
+]
+
+
+def strip_ts(messages):
+    out = json.loads(json.dumps(messages))
+    for m in out:
+        m.pop("timestamp", None)
+    return out
+
+
+class Subagents(Harness, unittest.TestCase):
+    """A quebra por subagente: `agente.subagentes` e a tabela "Subagentes"."""
+
+    def table(self, summary):
+        section = summary.split("#### Subagentes", 1)[1].split("\n\n", 2)[1]
+        return [line for line in section.splitlines() if line.startswith("| ")][1:]
+
+    def test_duas_chamadas_concluidas_na_ordem(self):
+        proc, data, summary, _ = self.execute(session=TWO_AGENTS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(data["agente"]["subagentes"], [
+            {"descricao": "QA rodada 1", "tipo": "general-purpose", "turnos": 3, "duracao_ms": 120000,
+             "concluido": True},
+            {"descricao": "QA rodada 2", "tipo": "n/d", "turnos": 2, "duracao_ms": 60000, "concluido": True},
+        ])
+        rows = self.table(summary)
+        self.assertEqual(len(rows), 2, summary)
+        self.assertIn("QA rodada 1", rows[0])
+        self.assertIn("2m 00s", rows[0])
+        self.assertIn("| 3 |", rows[0])
+        self.assertIn("QA rodada 2", rows[1])
+        self.assertIn("1m 00s", rows[1])
+
+    def test_sem_tempo_duracao_n_d_e_turnos_corretos(self):
+        _, data, summary, _ = self.execute(session=strip_ts(TWO_AGENTS))
+        subs = data["agente"]["subagentes"]
+        self.assertEqual([s["turnos"] for s in subs], [3, 2])
+        self.assertEqual([s["duracao_ms"] for s in subs], ["n/d", "n/d"])
+        self.assertEqual([s["concluido"] for s in subs], [True, True])
+        self.assertTrue(all("n/d" in r for r in self.table(summary)))
+
+    def test_chamada_sem_tool_result_nao_concluida(self):
+        cut = TWO_AGENTS[:6] + [msg("assistant", [agent_call("a2", "QA rodada 2")], ts=140),
+                                text(parent="a2", ts=150)]
+        proc, data, summary, _ = self.execute(session=cut)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        subs = data["agente"]["subagentes"]
+        self.assertEqual(subs[0]["concluido"], True)
+        self.assertEqual(subs[1], {"descricao": "QA rodada 2", "tipo": "n/d", "turnos": 1,
+                                   "duracao_ms": "n/d", "concluido": False})
+        rows = self.table(summary)
+        self.assertIn("não", rows[1])
+        self.assertIn("sim", rows[0])
+
+    def test_paralelos_contam_so_o_proprio_parent(self):
+        parallel = [
+            msg("assistant", [agent_call("p1", "explorar A"), agent_call("p2", "explorar B", "Explore")], ts=0),
+            text(parent="p1", ts=5), text(parent="p2", ts=6), text(parent="p2", ts=7),
+            text(parent="p1", ts=8), text(parent="p2", ts=9), text(parent="p1", ts=10),
+            text(parent="p2", ts=11),
+            result_of("p2", ts=30), result_of("p1", ts=50),
+            RESULT,
+        ]
+        _, data, summary, _ = self.execute(session=parallel)
+        subs = data["agente"]["subagentes"]
+        self.assertEqual([(s["descricao"], s["turnos"], s["duracao_ms"]) for s in subs],
+                         [("explorar A", 3, 50000), ("explorar B", 4, 30000)])
+        self.assertEqual(len(self.table(summary)), 2)
+
+    def test_turno_e_a_mensagem_do_assistente_nao_o_bloco(self):
+        # O SDK pode partir uma mensagem do assistente em varios eventos com o mesmo id.
+        split = [
+            msg("assistant", [agent_call("a1", "qa")], ts=0),
+            text(parent="a1", ts=1, msg_id="m1"), text(parent="a1", ts=2, msg_id="m1"),
+            text(parent="a1", ts=3, msg_id="m2"),
+            result_of("a1", ts=4), RESULT,
+        ]
+        _, data, _, _ = self.execute(session=split)
+        self.assertEqual(data["agente"]["subagentes"][0]["turnos"], 2)
+
+    def test_subagente_aninhado_conta_o_proprio_id(self):
+        nested = [
+            msg("assistant", [agent_call("a1", "fora")], ts=0),
+            text(parent="a1", ts=1),
+            msg("assistant", [agent_call("b1", "dentro")], parent="a1", ts=2),
+            text(parent="b1", ts=3), text(parent="b1", ts=4),
+            result_of("b1", parent="a1", ts=5),
+            text(parent="a1", ts=6),
+            result_of("a1", ts=10), RESULT,
+        ]
+        _, data, _, _ = self.execute(session=nested)
+        subs = data["agente"]["subagentes"]
+        self.assertEqual([(s["descricao"], s["turnos"], s["duracao_ms"]) for s in subs],
+                         [("fora", 3, 10000), ("dentro", 2, 3000)])
+
+    def test_sessao_sem_agent_tabela_com_nenhum(self):
+        proc, data, summary, _ = self.execute(session=[text(ts=0), RESULT])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(data["agente"]["subagentes"], [])
+        rows = self.table(summary)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("nenhum", rows[0])
+
+    def test_sem_execution_file_lista_n_d(self):
+        _, data, summary, _ = self.execute(session=None)
+        self.assertEqual(data["agente"]["subagentes"], "n/d")
+        self.assertIn("n/d", self.table(summary)[0])
+
+    def test_sessao_sem_result_ainda_lista(self):
+        _, data, _, _ = self.execute(session=TWO_AGENTS[:-1])
+        self.assertEqual(data["agente"]["estado"], "parcial")
+        self.assertEqual(len(data["agente"]["subagentes"]), 2)
+
+    def test_agente_pulado_e_etapa_sem_agente(self):
+        _, data, summary, _ = self.execute(jobs=PAI, session=None)
+        self.assertEqual(data["agente"]["subagentes"], "pulado")
+        self.assertIn("#### Subagentes", summary)
+        _, data, _, _ = self.execute(jobs=MERGED, ETAPA="pr-merged", session=None, max_turns="")
+        self.assertEqual(data["agente"]["subagentes"], "n/a")
+
+    def test_descricao_com_barra_nao_quebra_a_tabela(self):
+        session = [msg("assistant", [agent_call("a1", "QA | rodada")], ts=0), result_of("a1", ts=1), RESULT]
+        _, _, summary, _ = self.execute(session=session)
+        self.assertIn("QA \\| rodada", self.table(summary)[0])
+
+
 class Readme(unittest.TestCase):
     def test_readme_descreve_summary_grupos_e_artifact(self):
         readme = (ROOT / "README.md").read_text()
@@ -570,6 +739,9 @@ class Readme(unittest.TestCase):
         for word in ("Sessão do agente", "execution_file", "duracao_ms", "duracao_api_ms", "turnos",
                      "max_turns", "fim", "tokens", "ferramentas", "parent_tool_use_id", "custo_usd",
                      "informativo", "`parcial`"):
+            self.assertIn(word, section, word)
+        for word in ("Subagentes", "subagentes", "descricao", "tipo", "duracao_ms", "concluido",
+                     "nenhum", "tool_result", "timestamp"):
             self.assertIn(word, section, word)
         testar = readme.split("## Testar", 1)[1].split("\n## ", 1)[0]
         self.assertIn("scripts/test_metrics.py", testar)
