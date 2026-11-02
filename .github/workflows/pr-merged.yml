@@ -12,6 +12,7 @@ on:
   workflow_call:
 
 permissions:
+  actions: read
   issues: write
   pull-requests: read
 
@@ -45,3 +46,11 @@ jobs:
               gh issue edit "$N" --remove-label awaiting-pr-review
             fi
           done
+
+      - name: Registrar metricas da rodada
+        if: always()
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/metrics@main
+        with:
+          etapa: pr-merged
+          number: ${{ github.event.pull_request.number }}

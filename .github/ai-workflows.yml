@@ -4,8 +4,9 @@
 # Sem setup_commands: os scripts usam so a biblioteca padrao do Python 3, que o
 # runner ja traz. Nao ha lint nem build. A suite roda sem rede e sem gh:
 # scripts/test_doctor.py cobre as partes puras do doctor e importa as outras
-# suites (test_workflows.py, test_sub_tasks.py e test_responsible.py, a
-# resolucao do responsavel), entao um comando so roda todas.
+# suites (test_workflows.py, test_sub_tasks.py, test_responsible.py, a
+# resolucao do responsavel, e test_metrics.py, o passo de metricas), entao um
+# comando so roda todas.
 #
 # Os evidence_tools sao os proprios scripts: a evidencia de uma mudanca aqui
 # e a saida deles, antes e depois. O que capturar e como esta em
