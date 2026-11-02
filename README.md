@@ -441,14 +441,29 @@ Nas 6 etapas com agente, o passo `anthropics/claude-code-action@v1` tem `id: cla
 | `tokens` | `entrada`, `saida`, `cache_leitura` e `cache_criacao`, do `usage` do `result` |
 | `ferramentas` | chamadas por nome de ferramenta (`Bash`, `Read`, `Edit`, `Agent`...) na sessão principal: só as mensagens sem `parent_tool_use_id`, então o que um subagente chama não entra |
 | `custo_usd` | `total_cost_usd` do `result`. É **informativo**: com token OAuth não reflete cobrança |
+| `subagentes` | a quebra por subagente (abaixo) |
 
 Campo que a sessão não trouxe sai `n/d`. Sem `execution_file`, ou com o arquivo ilegível ou truncado, todos os campos da sessão saem `n/d` (menos o `max_turns`, que é da config), o summary avisa e o passo termina sem erro. Uma sessão sem `result` publica a contagem de ferramentas das mensagens que houver, com aviso. Quando o grupo `agente` é `pulado` (o pai no `issue-remote-implement`, o `skip` da guarda) ou `n/a` (o `pr-merged`), o `agente` vem com esse estado em todos os campos. O `schema_version` continua `1`: o `agente` era reservado, e campos novos entram sempre presentes; ele sobe quando o esquema mudar de forma incompatível.
+
+#### Subagentes
+
+Cada chamada à ferramenta `Agent` (o QA da `issue-qa`, uma exploração...) vira uma entrada da lista `subagentes`, na ordem em que aparece no `execution_file`, e uma linha da tabela **Subagentes** do summary. Tudo sai das mensagens da sessão: as do subagente trazem `parent_tool_use_id` com o id da chamada, e o `tool_result` com esse id fecha a chamada.
+
+| Campo | De onde vem |
+|---|---|
+| `descricao` | o `description` da chamada |
+| `tipo` | o `subagent_type` da chamada; `n/d` quando ela não traz |
+| `turnos` | mensagens do assistente com `parent_tool_use_id` igual ao id da chamada (eventos com o mesmo `message.id` contam uma vez) |
+| `duracao_ms` | do `timestamp` da mensagem que fez a chamada ao da mensagem com o `tool_result`; `n/d` se uma das duas não tem `timestamp`, ou se não há `tool_result`. Nada é estimado |
+| `concluido` | `true` quando há `tool_result`; `false` numa chamada cortada no meio (`error_max_turns`, falha do subagente), que entra com os turnos que houver |
+
+Subagentes em paralelo têm uma linha cada, e um subagente chamado por outro tem a própria linha, contando só as mensagens do próprio id (não há árvore). Sessão sem `Agent`: a lista é vazia e a tabela aparece com uma linha "nenhum". Sem `execution_file` legível, a lista sai `n/d`; com o grupo `agente` `pulado` ou `n/a`, sai nesse estado.
 
 O próprio passo de métricas e o `round-failure` rodam depois da leitura e não entram na soma. O job lido é o deste runner; sem ele, o da etapa pelo nome, e nunca o `check-caller` do router. O mapeamento passo → grupo de cada etapa mora em [`.github/actions/metrics/metrics.py`](.github/actions/metrics/metrics.py): um passo novo ou renomeado num workflow precisa entrar lá, e o teste falha enquanto não entrar.
 
 ## Testar
 
-Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível).
+Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível, com subagentes concluídos, cortados, em paralelo, aninhados e sem `timestamp`).
 
 Para testar o fluxo de ponta a ponta:
 

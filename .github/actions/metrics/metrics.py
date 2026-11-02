@@ -17,7 +17,9 @@ ficarem lado a lado. Cada um sai como duracao em segundos ou num estado:
 O objeto `agente` traz os totais da sessao do agente, lidos do
 `execution_file` da claude-code-action (EXECUTION_FILE): duracao, tempo de
 API, turnos, motivo do fim, tokens, chamadas por ferramenta da sessao
-principal e custo, mais o `--max-turns` da etapa (MAX_TURNS). Todo campo
+principal e custo, mais o `--max-turns` da etapa (MAX_TURNS) e a lista
+`subagentes`, uma entrada por chamada `Agent` (descricao, tipo, turnos e
+duracao derivados das mensagens ligadas pelo `parent_tool_use_id`). Todo campo
 existe sempre, com valor ou com o estado (`n/d`, `pulado`, `n/a`).
 
 Nunca falha a run: qualquer erro de leitura vira aviso e `n/d`.
@@ -222,7 +224,63 @@ def agent_blank(state, max_turns=None):
         "estado": state, "duracao_ms": state, "duracao_api_ms": state, "turnos": state,
         "max_turns": max_turns if max_turns is not None else state, "fim": state,
         "tokens": {k: state for k, _ in TOKENS}, "ferramentas": state, "custo_usd": state,
+        "subagentes": state,
     }
+
+
+# A ferramenta que abre um subagente ("Task" nas versoes antigas do Claude Code).
+AGENT_TOOLS = ("Agent", "Task")
+
+
+def message_time(m):
+    """O `timestamp` da mensagem, ou None quando ela nao traz (ou traz ilegivel)."""
+    value = m.get("timestamp")
+    if not isinstance(value, str):
+        return None
+    try:
+        return parse_time(value)
+    except ValueError:
+        return None
+
+
+def subagents(messages):
+    """Uma entrada por chamada Agent, na ordem do execution_file.
+
+    Turnos: mensagens distintas do assistente (pelo `message.id`, quando ha)
+    com `parent_tool_use_id` igual ao id da chamada. Duracao: do `timestamp`
+    da mensagem que fez a chamada ao da mensagem com o `tool_result` dela; sem
+    um dos dois, ou sem `tool_result` (nao concluida), `n/d`.
+    """
+    calls, order = {}, []
+    for i, m in enumerate(messages):
+        content = (m.get("message") or {}).get("content")
+        items = [c for c in content if isinstance(c, dict)] if isinstance(content, list) else []
+        if m.get("type") == "assistant":
+            for item in items:
+                if item.get("type") == "tool_use" and item.get("name") in AGENT_TOOLS and item.get("id"):
+                    inp = item.get("input") if isinstance(item.get("input"), dict) else {}
+                    calls[item["id"]] = {"inp": inp, "start": message_time(m), "end": None,
+                                         "done": False, "turns": set()}
+                    order.append(item["id"])
+            parent = m.get("parent_tool_use_id")
+            if parent in calls:
+                calls[parent]["turns"].add((m.get("message") or {}).get("id") or f"#{i}")
+        elif m.get("type") == "user":
+            for item in items:
+                call = calls.get(item.get("tool_use_id")) if item.get("type") == "tool_result" else None
+                if call is not None and not call["done"]:
+                    call.update(done=True, end=message_time(m))
+    out = []
+    for uid in order:
+        c = calls[uid]
+        dur = "n/d"
+        if c["done"] and c["start"] is not None and c["end"] is not None:
+            dur = max(0, round((c["end"] - c["start"]).total_seconds() * 1000))
+        desc, kind = c["inp"].get("description"), c["inp"].get("subagent_type")
+        out.append({"descricao": desc if isinstance(desc, str) and desc else "n/d",
+                    "tipo": kind if isinstance(kind, str) and kind else "n/d",
+                    "turnos": len(c["turns"]), "duracao_ms": dur, "concluido": c["done"]})
+    return out
 
 
 def read_messages(path):
@@ -272,6 +330,7 @@ def session(stage, groups, env):
             if isinstance(item, dict) and item.get("type") == "tool_use" and item.get("name"):
                 tools[item["name"]] = tools.get(item["name"], 0) + 1
     data["ferramentas"] = dict(sorted(tools.items()))
+    data["subagentes"] = subagents(messages)
     result = next((m for m in reversed(messages) if m.get("type") == "result"), None)
     if result is None:
         data["estado"] = "parcial"
@@ -312,6 +371,25 @@ def session_summary(agente):
         listed = tools
     lines += ["", f"Ferramentas da sessão principal (sem subagentes): {listed}",
               "", "O custo é informativo: com token OAuth ele não reflete cobrança."]
+    return lines + subagents_summary(agente["subagentes"])
+
+
+def cell(value):
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def subagents_summary(subs):
+    lines = ["", "#### Subagentes", "", "| # | Descrição | Tipo | Turnos | Duração | Concluído |",
+             "|---|---|---|---|---|---|"]
+    if not isinstance(subs, list):
+        return lines + [f"| {subs} | {subs} | {subs} | {subs} | {subs} | {subs} |"]
+    if not subs:
+        return lines + ["| — | nenhum | | | | |"]
+    for n, s in enumerate(subs, 1):
+        dur = s["duracao_ms"]
+        dur = fmt(dur / 1000) if isinstance(dur, (int, float)) else dur
+        lines.append(f"| {n} | {cell(s['descricao'])} | {cell(s['tipo'])} | {s['turnos']} | {dur} | "
+                     f"{'sim' if s['concluido'] else 'não'} |")
     return lines
 
 
