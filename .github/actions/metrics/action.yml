@@ -1,8 +1,9 @@
 name: Registrar metricas da rodada
 description: >-
   Mede o tempo da rodada por grupo fixo de passos (preparo, ambiente, agente,
-  pos-agente), lido da run pela API de jobs, e publica no summary do job e no
-  artifact `metrics` (metrics.json).
+  pos-agente), lido da run pela API de jobs, e os totais da sessao do agente,
+  lidos do execution_file da claude-code-action, e publica no summary do job
+  e no artifact `metrics` (metrics.json).
 
 # O chamador usa esta action como penultimo passo do job (o round-failure,
 # quando existe, continua o ultimo), com `if: always()` e
@@ -21,6 +22,18 @@ inputs:
     description: Issue ou PR da rodada; vazio quando nao foi resolvido.
     required: false
     default: ""
+  execution_file:
+    description: >-
+      O output `execution_file` do passo anthropics/claude-code-action@v1
+      (`steps.<id>.outputs.execution_file`): as mensagens da sessao do agente.
+      Vazio quando a action nao rodou ou falhou antes de comecar; a sessao
+      sai `n/d` (ou `pulado`, se o grupo agente nao rodou).
+    required: false
+    default: ""
+  max_turns:
+    description: O `--max-turns` do `claude_args` da etapa; vazio na etapa sem agente.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -32,6 +45,8 @@ runs:
         GH_REPO: ${{ github.repository }}
         ETAPA: ${{ inputs.etapa }}
         NUMBER: ${{ inputs.number }}
+        EXECUTION_FILE: ${{ inputs.execution_file }}
+        MAX_TURNS: ${{ inputs.max_turns }}
         METRICS_PY: ${{ github.action_path }}/metrics.py
         METRICS_DIR: ${{ runner.temp }}/metrics
       run: |

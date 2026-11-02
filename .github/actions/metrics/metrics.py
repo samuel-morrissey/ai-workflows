@@ -14,10 +14,16 @@ ficarem lado a lado. Cada um sai como duracao em segundos ou num estado:
 - `n/a`: o grupo nao existe na etapa (ex.: `ambiente` na triagem);
 - `n/d`: a API de jobs nao respondeu, ou nao achei o job.
 
+O objeto `agente` traz os totais da sessao do agente, lidos do
+`execution_file` da claude-code-action (EXECUTION_FILE): duracao, tempo de
+API, turnos, motivo do fim, tokens, chamadas por ferramenta da sessao
+principal e custo, mais o `--max-turns` da etapa (MAX_TURNS). Todo campo
+existe sempre, com valor ou com o estado (`n/d`, `pulado`, `n/a`).
+
 Nunca falha a run: qualquer erro de leitura vira aviso e `n/d`.
 
-Ambiente: GH_REPO, ETAPA, NUMBER, METRICS_DIR, GITHUB_RUN_ID,
-GITHUB_RUN_ATTEMPT, RUNNER_NAME e GITHUB_STEP_SUMMARY.
+Ambiente: GH_REPO, ETAPA, NUMBER, METRICS_DIR, EXECUTION_FILE, MAX_TURNS,
+GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, RUNNER_NAME e GITHUB_STEP_SUMMARY.
 """
 
 import datetime
@@ -199,9 +205,114 @@ def summary(data):
     lines.append(f"| **total do job** | {fmt(total) if total is not None else 'n/d'} |")
     lines += ["", f"Conclusao do job ate aqui: `{data['job']['conclusao']}` · "
               f"run {data['run']['id']}, attempt {data['run']['attempt']}"]
+    if data["agente"] is not None:
+        lines += session_summary(data["agente"])
     for w in data["avisos"]:
         lines += ["", f"> [!WARNING]\n> {w}"]
     return "\n".join(lines) + "\n"
+
+
+TOKENS = (("entrada", "input_tokens"), ("saida", "output_tokens"),
+          ("cache_leitura", "cache_read_input_tokens"), ("cache_criacao", "cache_creation_input_tokens"))
+
+
+def agent_blank(state, max_turns=None):
+    """O objeto `agente` com todo campo presente e no estado dado."""
+    return {
+        "estado": state, "duracao_ms": state, "duracao_api_ms": state, "turnos": state,
+        "max_turns": max_turns if max_turns is not None else state, "fim": state,
+        "tokens": {k: state for k, _ in TOKENS}, "ferramentas": state, "custo_usd": state,
+    }
+
+
+def read_messages(path):
+    """As mensagens do execution_file: lista JSON (o que a action grava) ou JSONL."""
+    text = pathlib.Path(path).read_text()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = [json.loads(line) for line in text.splitlines() if line.strip()]
+    if not isinstance(data, list) or not data or not all(isinstance(m, dict) for m in data):
+        raise ValueError("nao e uma lista de mensagens")
+    return data
+
+
+def number_or_nd(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else "n/d"
+
+
+def session(stage, groups, env):
+    """Totais da sessao do agente, lidos do execution_file da claude-code-action.
+
+    Segue o grupo `agente`: `n/a` na etapa sem agente, `pulado` quando o passo
+    nao rodou. Fora isso le o arquivo: `medido` com o evento `result`,
+    `parcial` sem ele (so a contagem de ferramentas), `n/d` se o arquivo falta
+    ou e ilegivel. Devolve o objeto e o aviso, se houver.
+    """
+    raw = (env.get("MAX_TURNS") or "").strip()
+    max_turns = int(raw) if raw.isdigit() else None
+    state = next(g["estado"] for g in groups if g["nome"] == "agente")
+    if state in ("n/a", "pulado"):
+        return agent_blank(state, max_turns), None
+    path = (env.get("EXECUTION_FILE") or "").strip()
+    try:
+        if not path:
+            raise ValueError("a action nao devolveu o caminho")
+        messages = read_messages(path)
+    except Exception as exc:  # ausente, vazio, truncado, ilegivel
+        return agent_blank("n/d", max_turns), (
+            f"Nao consegui ler o execution_file da sessao ({exc}); os campos da sessao saem `n/d`.")
+    data = agent_blank("n/d", max_turns)
+    tools = {}
+    for m in messages:
+        if m.get("type") != "assistant" or m.get("parent_tool_use_id"):
+            continue  # so a sessao principal: subagente tem parent_tool_use_id
+        content = (m.get("message") or {}).get("content")
+        for item in content if isinstance(content, list) else []:
+            if isinstance(item, dict) and item.get("type") == "tool_use" and item.get("name"):
+                tools[item["name"]] = tools.get(item["name"], 0) + 1
+    data["ferramentas"] = dict(sorted(tools.items()))
+    result = next((m for m in reversed(messages) if m.get("type") == "result"), None)
+    if result is None:
+        data["estado"] = "parcial"
+        return data, ("A sessao terminou sem o evento `result` (estouro ou falha da action); "
+                      "so a contagem de ferramentas foi publicada.")
+    usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+    data.update(
+        estado="medido",
+        duracao_ms=number_or_nd(result.get("duration_ms")),
+        duracao_api_ms=number_or_nd(result.get("duration_api_ms")),
+        turnos=number_or_nd(result.get("num_turns")),
+        fim=result.get("subtype") if isinstance(result.get("subtype"), str) else "n/d",
+        tokens={k: number_or_nd(usage.get(src)) for k, src in TOKENS},
+        custo_usd=number_or_nd(result.get("total_cost_usd")),
+    )
+    return data, None
+
+
+def session_summary(agente):
+    def ms(v):
+        return fmt(v / 1000) if isinstance(v, (int, float)) else v
+
+    fim = agente["fim"]
+    custo = agente["custo_usd"]
+    t = agente["tokens"]
+    rows = [("duração", ms(agente["duracao_ms"])), ("tempo de API", ms(agente["duracao_api_ms"])),
+            ("turnos", agente["turnos"]), ("`--max-turns`", agente["max_turns"]),
+            ("fim", fim if fim in ("n/d", "n/a", "pulado") else f"`{fim}`"),
+            ("tokens de entrada", t["entrada"]), ("tokens de saída", t["saida"]),
+            ("leitura de cache", t["cache_leitura"]), ("criação de cache", t["cache_criacao"]),
+            ("custo (informativo)", f"US$ {custo:.4f}" if isinstance(custo, (int, float)) else custo)]
+    lines = ["", "#### Sessão do agente", "", "| Campo | Valor |", "|---|---|"]
+    lines += [f"| {k} | {v} |" for k, v in rows]
+    tools = agente["ferramentas"]
+    if isinstance(tools, dict):
+        listed = " · ".join(f"`{k}` {v}" for k, v in tools.items()) or "nenhuma"
+    else:
+        listed = tools
+    lines += ["", f"Ferramentas da sessão principal (sem subagentes): {listed}",
+              "", "O custo é informativo: com token OAuth ele não reflete cobrança."]
+    return lines
 
 
 def collect(env):
@@ -221,6 +332,15 @@ def collect(env):
         "agente": None,
         "avisos": [],
     }
+    measure_jobs(data, stage, run_id, attempt, env)
+    data["agente"], warning = session(stage, data["grupos"], env)
+    if warning:
+        data["avisos"].append(warning)
+    return data
+
+
+def measure_jobs(data, stage, run_id, attempt, env):
+    """Preenche `job`, `grupos` e `avisos` pela API de jobs da run."""
     route = f"repos/{env.get('GH_REPO', '')}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
     try:
         proc = subprocess.run(["gh", "api", route], capture_output=True, text=True, timeout=60)
@@ -229,16 +349,15 @@ def collect(env):
         jobs = json.loads(proc.stdout)["jobs"]
     except Exception as exc:  # API fora do ar, resposta ilegivel, gh ausente
         data["avisos"].append(f"Nao consegui ler os passos pela API de jobs ({exc}); os grupos saem `n/d`.")
-        return data
+        return
     job = pick_job(jobs, env.get("RUNNER_NAME", ""), STAGES[stage]["job"])
     if job is None:
         data["avisos"].append("Nenhum job da run casa com este runner nem com o nome da etapa; os grupos saem `n/d`.")
-        return data
+        return
     groups, total, conclusion, warnings = measure(stage, job)
     data["job"] = {"nome": job.get("name"), "conclusao": conclusion, "segundos": total}
     data["grupos"] = groups
     data["avisos"] += warnings
-    return data
 
 
 def main():
