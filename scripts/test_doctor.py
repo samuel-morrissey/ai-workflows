@@ -21,7 +21,7 @@ from test_sub_tasks import (  # noqa: E402,F401
 from test_responsible import (  # noqa: E402,F401
     Cli as ResponsibleCli, Rules as ResponsibleRules)
 from test_metrics import (  # noqa: E402,F401
-    Mapping as MetricsMapping, Readme as MetricsReadme, Run as MetricsRun, Session as MetricsSession,
+    Compare as MetricsCompare, Mapping as MetricsMapping, Readme as MetricsReadme, Run as MetricsRun, Session as MetricsSession,
     Shape as MetricsShape, Subagents as MetricsSubagents)
 
 TEMPLATE = """name: AI

@@ -746,6 +746,317 @@ class Readme(unittest.TestCase):
         testar = readme.split("## Testar", 1)[1].split("\n## ", 1)[0]
         self.assertIn("scripts/test_metrics.py", testar)
 
+    def test_readme_mostra_como_rodar_o_script_de_comparacao(self):
+        readme = (ROOT / "README.md").read_text()
+        section = readme.split("## Métricas", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("python3 scripts/metrics.py", section)
+        for word in ("--runs", "mediana", "p90", "`schema_version`", "sem artifact"):
+            self.assertIn(word, section, word)
+        testar = readme.split("## Testar", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("scripts/metrics.py", testar)
+
+
+# --- scripts/metrics.py: a comparacao entre runs --------------------------
+
+COMPARE_PY = ROOT / "scripts" / "metrics.py"
+REPO = "o/r"
+
+# Um `gh` falso que serve as rotas de um JSON: cada rota e um arquivo (o zip
+# do artifact) ou um corpo JSON; rota ausente vira HTTP 404.
+FAKE_GH_ROUTES = r'''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_GH_LOG"], "a") as fh:
+    fh.write(json.dumps(args) + "\n")
+if os.environ.get("FAKE_GH_FAIL"):
+    sys.stderr.write(os.environ["FAKE_GH_FAIL"] + "\n")
+    sys.exit(1)
+if args[:1] != ["api"] or len(args) != 2:
+    sys.stderr.write("gh falso: comando inesperado: %r\n" % (args,))
+    sys.exit(2)
+import re, urllib.parse
+data = json.load(open(os.environ["FAKE_GH_ROUTES"]))
+route = data["routes"].get(args[1])
+m = re.fullmatch(r"repos/(.+)/actions/runs\?(.*)", args[1])
+if route is None and m and m.group(1) == data["repo"]:
+    q = dict(urllib.parse.parse_qsl(m.group(2)))
+    n, p = int(q["per_page"]), int(q["page"])
+    runs = [{"id": r, "run_attempt": 1} for r in data["runs"]]
+    route = {"json": {"total_count": len(runs), "workflow_runs": runs[(p - 1) * n:p * n]}}
+if route is None:
+    sys.stderr.write("gh: Not Found (HTTP 404)\n")
+    sys.exit(1)
+if "file" in route:
+    sys.stdout.buffer.write(open(route["file"], "rb").read())
+else:
+    sys.stdout.write(json.dumps(route["json"]))
+'''
+
+SESSION_FIELDS = ("duracao_ms", "duracao_api_ms", "turnos", "custo_usd")
+
+
+def metrics_json(etapa, run_id, groups=(10, 0, 100, 5), agente=None, schema=1, attempt=1):
+    """Um metrics.json como a action grava. `groups` traz os 4 grupos na
+    ordem fixa: numero vira `medido`, string vira o estado."""
+    grupos = [{"nome": n, "estado": "medido", "segundos": v} if isinstance(v, (int, float))
+              else {"nome": n, "estado": v, "segundos": None} for n, v in zip(ORDER, groups)]
+    if agente is None:
+        agente = session_of(60000, 40000, 12, 1000, 200, 5000, 300, 0.5)
+    return {"schema_version": schema, "etapa": etapa, "numero": 1,
+            "run": {"id": run_id, "attempt": attempt},
+            "job": {"nome": "x", "conclusao": "success", "segundos": 200},
+            "grupos": grupos, "agente": agente, "avisos": []}
+
+
+def session_of(dur, api, turns, entrada, saida, leitura, criacao, custo, state="medido"):
+    return {"estado": state, "duracao_ms": dur, "duracao_api_ms": api, "turnos": turns,
+            "max_turns": 250, "fim": "success",
+            "tokens": {"entrada": entrada, "saida": saida, "cache_leitura": leitura,
+                       "cache_criacao": criacao},
+            "ferramentas": {}, "custo_usd": custo, "subagentes": []}
+
+
+class CompareHarness:
+    """Monta runs e artifacts num GitHub falso e roda scripts/metrics.py."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = pathlib.Path(self.tmp.name)
+        bindir = self.dir / "bin"
+        bindir.mkdir()
+        gh = bindir / "gh"
+        gh.write_text(FAKE_GH_ROUTES)
+        gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+        self.bindir = bindir
+        self.runs = []      # ids, do mais novo ao mais velho
+        self.routes = {}
+        self.next_artifact = 1
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add_run(self, run_id, *payloads, expired=False):
+        """Uma run com um artifact `metrics` por payload (dict ou texto cru); sem
+        payload, a run nao tem artifact."""
+        import zipfile
+        self.runs.append(run_id)
+        artifacts = []
+        for i, payload in enumerate(payloads):
+            aid = self.next_artifact
+            self.next_artifact += 1
+            path = self.dir / f"a{aid}.zip"
+            with zipfile.ZipFile(path, "w") as z:
+                z.writestr("metrics.json", payload if isinstance(payload, str) else json.dumps(payload))
+            self.routes[f"repos/{REPO}/actions/artifacts/{aid}/zip"] = {"file": str(path)}
+            artifacts.append({"id": aid, "name": "metrics", "expired": expired,
+                              "created_at": f"2026-11-01T10:00:0{i}Z",
+                              "workflow_run": {"id": run_id}})
+        self.routes[f"repos/{REPO}/actions/runs/{run_id}/artifacts?name=metrics&per_page=100"] = {
+            "json": {"total_count": len(artifacts), "artifacts": artifacts}}
+
+    def compare(self, *args, fail=None, repo=REPO):
+        routes = self.dir / "routes.json"
+        routes.write_text(json.dumps({"repo": REPO, "runs": self.runs, "routes": self.routes}))
+        log = self.dir / "gh.log"
+        log.write_text("")
+        env = {**os.environ, "PATH": f"{self.bindir}{os.pathsep}{os.environ['PATH']}",
+               "FAKE_GH_ROUTES": str(routes), "FAKE_GH_LOG": str(log)}
+        env.pop("FAKE_GH_FAIL", None)
+        if fail:
+            env["FAKE_GH_FAIL"] = fail
+        proc = subprocess.run([sys.executable, "-I", str(COMPARE_PY), repo, *args],
+                              capture_output=True, text=True, env=env, timeout=60)
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        return proc, calls
+
+    @staticmethod
+    def section(out, etapa):
+        """As linhas da tabela de uma etapa: {linha: (valores, mediana, p90)}."""
+        block = out.split(f"### {etapa}", 1)[1].split("\n### ", 1)[0]
+        rows = {}
+        for line in block.splitlines():
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) == 4 and cells[0] not in ("Linha", "---"):
+                rows[cells[0]] = tuple(cells[1:])
+        return block, rows
+
+
+ROW_NAMES = ["preparo", "ambiente", "agente", "pos-agente", "sessão: duração", "sessão: tempo de API",
+             "sessão: turnos", "sessão: tokens de entrada", "sessão: tokens de saída",
+             "sessão: leitura de cache", "sessão: criação de cache", "sessão: custo (informativo)"]
+
+
+class Compare(CompareHarness, unittest.TestCase):
+    def test_uma_linha_por_grupo_e_metrica_da_sessao_com_mediana_e_p90(self):
+        # 10 runs do issue-sub-task: o preparo vai de 10s a 100s; mediana 55s
+        # (media dos dois do meio), p90 pelo posto mais proximo: o 9o, 90s.
+        for i in range(1, 11):
+            self.add_run(100 + i, metrics_json(
+                "issue-sub-task", 100 + i, groups=(10 * i, 60 * i, 120, 1),
+                agente=session_of(1000 * i, 500 * i, i, 100 * i, 10 * i, 1000 * i, 7, 0.01 * i)))
+        proc, _ = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        block, rows = self.section(proc.stdout, "issue-sub-task")
+        self.assertIn("10 runs", block.splitlines()[0])
+        self.assertEqual(list(rows), ROW_NAMES)
+        self.assertEqual(rows["preparo"], ("10", "55s", "1m 30s"))
+        self.assertEqual(rows["ambiente"], ("10", "5m 30s", "9m 00s"))
+        self.assertEqual(rows["agente"], ("10", "2m 00s", "2m 00s"))
+        self.assertEqual(rows["pos-agente"], ("10", "1s", "1s"))
+        self.assertEqual(rows["sessão: duração"], ("10", "6s", "9s"))  # 5.5s arredonda para cima
+        self.assertEqual(rows["sessão: tempo de API"], ("10", "3s", "5s"))  # 2.75s e 4.5s
+        self.assertEqual(rows["sessão: turnos"], ("10", "5.5", "9"))
+        self.assertEqual(rows["sessão: tokens de entrada"], ("10", "550", "900"))
+        self.assertEqual(rows["sessão: tokens de saída"], ("10", "55", "90"))
+        self.assertEqual(rows["sessão: leitura de cache"], ("10", "5500", "9000"))
+        self.assertEqual(rows["sessão: criação de cache"], ("10", "7", "7"))
+        self.assertEqual(rows["sessão: custo (informativo)"], ("10", "US$ 0.0550", "US$ 0.0900"))
+
+    def test_etapa_com_uma_run_tem_mediana_e_p90_iguais_ao_valor(self):
+        self.add_run(1, metrics_json("issue-triage", 1, groups=(42, "n/a", 300, 3),
+                                     agente=session_of(250000, 1, 7, 1, 1, 1, 1, 1.25)))
+        proc, _ = self.compare()
+        _, rows = self.section(proc.stdout, "issue-triage")
+        self.assertEqual(rows["preparo"], ("1", "42s", "42s"))
+        self.assertEqual(rows["agente"], ("1", "5m 00s", "5m 00s"))
+        self.assertEqual(rows["sessão: duração"], ("1", "4m 10s", "4m 10s"))
+        self.assertEqual(rows["sessão: turnos"], ("1", "7", "7"))
+        self.assertEqual(rows["sessão: custo (informativo)"], ("1", "US$ 1.2500", "US$ 1.2500"))
+
+    def test_saida_estavel_etapas_na_ordem_fixa(self):
+        # Runs chegam misturadas; a saida segue a ordem das 7 etapas.
+        self.add_run(5, metrics_json("pr-merged", 5, groups=("n/a", "n/a", "n/a", 2),
+                                     agente=session_of(*["n/a"] * 8, state="n/a")))
+        self.add_run(4, metrics_json("issue-triage", 4))
+        self.add_run(3, metrics_json("issue-sub-task", 3))
+        self.add_run(2, metrics_json("issue-refinement", 2))
+        first, _ = self.compare()
+        second, _ = self.compare()
+        self.assertEqual(first.stdout, second.stdout)
+        heads = re.findall(r"^### ([\w-]+)", first.stdout, re.M)
+        self.assertEqual(heads, ["issue-triage", "issue-refinement", "issue-sub-task", "pr-merged"])
+        self.assertEqual(list(self.section(first.stdout, "pr-merged")[1]), ROW_NAMES)
+
+    def test_ordem_das_etapas_e_a_da_action(self):
+        self.assertEqual(list(metrics.STAGES), STAGES)
+        source = COMPARE_PY.read_text()
+        positions = [source.index(f'"{s}"') for s in STAGES]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_celula_so_com_estados_sai_nd(self):
+        self.add_run(2, metrics_json("issue-remote-implement", 2, groups=(5, "pulado", "pulado", 3),
+                                     agente=session_of(*["pulado"] * 8, state="pulado")))
+        self.add_run(1, metrics_json("issue-remote-implement", 1, groups=(7, "n/d", "pulado", "n/d"),
+                                     agente=session_of(*["n/d"] * 8, state="n/d")))
+        proc, _ = self.compare()
+        _, rows = self.section(proc.stdout, "issue-remote-implement")
+        self.assertEqual(rows["preparo"], ("2", "6s", "7s"))
+        self.assertEqual(rows["pos-agente"], ("1", "3s", "3s"))  # o n/d nao entra
+        for name in ROW_NAMES[1:3] + ROW_NAMES[4:]:
+            self.assertEqual(rows[name], ("0", "n/d", "n/d"), name)
+
+    def test_runs_sem_artifact_e_schema_desconhecido_ficam_de_fora_com_aviso(self):
+        self.add_run(6, metrics_json("issue-triage", 6, groups=(10, "n/a", 1, 1)))
+        self.add_run(5)                                                  # sem artifact
+        self.add_run(4)                                                  # sem artifact
+        self.add_run(3, metrics_json("issue-triage", 3, groups=(999, "n/a", 1, 1)),
+                     expired=True)                                       # expirado
+        self.add_run(2, metrics_json("issue-triage", 2, groups=(500, "n/a", 1, 1), schema=2))
+        self.add_run(1, metrics_json("issue-triage", 1, groups=(30, "n/a", 1, 1)))
+        proc, _ = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        block, rows = self.section(proc.stdout, "issue-triage")
+        self.assertIn("2 runs", block.splitlines()[0])
+        self.assertEqual(rows["preparo"], ("2", "20s", "30s"))
+        self.assertIn("3 runs sem artifact `metrics`", proc.stdout)
+        self.assertIn("1 run com `schema_version` desconhecido", proc.stdout)
+
+    def test_metrics_json_ilegivel_fica_de_fora_sem_quebrar(self):
+        self.add_run(2, "{nao e json")
+        self.add_run(1, metrics_json("issue-triage", 1))
+        proc, _ = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("1 run com `metrics.json` ilegível", proc.stdout)
+        self.assertIn("### issue-triage", proc.stdout)
+
+    def test_re_run_conta_cada_run_uma_vez(self):
+        # Dois artifacts na mesma run (attempts 1 e 2) e a run repetida na
+        # lista (paginacao que andou): conta uma vez, o artifact mais novo.
+        self.add_run(7, metrics_json("pr-fix", 7, groups=(100, 1, 1, 1), attempt=1),
+                     metrics_json("pr-fix", 7, groups=(20, 1, 1, 1), attempt=2))
+        self.runs.append(7)
+        proc, calls = self.compare()
+        block, rows = self.section(proc.stdout, "pr-fix")
+        self.assertIn("1 run", block.splitlines()[0])
+        self.assertEqual(rows["preparo"], ("1", "20s", "20s"))
+        zips = [c for c in calls if c[1].endswith("/zip")]
+        self.assertEqual(len(zips), 1)
+
+    def test_flag_de_n_limita_as_runs(self):
+        for i in range(5, 0, -1):
+            self.add_run(i, metrics_json("issue-triage", i, groups=(10 * i, "n/a", 1, 1)))
+        proc, calls = self.compare("--runs", "2")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        block, rows = self.section(proc.stdout, "issue-triage")
+        self.assertIn("2 runs", block.splitlines()[0])
+        self.assertEqual(rows["preparo"], ("2", "45s", "50s"))  # as runs 5 e 4, as mais novas
+        listed = {c[1] for c in calls if "/runs/" in c[1] and c[1].endswith("artifacts?name=metrics&per_page=100")}
+        self.assertEqual(listed, {f"repos/{REPO}/actions/runs/{i}/artifacts?name=metrics&per_page=100"
+                                  for i in (5, 4)})
+        self.assertIn("últimas 2 runs", proc.stdout)
+
+    def test_flag_de_n_pagina_alem_de_100(self):
+        for i in range(150, 0, -1):
+            self.add_run(i)
+        proc, calls = self.compare("--runs", "120")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        listed = [c for c in calls if c[1].endswith("artifacts?name=metrics&per_page=100")]
+        self.assertEqual(len(listed), 120)
+        self.assertIn("120 runs sem artifact `metrics`", proc.stdout)
+
+    def test_padrao_de_runs(self):
+        for i in range(80, 0, -1):
+            self.add_run(i)
+        proc, calls = self.compare()
+        listed = [c for c in calls if c[1].endswith("artifacts?name=metrics&per_page=100")]
+        self.assertEqual(len(listed), 50)
+
+    def test_flag_de_n_invalida(self):
+        proc, _ = self.compare("--runs", "0")
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_sem_metricas_avisa_e_sai_com_zero(self):
+        self.add_run(2)
+        self.add_run(1)
+        proc, _ = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Nenhuma run com métricas", proc.stdout)
+        self.assertNotIn("###", proc.stdout)
+
+    def test_repositorio_sem_runs_avisa_e_sai_com_zero(self):
+        proc, _ = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Nenhuma run com métricas", proc.stdout)
+
+    def test_gh_falhando_sai_com_erro(self):
+        proc, _ = self.compare(fail="gh: To get started with GitHub CLI, please run:  gh auth login")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("erro:", proc.stderr)
+        self.assertIn("gh auth login", proc.stderr)
+        self.assertEqual(proc.stdout, "")
+
+    def test_repo_inexistente_sai_com_erro(self):
+        proc, _ = self.compare(repo="o/inexistente")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("erro:", proc.stderr)
+        self.assertIn("HTTP 404", proc.stderr)
+
+    def test_repo_mal_formado(self):
+        proc = subprocess.run([sys.executable, "-I", str(COMPARE_PY), "sem-barra"],
+                              capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("owner/repo", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

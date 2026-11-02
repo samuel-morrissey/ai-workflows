@@ -461,9 +461,37 @@ Subagentes em paralelo têm uma linha cada, e um subagente chamado por outro tem
 
 O próprio passo de métricas e o `round-failure` rodam depois da leitura e não entram na soma. O job lido é o deste runner; sem ele, o da etapa pelo nome, e nunca o `check-caller` do router. O mapeamento passo → grupo de cada etapa mora em [`.github/actions/metrics/metrics.py`](.github/actions/metrics/metrics.py): um passo novo ou renomeado num workflow precisa entrar lá, e o teste falha enquanto não entrar.
 
+### Comparar runs
+
+O `scripts/metrics.py` junta os artifacts `metrics` das últimas runs de um repositório numa tabela por etapa, sem baixar artifact por artifact. Ele usa o `gh` já autenticado (precisa ler as Actions do repositório):
+
+```bash
+python3 scripts/metrics.py samuel-morrissey/ai-workflows            # últimas 50 runs
+python3 scripts/metrics.py samuel-morrissey/ai-workflows --runs 200 # ou -n 200
+```
+
+Para cada etapa com métricas, a saída traz quantas runs entraram e uma linha por grupo (`preparo`, `ambiente`, `agente`, `pos-agente`) e por métrica numérica da sessão (duração, tempo de API, turnos, os quatro tokens e o custo informativo), com quantos valores a linha usou, a mediana e o p90 (pelo posto mais próximo: o valor na posição ⌈0,9·n⌉ da lista ordenada; com uma run só, os dois são o próprio valor):
+
+```
+### issue-sub-task: 3 runs
+
+| Linha | Valores | Mediana | p90 |
+|---|---|---|---|
+| preparo | 3 | 21s | 34s |
+| ambiente | 3 | 1m 12s | 1m 40s |
+...
+| sessão: custo (informativo) | 3 | US$ 2.1043 | US$ 3.0071 |
+```
+
+- `pulado`, `n/a` e `n/d` não entram na conta da célula; uma célula sem nenhum valor medido sai `n/d`.
+- Ficam de fora, com a contagem em **Fora da conta** no fim da saída: runs sem artifact `metrics` (anteriores à feature, com o artifact expirado, ou de workflows que não são etapas), com `schema_version` que o script não conhece e com o `metrics.json` ilegível. Nada disso interrompe o resto.
+- Num re-run, a run conta uma vez, com o artifact mais novo.
+- A saída é estável: etapas na ordem das 7 etapas e linhas sempre na mesma ordem, para comparar duas execuções com um `diff`.
+- Sem nenhuma métrica nas runs consideradas, o script diz que não há métricas e sai com 0. Com o `gh` falhando (sem autenticação, repositório inexistente), imprime `erro:` com a mensagem do `gh` e sai com 1.
+
 ## Testar
 
-Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível, com subagentes concluídos, cortados, em paralelo, aninhados e sem `timestamp`).
+Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py` e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível, com subagentes concluídos, cortados, em paralelo, aninhados e sem `timestamp`; e o `scripts/metrics.py` da [comparação entre runs](#comparar-runs), com um `gh` falso servindo runs e artifacts: mediana e p90 por grupo e por métrica da sessão, células só com estados, runs sem artifact, com `schema_version` desconhecido ou ilegíveis, re-runs, a flag `--runs`, sem métricas e com o `gh` falhando).
 
 Para testar o fluxo de ponta a ponta:
 
