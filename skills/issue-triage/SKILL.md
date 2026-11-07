@@ -147,6 +147,13 @@ issue.
    riscos. Fato que o codigo responde e obrigacao sua descobrir; ao humano so
    chegam decisoes.
 
+   Ressalva: um trade-off de correcao, em que a solucao admite um resultado
+   incorreto conhecido, **nao** e fato do codigo, mesmo com precedente no
+   codigo ou num ADR. E decisao de tolerancia a risco: o precedente mostra
+   que alguem fez assim, nao que um humano aceitou o custo. Um trade-off
+   desses so entra no brief como aceito com a fonte de aceite que o
+   AGENT-BRIEF.md define; sem ela, e pendente (passo 6.4).
+
    Se o pedido ja existe implementado, e `wontfix`: comente apontando onde o
    comportamento vive, aplique o label e feche, como no passo 2.
 
@@ -221,6 +228,15 @@ issue.
       a fronteira de perguntas e envie uma unica rodada dentro do handoff da
       `issue-async-first`, aplique `awaiting-reply` e pare sem aplicar tipo nem
       label de estado — o proximo comentario humano dispara nova rodada.
+
+      Aceitar que a solucao **admita um resultado incorreto conhecido**
+      (errar num caso que se consegue apontar) tambem e decisao que so o
+      humano toma, mas o desfecho e outro: **nao** vira `awaiting-reply`. O
+      pontual segue para o brief (6.5) e sai em `ready-for-*`, com o
+      trade-off no grupo **Trade-offs pendentes de aceite** dos "Casos de
+      borda", com alternativas e recomendacao (AGENT-BRIEF.md). O humano
+      decide editando o brief antes do `go`. Trade-off com aceite que vale
+      (fonte citada, conforme o AGENT-BRIEF.md) vai para os decididos.
 
    5. Nao sobrou: escreva o brief no corpo do issue, no formato e principios
       do AGENT-BRIEF.md, preservando **titulo e texto originais** do issue
