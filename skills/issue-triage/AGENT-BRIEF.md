@@ -54,7 +54,10 @@ guia da execucao humana.
 **O brief e editavel.** O `/issue-remote-implement` e disparado manualmente e le o corpo
 na hora de rodar. Se o humano discorda de uma fronteira, de um criterio ou
 do escopo, o gesto normal e editar o brief antes de aplicar o label `go` —
-nao abrir rodada de perguntas.
+nao abrir rodada de perguntas. E tambem assim que o humano resolve cada
+item de **Trade-offs pendentes de aceite**: edita o brief antes do `go`,
+escolhe a alternativa e move o item para os decididos. Enquanto o grupo
+tiver item, o `/issue-remote-implement` nao implementa: faz handoff.
 
 A citacao no comeco preserva o **titulo e o texto originais** do issue, na
 integra: o titulo citado e o titulo como estava, com o prefixo sugerido, se
@@ -75,13 +78,21 @@ teste manual, ou decisao de design tomada durante a execucao.
 
 ## Contexto
 <comportamento atual e como o pedido se relaciona com o codigo: o que ja
-existe, contratos e conceitos envolvidos>
+existe, contratos e conceitos envolvidos; todos os chamadores do caminho
+alterado, nao so o do relato>
+Premissa nao verificada: <premissa>; fonte: <payload/log/teste>; se estiver errada, descarta <x>
+(uma linha por premissa de terceiro sem documentacao conferida; sem nenhuma, omita)
 
 ## Comportamento esperado
 <o que deve acontecer depois da mudanca, especifico em casos e condicoes>
 
 ## Casos de borda
-<entradas e situacoes limite e o que fazer em cada uma>
+**Decididos**
+- <entrada ou situacao limite>: <o que fazer>
+
+**Trade-offs pendentes de aceite**
+- <o caso em que a solucao erra>. Alternativas: A) <...>; B) <...>.
+  Recomendacao: <A ou B>, porque <...>.
 
 ## Fora de escopo
 <o que NAO entra nesta issue>
@@ -90,6 +101,58 @@ existe, contratos e conceitos envolvidos>
 - [ ] <fronteira onde se observa> <comportamento verificavel>
 - [ ] <fronteira onde se observa> <comportamento verificavel>
 ```
+
+**Contexto: todos os chamadores.** O brief completo lista todos os
+chamadores do caminho que a mudanca altera, nao so o do relato: quem chama
+a funcao, o endpoint ou o comando que muda. Um chamador esquecido e um caso
+de borda que ninguem decidiu. (A leitura de codigo de `[MAP]`/`[SPEC]`, mais
+abaixo, nao muda: continua superficial.)
+
+**Premissa nao verificada.** Quando o brief se apoia num comportamento de
+terceiro (API, gateway, servico externo) inferido de payload, log ou teste
+manual, sem documentacao conferida, registre a premissa numa linha propria:
+
+```markdown
+Premissa nao verificada: <premissa>; fonte: <payload/log/teste>; se estiver errada, descarta <x>
+```
+
+O `<x>` e o que cai se a premissa estiver errada: uma alternativa, um caso
+de borda decidido, um criterio. Premissa conferida em documentacao oficial
+nao leva a marca: cite a documentacao como fonte normal.
+
+**Casos de borda: decididos e pendentes.** Os casos de borda se dividem em
+dois grupos:
+
+- **Decididos:** o que fazer em cada um. Entra aqui o que e fato do codigo e
+  o trade-off com aceite que vale (abaixo), citado com link.
+- **Trade-offs pendentes de aceite:** cada ponto em que a solucao **admite
+  um resultado incorreto conhecido**, isto e, erra num caso que se consegue
+  apontar, e nenhum humano aceitou esse custo. Cada item traz as
+  alternativas e a recomendacao. Um exemplo tipico e ligar entidades por um
+  atributo nao unico (valor, data, ordem): quando dois registros tem o mesmo
+  valor, a ligacao pode escolher o errado. O exemplo ilustra o criterio; o
+  gatilho e o resultado incorreto conhecido, nao o atributo em si.
+
+Sem pendente, o grupo fica com "nenhum". Grupo vazio, com "nenhum" ou
+ausente (brief anterior a esta regra) conta como sem pendentes.
+
+**Aceite que vale.** O brief so escreve que um custo foi "aceito" com link
+para uma destas fontes:
+
+- um comentario, uma review ou um ADR **escrito por humano** que trate do
+  trade-off;
+- uma fonte escrita por agente de IA (comentario, ADR, corpo de PR) que um
+  humano **aprovou de forma explicita**: review aprovada num PR que descreve
+  o trade-off, ou comentario humano que aceita aquele texto ("ok"/"LGTM"
+  respondendo a ele).
+
+Nao contam: merge sem review nem comentario, commit de agente, e decisao
+registrada por agente ("tomada sem perguntar", "por palpite") sem aprovacao
+humana depois. Precedente no codigo ou num ADR, por si so, tambem nao: o
+codigo mostra que alguem fez assim, nao que um humano aceitou o custo. Sem
+aceite que valha, o ponto vai para os pendentes. A conferencia e pelo autor
+e pelo estado da review ou do comentario, via `gh` (ex.: `gh pr view <n>
+--json author,reviews`, `gh issue view <n> --json comments`).
 
 ### Exemplo bom
 
@@ -105,14 +168,20 @@ existe, contratos e conceitos envolvidos>
 A skill `issue-triage` le o issue com `gh issue view` e segue para os passos
 seguintes sem tratar falha do comando. Com numero inexistente, o `gh`
 retorna erro e a rodada termina com saida confusa, sem registro no issue.
+O `gh issue view` da skill tem um chamador so: o passo 1, disparado pelo
+comando `/issue-triage` e pelo workflow de triagem.
 
 ## Comportamento esperado
 Quando `gh issue view` falha, a skill reporta o erro exato ao usuario e
 encerra a rodada sem aplicar label nem comentar.
 
 ## Casos de borda
+**Decididos**
 - Numero de issue de outro repositorio: mesmo tratamento de falha.
 - Issue fechado: nao e falha; segue o fluxo normal de "ja triado".
+
+**Trade-offs pendentes de aceite**
+- nenhum
 
 ## Fora de escopo
 - Validar o formato do argumento antes de chamar o `gh`.
@@ -137,6 +206,52 @@ Arquivos: src/triage/handler.ts (linha 150)
 Ruim porque: vago ("esta quebrada"), aponta caminho e linha que apodrecem,
 nao descreve comportamento atual vs esperado, sem criterios de aceite, sem
 fora de escopo.
+
+### Exemplo: trade-off "aceito" sem fonte (`caravelasistemas/lumeeiro-app#273`)
+
+O caso real: o reembolso de um gateway era ligado ao ingresso pelo
+**valor**. Dois ingressos do mesmo pedido com o mesmo valor tornam a ligacao
+ambigua, e o reembolso pode cair no ingresso errado: um resultado incorreto
+conhecido, do tipo atributo nao unico. O brief tratou isso como fato porque
+a integracao com o Mercado Pago ja fazia assim, e esse precedente tinha sido
+escrito por um agente e mergeado sem review.
+
+Ruim:
+
+```markdown
+## Casos de borda
+- Dois ingressos com o mesmo valor no pedido: o reembolso liga ao primeiro
+  ingresso com aquele valor (aceito, como no Mercado Pago).
+```
+
+Ruim porque: "aceito" sem link para uma fonte que valha. O precedente e
+codigo de agente mergeado sem review, que nao conta como aceite. O
+comportamento do gateway foi tirado de um payload de sandbox e aparece como
+fato.
+
+Bom:
+
+```markdown
+## Contexto
+...
+Premissa nao verificada: o webhook de reembolso do gateway traz o id do item do pedido; fonte: payload do sandbox; se estiver errada, descarta a alternativa A.
+
+## Casos de borda
+**Decididos**
+- Pedido com um ingresso so: o reembolso liga a ele.
+
+**Trade-offs pendentes de aceite**
+- Dois ingressos com o mesmo valor no pedido: a ligacao pelo valor pode
+  reembolsar o ingresso errado. Alternativas: A) ligar pelo id do item do
+  pedido, que o webhook traz (premissa acima); B) ligar pelo valor e marcar
+  o reembolso ambiguo para conferencia manual; C) ligar pelo valor ao
+  primeiro ingresso, como na integracao com o Mercado Pago (erra sem avisar).
+  Recomendacao: A, porque elimina o erro; B se a premissa cair. O precedente do Mercado Pago nao conta como aceite: e codigo de
+  agente mergeado sem review.
+```
+
+O issue sai em `ready-for-agent` assim mesmo. O humano escolhe a alternativa
+editando o brief antes do `go` e move o item para os decididos.
 
 ## Leitura de codigo ([MAP]/[SPEC])
 
