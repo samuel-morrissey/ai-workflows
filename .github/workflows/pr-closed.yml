@@ -1,0 +1,120 @@
+name: PR Closed
+
+# Workflow reutilizavel chamado pelo router.yml quando um PR e fechado sem
+# merge, em qualquer base. Sem ele, o issue do PR rejeitado fica preso em
+# awaiting-pr-review, e o `go` so retoma a implementacao em ready-for-agent.
+# Aqui o workflow devolve o estado de antes do PR, a excecao da regra 2 da
+# skill issue-labeling:
+#
+# - issue declarado no corpo com Closes/Fixes/Resolves #n (mesmo
+#   reconhecimento do pr-merged.yml), aberto, em awaiting-pr-review, sem
+#   work-in-progress e sem outro PR aberto que o declare:
+#   - pontual ou pai: awaiting-pr-review vira ready-for-agent, numa operacao;
+#   - [SUB-TASK]: so sai o awaiting-pr-review (sub-task nao tem estado);
+# - o pai declarado em `Parte de #<pai>`, aberto, em awaiting-pr-review e sem
+#   work-in-progress: vira ready-for-agent, para o `go` nele retomar a cadeia.
+#   O topo da stack ainda aberto declara `Closes #<pai>`, por isso o guarda de
+#   "outro PR aberto" nao vale para o pai. Pai em qualquer outro estado (ex.:
+#   ready-for-agent com a cadeia rodando) nao e tocado.
+#
+# Cada issue que mudou ganha um comentario que aponta o PR fechado, sem `@`.
+# Nada e disparado: o `go` continua humano. Sem agente: so gh.
+
+on:
+  workflow_call:
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  restore-issues:
+    name: Restore Issues From Closed PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Devolver o estado dos issues do Closes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          NUMBERS=$(grep -oiE '^[[:space:]]*(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' <<<"$BODY" | grep -oE '[0-9]+' | sort -u || true)
+          if [ -z "$NUMBERS" ]; then
+            echo "::notice::PR #$PR_NUMBER nao declara Closes; nada a devolver."
+            exit 0
+          fi
+          PARENTS=$(grep -oiE '^[[:space:]]*parte de[[:space:]]+#[0-9]+' <<<"$BODY" | grep -oE '[0-9]+' | sort -u || true)
+          PAI=$(head -n1 <<<"$PARENTS")
+          OPEN_PRS=$(gh pr list --state open --limit 500 --json number,body,closingIssuesReferences)
+
+          # Outro PR aberto declara #$1, no corpo ou pelo vinculo nativo?
+          declared_elsewhere() {
+            jq -e --argjson n "$1" --argjson pr "$PR_NUMBER" '
+              any(.[]; .number != $pr and (
+                any((.closingIssuesReferences // [])[]; .number == $n) or
+                any((.body // "") | split("\n")[];
+                    test("^\\s*(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#\($n)(?![0-9])"; "i"))))
+            ' <<<"$OPEN_PRS" >/dev/null
+          }
+
+          READY_OK=""
+          ensure_ready_label() {
+            [ -n "$READY_OK" ] && return 0
+            gh label create ready-for-agent --color 0E8A16 \
+              --description "Pronto para o agente executar" 2>/dev/null || true
+            READY_OK=1
+          }
+
+          # Cada issue uma vez so: o pai do topo aparece no Closes e no Parte de.
+          for N in $(printf '%s\n' $NUMBERS $PARENTS | sort -un); do
+            KIND=""
+            grep -qx "$N" <<<"$PARENTS" && KIND=pai
+            if ! INFO=$(gh issue view "$N" --json state,title,labels 2>/dev/null); then
+              echo "::notice::#$N nao encontrado; nao tocado."
+              continue
+            fi
+            STATE=$(jq -r '.state' <<<"$INFO")
+            if [ "$STATE" != "OPEN" ]; then
+              echo "::notice::#$N esta $STATE; nao tocado."
+              continue
+            fi
+            if ! jq -e '.labels[] | select(.name == "awaiting-pr-review")' <<<"$INFO" >/dev/null; then
+              echo "::notice::#$N nao esta em awaiting-pr-review; nao tocado."
+              continue
+            fi
+            if jq -e '.labels[] | select(.name == "work-in-progress")' <<<"$INFO" >/dev/null; then
+              echo "::notice::#$N esta com work-in-progress; nao tocado."
+              continue
+            fi
+            if [ -z "$KIND" ]; then
+              if [[ "$(jq -r '.title' <<<"$INFO")" == "[SUB-TASK]"* ]]; then KIND=sub-task; else KIND=pontual; fi
+              if declared_elsewhere "$N"; then
+                echo "::notice::#$N ainda e declarado por outro PR aberto; nao tocado."
+                continue
+              fi
+            fi
+            case "$KIND" in
+              sub-task)
+                gh issue edit "$N" --remove-label awaiting-pr-review
+                if [ -n "$PAI" ]; then
+                  ONDE="aplique \`go\` no pai #$PAI para retomar a cadeia, ou nesta sub-task para rodar so ela"
+                else
+                  ONDE="aplique \`go\` no pai para retomar a cadeia, ou nesta sub-task para rodar so ela"
+                fi
+                MSG="O PR #$PR_NUMBER foi fechado sem merge. O \`awaiting-pr-review\` saiu desta sub-task, que volta a ficar sem PR: $ONDE."
+                ;;
+              pai)
+                ensure_ready_label
+                gh issue edit "$N" --add-label ready-for-agent --remove-label awaiting-pr-review
+                MSG="O PR #$PR_NUMBER, camada da stack deste issue, foi fechado sem merge. O issue voltou de \`awaiting-pr-review\` para \`ready-for-agent\`: aplique \`go\` aqui para retomar a cadeia de sub-tasks."
+                ;;
+              *)
+                ensure_ready_label
+                gh issue edit "$N" --add-label ready-for-agent --remove-label awaiting-pr-review
+                MSG="O PR #$PR_NUMBER foi fechado sem merge. O issue voltou de \`awaiting-pr-review\` para \`ready-for-agent\`: aplique \`go\` para retomar a implementacao."
+                ;;
+            esac
+            gh issue comment "$N" --body "$MSG"
+            echo "::notice::#$N ($KIND) devolvido pelo PR #$PR_NUMBER fechado sem merge."
+          done

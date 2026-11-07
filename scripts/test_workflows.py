@@ -11,7 +11,9 @@ e o passo "Resolver responsavel" (action responsible) das etapas de issue: a
 posicao antes do agente, a frase que chega ao system prompt e os modelos de
 comentario das skills que levam a mencao. Do pr-fix.yml, testa a frase "Quem
 disparou a rodada:" que o passo "Resolver alvo" monta para o handoff no PR; da
-remote-to-pr, o pedido de review e o fallback com `@`.
+remote-to-pr, o pedido de review e o fallback com `@`. Do pr-closed.yml, o
+destino do router.yml para PR fechado sem merge e o passo que devolve o
+estado dos issues, com um `gh` falso que guarda os issues e os PRs.
 
     python3 scripts/test_workflows.py
 """
@@ -1139,6 +1141,279 @@ class ChainNoticeRun(unittest.TestCase):
         proc, calls, gh = self.execute(fail="notify", WAIT_KIND="human", WAIT_NOTE="humana")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("--remove-label work-in-progress", gh)
+
+
+
+PR_CLOSED = "pr-closed.yml"
+PR_CLOSED_STEP = "Devolver o estado dos issues do Closes"
+READY_COLOR = "0E8A16"
+READY_DESC = "Pronto para o agente executar"
+
+
+def router_jobs():
+    """{nome do job: bloco de texto} do router.yml."""
+    body = (WORKFLOWS / "router.yml").read_text().split("\njobs:\n", 1)[1]
+    jobs = re.split(r"^  (?=[a-z-]+:\n)", body, flags=re.M)
+    return {job.split(":", 1)[0]: job for job in jobs if job.strip()}
+
+
+def router_if(job):
+    return " ".join(re.search(r"    if: >\n((?:      .*\n)+)", job).group(1).split())
+
+
+def evaluate(cond, event_name, payload):
+    """Avalia um `if` simples do router (so ==, !=, &&, ||, !) contra o evento."""
+    ctx = {"event_name": event_name, "event": payload}
+
+    def lookup(m):
+        value = ctx
+        for key in m.group(1).split("."):
+            value = value.get(key) if isinstance(value, dict) else None
+        return repr(value)
+
+    expr = re.sub(r"\bgithub\.([\w.]+)", lookup, cond)
+    expr = expr.replace("&&", " and ").replace("||", " or ")
+    expr = re.sub(r"!(?!=)", " not ", expr).replace("true", "True").replace("false", "False")
+    return eval(expr, {})
+
+
+def closed_event(merged, base="main", action="closed"):
+    return {"action": action, "repository": {"default_branch": "main"},
+            "pull_request": {"merged": merged, "base": {"ref": base}, "labels": []}}
+
+
+class PrClosedShape(unittest.TestCase):
+    """O destino `pr-closed` do router.yml e o workflow que ele chama."""
+
+    def test_job_chama_o_workflow_novo(self):
+        job = router_jobs()["pr-closed"]
+        self.assertIn(f"uses: samuel-morrissey/ai-workflows/.github/workflows/{PR_CLOSED}@main", job)
+        self.assertTrue((WORKFLOWS / PR_CLOSED).exists())
+
+    def test_fechado_sem_merge_em_qualquer_base_chama(self):
+        cond = router_if(router_jobs()["pr-closed"])
+        for base in ("main", "sub-task-66"):
+            self.assertTrue(evaluate(cond, "pull_request", closed_event(False, base)), base)
+
+    def test_mergeado_nao_chama(self):
+        cond = router_if(router_jobs()["pr-closed"])
+        for base in ("main", "sub-task-66"):
+            self.assertFalse(evaluate(cond, "pull_request", closed_event(True, base)), base)
+
+    def test_outros_eventos_nao_chamam(self):
+        cond = router_if(router_jobs()["pr-closed"])
+        self.assertFalse(evaluate(cond, "pull_request", closed_event(False, action="opened")))
+        self.assertFalse(evaluate(cond, "issues", {"action": "closed"}))
+
+    def test_pr_merged_continua_so_no_merge(self):
+        cond = router_if(router_jobs()["pr-merged"])
+        self.assertTrue(evaluate(cond, "pull_request", closed_event(True, "sub-task-66")))
+        self.assertFalse(evaluate(cond, "pull_request", closed_event(False, "sub-task-66")))
+
+    def test_so_gh_sem_agente(self):
+        text = (WORKFLOWS / PR_CLOSED).read_text()
+        self.assertIn("on:\n  workflow_call:\n", text)
+        self.assertIn("\n  issues: write\n", text)
+        self.assertNotIn(AGENT, text)
+        self.assertEqual([n for n, _ in steps_of(text)], [PR_CLOSED_STEP])
+
+    def test_docs_cobrem_a_excecao(self):
+        labeling = (SKILLS / "issue-labeling" / "SKILL.md").read_text()
+        rule = " ".join(labeling.split("2. **O fluxo so anda para frente:**", 1)[1].split("\n3. ", 1)[0].split())
+        self.assertIn("fechado sem merge", rule)
+        self.assertIn("`pr-closed.yml`", rule)
+        row = [l for l in labeling.splitlines() if l.startswith("| `awaiting-pr-review` |")][0]
+        self.assertIn("fechado sem merge", row)
+        readme = (ROOT / "README.md").read_text()
+        self.assertIn("`pr-closed.yml`", readme.split("## Etapas", 1)[1].split("\n### ", 1)[0])
+        self.assertIn("`pr-closed.yml`", readme.split("## Como funciona", 1)[1])
+
+
+# gh falso com estado para o pr-closed: issues e PRs abertos em $FAKE_STATE,
+# e as escritas do passo mudam esse estado.
+FAKE_GH_CLOSED = r"""#!/usr/bin/env python3
+import json, os, sys
+path = os.environ["FAKE_STATE"]
+state = json.load(open(path))
+args = sys.argv[1:]
+with open(os.environ["FAKE_GH_LOG"], "a") as log:
+    log.write(" ".join(args) + "\n")
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+def save():
+    json.dump(state, open(path, "w"))
+cmd = " ".join(args[:2])
+if cmd in state.get("fail", []):
+    print("api indisponivel", file=sys.stderr); sys.exit(1)
+issue = state["issues"].get(args[2]) if cmd.startswith("issue ") else None
+if cmd == "issue view":
+    if issue is None:
+        print("Could not resolve to an issue", file=sys.stderr); sys.exit(1)
+    print(json.dumps({"state": issue["state"], "title": issue["title"],
+                      "labels": [{"name": n} for n in issue["labels"]]}))
+elif cmd == "pr list":
+    assert opt("--state") == "open", args
+    print(json.dumps(state["prs"]))
+elif cmd == "label create":
+    if args[2] in state["repo_labels"]:
+        print("label ja existe", file=sys.stderr); sys.exit(1)
+    state["repo_labels"][args[2]] = {"color": opt("--color"), "description": opt("--description")}
+    save()
+elif cmd == "issue edit":
+    add, remove = opt("--add-label"), opt("--remove-label")
+    if add:
+        if add not in state["repo_labels"]:
+            print("label nao existe: %s" % add, file=sys.stderr); sys.exit(1)
+        issue["labels"].append(add)
+    if remove:
+        issue["labels"].remove(remove)
+    issue["edits"] = issue.get("edits", 0) + 1
+    save()
+elif cmd == "issue comment":
+    issue.setdefault("comments", []).append(opt("--body"))
+    save()
+else:
+    print("gh falso: comando inesperado: %s" % " ".join(args), file=sys.stderr); sys.exit(2)
+"""
+
+
+def issue(title="[INFRA] Pontual", labels=("awaiting-pr-review",), state="OPEN"):
+    return {"title": title, "labels": list(labels), "state": state}
+
+
+class PrClosedRun(unittest.TestCase):
+    """Roda o passo do pr-closed.yml num bash com gh falso e confere os issues."""
+
+    @classmethod
+    def setUpClass(cls):
+        block = dict(steps_of((WORKFLOWS / PR_CLOSED).read_text()))[PR_CLOSED_STEP]
+        cls.script = workflow_run(block)
+
+    def execute(self, body, issues, prs=(), repo_labels=None, fail=(), number="80"):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prclosed-"))
+        gh = tmp / "gh"
+        gh.write_text(FAKE_GH_CLOSED)
+        gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+        st = tmp / "state.json"
+        st.write_text(json.dumps({
+            "issues": issues, "prs": list(prs), "fail": list(fail),
+            "repo_labels": repo_labels if repo_labels is not None else
+            {"ready-for-agent": {"color": READY_COLOR, "description": READY_DESC},
+             "awaiting-pr-review": {"color": REVIEW_COLOR, "description": REVIEW_DESC}}}))
+        (tmp / "step.sh").write_text(self.script)
+        env = {"PATH": f"{tmp}:{os.environ['PATH']}", "FAKE_STATE": str(st),
+               "FAKE_GH_LOG": str(tmp / "log"), "GH_TOKEN": "x", "GH_REPO": "o/r",
+               "PR_NUMBER": number, "BODY": body}
+        # O shell padrao do GitHub Actions: bash -e com pipefail.
+        proc = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(tmp / "step.sh")],
+                              env=env, capture_output=True, text=True)
+        return proc, json.loads(st.read_text())
+
+    def assertUntouched(self, after, n, labels):
+        self.assertEqual(after["issues"][n]["labels"], list(labels), n)
+        self.assertNotIn("edits", after["issues"][n], n)
+        self.assertNotIn("comments", after["issues"][n], n)
+
+    def test_pontual_volta_para_ready_for_agent_e_comenta(self):
+        proc, after = self.execute("Closes #4\n\n## Resumo", {"4": issue()})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["4"]["labels"], ["ready-for-agent"])
+        self.assertEqual(after["issues"]["4"]["edits"], 1, "troca numa unica operacao")
+        [comment] = after["issues"]["4"]["comments"]
+        self.assertIn("#80", comment)
+        self.assertIn("`go`", comment)
+        self.assertNotIn("@", comment)
+
+    def test_fixes_e_resolves_tambem_contam(self):
+        proc, after = self.execute("fixes #4\nResolves #5", {"4": issue(), "5": issue()})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["4"]["labels"], ["ready-for-agent"])
+        self.assertEqual(after["issues"]["5"]["labels"], ["ready-for-agent"])
+
+    def test_sub_task_perde_o_label_e_o_pai_volta(self):
+        issues = {"57": issue("[SUB-TASK] Camada", ("awaiting-pr-review",)),
+                  "56": issue("[FEAT] Pai", ("awaiting-pr-review",))}
+        proc, after = self.execute("Closes #57\nParte de #56", issues)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["57"]["labels"], [])
+        self.assertIn("#56", after["issues"]["57"]["comments"][0])
+        self.assertEqual(after["issues"]["56"]["labels"], ["ready-for-agent"])
+        self.assertIn("retomar a cadeia", after["issues"]["56"]["comments"][0])
+
+    def test_pai_em_cadeia_nao_muda(self):
+        issues = {"57": issue("[SUB-TASK] Camada"),
+                  "56": issue("[FEAT] Pai", ("ready-for-agent", "work-in-progress"))}
+        proc, after = self.execute("Closes #57\nParte de #56", issues)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["57"]["labels"], [])
+        self.assertUntouched(after, "56", ("ready-for-agent", "work-in-progress"))
+        issues["56"] = issue("[FEAT] Pai", ("ready-for-agent",))
+        _, after = self.execute("Closes #57\nParte de #56", issues)
+        self.assertUntouched(after, "56", ("ready-for-agent",))
+
+    def test_camada_do_meio_com_o_topo_aberto_devolve_o_pai(self):
+        # O topo aberto declara `Closes #56`; o guarda de outro PR nao vale para o pai.
+        issues = {"57": issue("[SUB-TASK] Meio"), "56": issue("[FEAT] Pai")}
+        prs = [pr(81, "Closes #58\nCloses #56\nParte de #56", closes=[58, 56])]
+        proc, after = self.execute("Closes #57\nParte de #56", issues, prs)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["56"]["labels"], ["ready-for-agent"])
+        self.assertEqual(after["issues"]["57"]["labels"], [])
+
+    def test_topo_da_stack_sem_dupla_troca(self):
+        issues = {"58": issue("[SUB-TASK] Topo"), "56": issue("[FEAT] Pai")}
+        proc, after = self.execute("Closes #58\nCloses #56\nParte de #56", issues)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["56"]["labels"], ["ready-for-agent"])
+        self.assertEqual(after["issues"]["56"]["edits"], 1)
+        self.assertEqual(len(after["issues"]["56"]["comments"]), 1)
+        self.assertEqual(after["issues"]["58"]["labels"], [])
+
+    def test_issues_fora_do_alcance_nao_mudam(self):
+        issues = {"4": issue(state="CLOSED"),
+                  "5": issue(labels=("ready-for-agent",)),
+                  "6": issue(labels=("awaiting-pr-review", "work-in-progress")),
+                  "7": issue(), "8": issue("[SUB-TASK] Outra")}
+        prs = [pr(82, "Closes #7"), pr(83, "## Resumo", closes=[8])]
+        body = "Closes #4\nCloses #5\nCloses #6\nCloses #7\nCloses #8\nCloses #9"
+        proc, after = self.execute(body, issues, prs)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertUntouched(after, "4", ("awaiting-pr-review",))
+        self.assertUntouched(after, "5", ("ready-for-agent",))
+        self.assertUntouched(after, "6", ("awaiting-pr-review", "work-in-progress"))
+        self.assertUntouched(after, "7", ("awaiting-pr-review",))
+        self.assertUntouched(after, "8", ("awaiting-pr-review",))
+        self.assertIn("#9 nao encontrado", proc.stdout)
+
+    def test_o_proprio_pr_e_numero_parecido_nao_contam_como_outro(self):
+        prs = [pr(80, "Closes #4", closes=[4]), pr(84, "Closes #40\nver #4", closes=[40])]
+        proc, after = self.execute("Closes #4", {"4": issue()}, prs)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["issues"]["4"]["labels"], ["ready-for-agent"])
+
+    def test_pr_sem_closes_termina_sem_mexer(self):
+        proc, after = self.execute("Parte de #56\n\n## Resumo", {"56": issue("[FEAT] Pai")})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("::notice::PR #80 nao declara Closes", proc.stdout)
+        self.assertUntouched(after, "56", ("awaiting-pr-review",))
+
+    def test_cria_o_ready_for_agent_canonico_se_faltar(self):
+        labels = {"awaiting-pr-review": {"color": REVIEW_COLOR, "description": REVIEW_DESC}}
+        proc, after = self.execute("Closes #4", {"4": issue()}, repo_labels=labels)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(after["repo_labels"]["ready-for-agent"],
+                         {"color": READY_COLOR, "description": READY_DESC})
+        self.assertEqual(after["issues"]["4"]["labels"], ["ready-for-agent"])
+
+    def test_cor_e_descricao_batem_com_a_issue_labeling(self):
+        labeling = (SKILLS / "issue-labeling" / "SKILL.md").read_text()
+        row = [l for l in labeling.splitlines() if l.startswith("| `ready-for-agent` |")][0]
+        self.assertEqual([c.strip(" `") for c in row.strip("|").split("|")][-2:], [READY_COLOR, READY_DESC])
+
+    def test_falha_de_api_falha_o_passo_sem_mexer(self):
+        proc, after = self.execute("Closes #4", {"4": issue()}, fail=["pr list"])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertUntouched(after, "4", ("awaiting-pr-review",))
 
 
 if __name__ == "__main__":

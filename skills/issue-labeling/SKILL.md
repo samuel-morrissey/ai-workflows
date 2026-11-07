@@ -56,7 +56,7 @@ O estado e um **label** e diz o **proximo passo** da issue. **Cor** e
 | `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` | Escopo entendido, falta quebrar em sub-tasks |
 | `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma, em cadeia, empilhando os PRs | Humano aplica o label `go` (skill `issue-remote-implement` no pontual; o planner do workflow num pai) | `0E8A16` | Pronto para o agente executar |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` | Unidade executavel exclusivamente humana; o agente so orienta |
-| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Numa sub-task, o PR e uma camada da stack do pai: revisa-se a stack de baixo para cima | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
+| `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Numa sub-task, o PR e uma camada da stack do pai: revisa-se a stack de baixo para cima. PR fechado sem merge devolve o issue a `ready-for-agent` (pontual e pai) ou a nenhum label (sub-task), pelo workflow (regra 2) | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
 | `wontfix` | Nao sera feito: rejeitado ou ja implementado. Terminal: a issue e fechada com esse label e vale como precedente de rejeicao | — | `FFFFFF` | Nao sera feito |
 | `deferred` | Despriorizado: nao sera feito agora. Terminal como `wontfix`, mas a issue vale como referencia, nunca como precedente, e pode voltar | Nenhum. Reabrir e decisao humana (regra 4) | `CFD3D7` | Despriorizado: nao agora, pode voltar |
 
@@ -192,7 +192,15 @@ o status atualizado.
    ready-for-* → awaiting-pr-review` e, por fim, issue fechada (merge do PR ou
    fechamento manual). `awaiting-pr-review` so vem de `ready-for-agent` (ou,
    numa sub-task, de nenhum label): a `issue-remote-implement` o aplica ao
-   abrir o PR, e o planner o aplica no pai quando a stack completa. `wontfix` e `deferred` podem vir de qualquer estagio:
+   abrir o PR, e o planner o aplica no pai quando a stack completa.
+   **Excecao: PR fechado sem merge volta um passo.** O workflow
+   `pr-closed.yml` (sem agente) devolve `awaiting-pr-review` a
+   `ready-for-agent` no pontual e no pai, ou a nenhum label na sub-task, e
+   comenta apontando o PR fechado. Vale para cada issue do `Closes` do PR
+   que esta aberto, em `awaiting-pr-review`, sem `work-in-progress` e sem
+   outro PR aberto que o declare, e para o pai do `Parte de` que esta em
+   `awaiting-pr-review`. Nada dispara sozinho: um `go` retoma a
+   implementacao (no pai, a cadeia). `wontfix` e `deferred` podem vir de qualquer estagio:
    tirar a issue do fluxo e decisao humana a qualquer momento (regra 4).
    Correcao de
    classificacao ou problema pos-merge vira **issue nova** vinculada — o label

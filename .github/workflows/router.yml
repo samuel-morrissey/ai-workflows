@@ -422,3 +422,15 @@ jobs:
       github.event.pull_request.merged == true &&
       github.event.pull_request.base.ref != github.event.repository.default_branch
     uses: samuel-morrissey/ai-workflows/.github/workflows/pr-merged.yml@main
+
+  # PR fechado sem merge, em qualquer base: devolve o estado de antes do PR
+  # aos issues do `Closes` que ainda estao em awaiting-pr-review (pontual e
+  # pai voltam a ready-for-agent; a sub-task fica sem label de estado) e ao
+  # pai do `Parte de` em awaiting-pr-review. Nao inicia nada: o `go`
+  # continua humano. E a excecao da regra 2 da issue-labeling.
+  pr-closed:
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == false
+    uses: samuel-morrissey/ai-workflows/.github/workflows/pr-closed.yml@main
