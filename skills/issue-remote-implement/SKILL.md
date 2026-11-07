@@ -40,6 +40,15 @@ Siga as skills `grilling` e `issue-async-first`: handoff completo no issue
 alvo, `awaiting-reply` aplicado, e encerre sem abrir PR. Termine a mensagem
 com: "responda aqui para retomar: a resposta ja dispara a proxima rodada".
 
+**Trade-off de correcao nunca se decide por palpite.** Se durante a
+implementacao surgir uma decisao que faz a solucao admitir um resultado
+incorreto conhecido (errar num caso que se consegue apontar, como ligar
+entidades por um atributo nao unico) e o brief nao a traz entre os casos de
+borda decididos, ela e impeditiva: conta como decisao de produto que o brief
+nao cobre. Faca o handoff acima, com o trade-off, as alternativas e a
+recomendacao, e encerre sem PR. Precedente no codigo nao resolve: so vale
+aceite com a fonte que o `AGENT-BRIEF.md` da `issue-triage` define.
+
 **Mencao ao responsavel.** Todo handoff desta skill no issue alvo (parada
 sem PR, verificacao vermelha fora do escopo, QA em aberto depois da rodada
 2) marca o responsavel no **Preciso de voce**, como diz a "Mencao ao
@@ -165,6 +174,16 @@ capturas da ultima rodada dele.
 
    Os criterios de aceite da rodada vem do corpo do issue alvo.
 
+   **Trade-offs pendentes.** Um brief (pontual ou sub-task) cujo grupo
+   **Trade-offs pendentes de aceite**, nos "Casos de borda", tem algum item
+   nao e apto. Faca o handoff de sempre (`grilling` + `issue-async-first`,
+   com a mencao ao responsavel no **Preciso de voce**): liste cada pendente
+   com as alternativas e a recomendacao do brief e peca que o humano edite o
+   brief, escolhendo a alternativa e movendo o item para os decididos.
+   Aplique `awaiting-reply` e encerre, sem branch nem PR. Numa sub-task, o
+   handoff vai na sub-task. Brief sem esse grupo (anterior a regra), ou com
+   ele vazio ou com "nenhum", segue o fluxo normal.
+
 2. **Crie a branch** conforme a `issue-git-flow`: pontual nasce da branch
    padrao; sub-task nasce da base do modo sub-task. Garanta identidade de
    commit antes do primeiro commit:
@@ -193,6 +212,9 @@ capturas da ultima rodada dele.
    PR. Repositorio sem infra de teste: implemente cobrindo os criterios, rode
    o que existir (typecheck, lint) e anote isso tambem. Em nenhum dos dois
    casos voce para para perguntar: a fronteira e fato do codigo, nao decisao.
+   Um trade-off de correcao que o brief nao decidiu e o contrario: e decisao,
+   e para a rodada em handoff, sem PR (ver "Trade-off de correcao nunca se
+   decide por palpite").
 
    Commits pequenos com mensagem clara. Estilo: o codigo novo le como o
    codigo ao redor. Numa sub-task, o codigo das camadas de baixo ja esta na
