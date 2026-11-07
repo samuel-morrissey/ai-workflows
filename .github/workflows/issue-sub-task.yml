@@ -201,6 +201,18 @@ jobs:
             gh issue edit "$NUMBER" --remove-label go
           fi
 
+      # O checkout inicial e o da branch padrao. A sub-task nasce da base da
+      # stack, que pode ter dependencias, migrations ou configuracao que a
+      # branch padrao ainda nao tem. Trocar o checkout para a base antes do
+      # agent-env faz o `.github/ai-workflows.yml` e os setup_commands (npm ci,
+      # migrations) rodarem sobre o que a sub-task vai herdar.
+      - name: Checkout da base da sub-task
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.target.outputs.base }}
+          fetch-depth: 0
+
       # O responsavel da sub-task, ja resolvido (scripts/responsible.py, com
       # default_responsible lido deste checkout). Sub-task criada por bot
       # herda o responsavel do pai, nunca o bot autor. A skill o marca no
