@@ -1416,5 +1416,25 @@ class PrClosedRun(unittest.TestCase):
         self.assertUntouched(after, "4", ("awaiting-pr-review",))
 
 
+class SubTaskBaseCheckout(unittest.TestCase):
+    """O setup da sub-task roda sobre a base da stack, nao sobre a branch padrao."""
+
+    STEP = "Checkout da base da sub-task"
+
+    def test_checkout_da_base_antes_do_ambiente(self):
+        steps = steps_of((WORKFLOWS / "issue-sub-task.yml").read_text())
+        names = [n for n, _ in steps]
+        self.assertEqual(names.count(self.STEP), 1)
+        self.assertGreater(names.index(self.STEP), names.index("Aplicar work-in-progress"))
+        self.assertLess(names.index(self.STEP), names.index(RESP_STEP))
+        self.assertLess(names.index(self.STEP), names.index("Preparar ambiente do agente"))
+        step = parse_step(dict(steps)[self.STEP])
+        self.assertEqual(step["uses"], "actions/checkout@v7")
+        self.assertEqual(step["with"]["ref"], "${{ steps.target.outputs.base }}")
+        # Historico completo: o agente cria a branch a partir de origin/<base>.
+        self.assertIn("          fetch-depth: 0\n", dict(steps)[self.STEP])
+        self.assertEqual(step["if"], parse_step(dict(steps)[AGENT])["if"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

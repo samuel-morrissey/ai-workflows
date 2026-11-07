@@ -82,7 +82,7 @@ STAGES = {
         "Resolver responsavel do pai": "pos-agente", "Decidir e agir": "pos-agente"}},
     "issue-sub-task": {"job": "Implement Sub-task", "steps": {
         CHECKOUT: "preparo", "Baixar o planner": "preparo", "Resolver alvo": "preparo", WIP: "preparo",
-        RESP: "preparo",
+        "Checkout da base da sub-task": "preparo", RESP: "preparo",
         ENV: "ambiente",
         AGENT: "agente",
         EVIDENCE: "pos-agente", "Devolver o controle ao pai": "pos-agente"}},
