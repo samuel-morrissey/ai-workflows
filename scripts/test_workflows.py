@@ -379,6 +379,11 @@ class AgentEnvConfig(unittest.TestCase):
         proc, _ = self.execute("responsavel: fulano\n")
         self.assertIn("Chave desconhecida ignorada: responsavel", proc.stdout)
 
+    def test_web_domains_sem_aviso_de_chave_desconhecida(self):
+        proc, _ = self.execute("quality_checks: make test\nweb_domains: |\n  https://docs.asaas.com/reference\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("Chave desconhecida", proc.stdout)
+
     def test_default_responsible_que_nao_e_texto_falha(self):
         proc, _ = self.execute("default_responsible:\n  - fulano\n")
         self.assertNotEqual(proc.returncode, 0)
@@ -648,7 +653,9 @@ class ResponsibleShape(unittest.TestCase):
             steps = dict(self.steps(f))
             agent = steps[AGENT]
             if f in OWN_SYSPROMPT:
-                self.assertIn(f'--append-system-prompt "{RESP_OUT}"', agent, f)
+                # A frase do responsavel abre o system prompt; a das fontes da
+                # web (WebDomainsShape) vem depois dela.
+                self.assertIn(f'--append-system-prompt "{RESP_OUT}', agent, f)
             else:
                 self.assertIn("${{ steps.ambiente.outputs.sysprompt }}", agent, f)
                 prefix = parse_step(steps["Preparar ambiente do agente"])["with"]["prompt_prefix"]
@@ -1002,6 +1009,128 @@ class WebAccess(unittest.TestCase):
         self.assertIn("WebFetch", etapas)
         for d in WEB_DOMAINS:
             self.assertIn("`%s`" % d, etapas, d)
+
+
+WEBD_ACTION = ROOT / ".github" / "actions" / "web-domains" / "action.yml"
+WEBD_USES = "samuel-morrissey/ai-workflows/.github/actions/web-domains@main"
+WEBD_STEP = "Ler dominios da web"
+WEBD_ALLOW = "${{ steps.web.outputs.allow }}"
+WEBD_SENTENCE = "${{ steps.web.outputs.sentence }}"
+
+
+class WebDomainsShape(unittest.TestCase):
+    """Triagem, refinamento e break-down somam web_domains a lista fixa."""
+
+    def steps(self, f):
+        return steps_of((WORKFLOWS / f).read_text())
+
+    def test_le_antes_do_agente_e_falha_a_rodada(self):
+        for f in WEB_STAGES:
+            names = [n for n, _ in self.steps(f)]
+            self.assertEqual(names.count(WEBD_STEP), 1, f)
+            self.assertGreater(names.index(WEBD_STEP), names.index("Aplicar work-in-progress"), f)
+            self.assertLess(names.index(WEBD_STEP), names.index(AGENT), f)
+            step = parse_step(dict(self.steps(f))[WEBD_STEP])
+            self.assertEqual(step["uses"], WEBD_USES, f)
+            self.assertRegex(dict(self.steps(f))[WEBD_STEP], r"(?m)^        id: web$", f)
+            # Valor que nao e texto para a rodada: sem continue-on-error.
+            self.assertIsNone(step["continue_on_error"], f)
+            self.assertEqual(step["if"], parse_step(dict(self.steps(f))[AGENT])["if"], f)
+
+    def test_dominios_logo_depois_da_lista_fixa_e_urls_no_system_prompt(self):
+        for f in WEB_STAGES:
+            agent = dict(self.steps(f))[AGENT]
+            self.assertIn(f"WebFetch(domain:platform.claude.com){WEBD_ALLOW},Skill", agent, f)
+            self.assertIn(f'--append-system-prompt "{RESP_OUT}{WEBD_SENTENCE}"', agent, f)
+
+    def test_implementacao_nao_le(self):
+        for f in NO_WEB_STAGES:
+            text = (WORKFLOWS / f).read_text()
+            self.assertNotIn(WEBD_USES, text, f)
+            self.assertNotIn("steps.web.outputs", text, f)
+
+    def test_brief_e_readme_documentam_a_chave(self):
+        brief = (SKILLS / "issue-triage" / "AGENT-BRIEF.md").read_text()
+        section = " ".join(brief.split("\n## Uso da web\n", 1)[1].split("\n## ", 1)[0].replace("**", "").split())
+        self.assertIn("web_domains", section)
+        self.assertIn("URL de entrada", section)
+        self.assertIn("Fontes da web do consumidor", section)
+        self.assertIn('"nao verificada" quer dizer "nao ha fonte oficial", nao "nao achei a URL"', section)
+        readme = (ROOT / "README.md").read_text()
+        table = readme.split("\n## O que um repositório precisa\n", 1)[1].split("\n### ", 1)[0]
+        self.assertIn("`web_domains`", table)
+        config = readme.split("\n### O arquivo `.github/ai-workflows.yml`\n", 1)[1].split("\n### ", 1)[0]
+        item = config.split("- `web_domains`:", 1)[1]
+        for texto in ("URL de entrada", "`https://`", "curinga", "lista fixa", "falha a rodada",
+                      "Só essas três etapas a usam", "`doctor`"):
+            self.assertIn(texto, item, texto)
+
+    def test_lista_fixa_do_leitor_e_a_dos_workflows(self):
+        import web_domains
+        self.assertEqual(set(web_domains.FIXED), WEB_DOMAINS)
+
+
+class WebDomainsRun(unittest.TestCase):
+    """Roda o passo da action web-domains com o leitor real num checkout falso."""
+
+    def execute(self, config=None):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="webd-wf-"))
+        (tmp / "step.sh").write_text(composite_run(WEBD_ACTION))
+        work = tmp / "checkout"
+        (work / ".github").mkdir(parents=True)
+        if config is not None:
+            (work / ".github" / "ai-workflows.yml").write_text(config)
+        env = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(tmp / "out"),
+               "CONFIG_FILE": ".github/ai-workflows.yml",
+               "WEB_DOMAINS_PY": str(ROOT / "scripts" / "web_domains.py")}
+        proc = subprocess.run(["bash", "--noprofile", "--norc", "-e", str(tmp / "step.sh")],
+                              cwd=work, env=env, capture_output=True, text=True)
+        out = outputs_of((tmp / "out").read_text()) if (tmp / "out").exists() else {}
+        return proc, out
+
+    def tools(self, out):
+        """--allowed-tools da triagem como o runner o monta, com o sufixo."""
+        raw = re.search(r'--allowed-tools "([^"]*)"', (WORKFLOWS / "issue-triage.yml").read_text()).group(1)
+        return raw.replace(WEBD_ALLOW, out["allow"]).split(",")
+
+    def test_url_de_entrada_libera_o_host_e_chega_ao_prompt(self):
+        proc, out = self.execute("web_domains: |\n  https://docs.asaas.com/reference\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("::warning", proc.stdout)
+        self.assertEqual(web_tools(self.tools(out)),
+                         {"WebFetch(domain:%s)" % d for d in WEB_DOMAINS | {"docs.asaas.com"}})
+        self.assertIn("https://docs.asaas.com/reference", out["sentence"])
+        for ch in '"`$\\\n':
+            self.assertNotIn(ch, out["sentence"])
+
+    def test_sem_arquivo_ou_sem_chave_so_a_lista_fixa_sem_aviso(self):
+        for config in (None, "quality_checks: make test\n"):
+            proc, out = self.execute(config)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertNotIn("::warning", proc.stdout)
+            self.assertEqual(out["allow"], "")
+            self.assertEqual(out["sentence"], "")
+            self.assertEqual(web_tools(self.tools(out)), {"WebFetch(domain:%s)" % d for d in WEB_DOMAINS})
+
+    def test_linha_invalida_avisa_e_as_validas_valem(self):
+        proc, out = self.execute('web_domains: |\n  http://x.com\n  *.x.com\n  x .com\n  "x.com"\n  docs.y.com\n')
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        warnings = [l for l in proc.stdout.splitlines() if l.startswith("::warning")]
+        self.assertEqual(len(warnings), 4, proc.stdout)
+        self.assertEqual(out["allow"], ",WebFetch(domain:docs.y.com)")
+
+    def test_todas_invalidas_so_a_lista_fixa(self):
+        proc, out = self.execute("web_domains: |\n  http://x.com\n  *.x.com\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.count("::warning"), 2)
+        self.assertEqual(out["allow"], "")
+        self.assertEqual(out["sentence"], "")
+
+    def test_lista_yaml_falha_o_passo(self):
+        proc, out = self.execute("web_domains:\n  - docs.asaas.com\n")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("::error file=.github/ai-workflows.yml::web_domains precisa ser texto", proc.stdout)
+        self.assertNotIn("allow", out)
 
 
 def workflow_run(block):

@@ -52,6 +52,7 @@ AGENT = "Run anthropics/claude-code-action@v1"
 WIP = "Aplicar work-in-progress"
 UNWIP = "Remover work-in-progress"
 RESP = "Resolver responsavel"
+WEB = "Ler dominios da web"
 ENV = "Preparar ambiente do agente"
 EVIDENCE = "Publicar evidencias"
 
@@ -62,14 +63,17 @@ EVIDENCE = "Publicar evidencias"
 STAGES = {
     "issue-triage": {"job": "Triage Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
+        WEB: "preparo",
         AGENT: "agente",
         "Remover needs-triage se a triagem concluiu": "pos-agente", UNWIP: "pos-agente"}},
     "issue-refinement": {"job": "Refine Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
+        WEB: "preparo",
         AGENT: "agente",
         "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNWIP: "pos-agente"}},
     "issue-break-down": {"job": "Break Down Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
+        WEB: "preparo",
         AGENT: "agente",
         "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNWIP: "pos-agente"}},
     "issue-remote-implement": {"job": "Implement Issue", "steps": {

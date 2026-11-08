@@ -14,12 +14,14 @@ import doctor  # noqa: E402
 from test_workflows import (  # noqa: E402,F401
     AgentEnvConfig, ChainNoticeRun, ChainNoticeShape, PrClosedRun, PrClosedShape, PrFixTrigger, ResponsibleRun,
     ResponsibleShape, Run as WorkflowRun, SafetyNetRun, SafetyNetShape, Shape as WorkflowShape,
-    SkillsMention, SkillsPremise)
+    SkillsMention, SkillsPremise, WebAccess, WebDomainsRun, WebDomainsShape)
 from test_sub_tasks import (  # noqa: E402,F401
     Finish as SubTasksFinish, Notify as SubTasksNotify, Stack as SubTasksStack,
     Worker as SubTasksWorker)
 from test_responsible import (  # noqa: E402,F401
     Cli as ResponsibleCli, Rules as ResponsibleRules)
+from test_web_domains import (  # noqa: E402,F401
+    Cli as WebDomainsCli, Entry as WebDomainsEntry, Extract as WebDomainsExtract, Read as WebDomainsRead)
 from test_metrics import (  # noqa: E402,F401
     Compare as MetricsCompare, Mapping as MetricsMapping, Readme as MetricsReadme, Run as MetricsRun, Session as MetricsSession,
     Shape as MetricsShape, Subagents as MetricsSubagents)
@@ -153,6 +155,24 @@ class ConfigCheck(unittest.TestCase):
     def test_default_responsible_e_chave_conhecida(self):
         f = self.check("quality_checks: make test\nevidence_tools: make\ndefault_responsible: fulano\n")
         self.assertEqual(f.status, "ok", f.detail)
+
+    def test_web_domains_e_chave_conhecida(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\n"
+                       "web_domains: |\n  docs.asaas.com\n  https://docs.asaas.com/reference\n")
+        self.assertEqual(f.status, "ok", f.detail)
+
+    def test_web_domains_acusa_a_linha_invalida(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\n"
+                       "web_domains: |\n  docs.asaas.com\n  http://x.com\n  *.x.com\n")
+        self.assertEqual(f.status, "diverge")
+        self.assertIn("web_domains", f.detail)
+        self.assertIn("http://x.com (esquema", f.detail)
+        self.assertIn("*.x.com (curinga", f.detail)
+        self.assertNotIn("docs.asaas.com (", f.detail)
+
+    def test_web_domains_como_lista_e_invalido(self):
+        with self.assertRaises(doctor.ConfigError):
+            doctor.parse_simple_yaml("web_domains:\n  - docs.asaas.com\n")
 
     def test_chave_desconhecida_continua_diverge(self):
         f = self.check("quality_checks: make test\nevidence_tools: make\nresponsavel: fulano\n")

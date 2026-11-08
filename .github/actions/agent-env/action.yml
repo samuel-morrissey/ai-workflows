@@ -130,7 +130,10 @@ runs:
         IN_DEFAULT_RESPONSIBLE: ${{ inputs.default_responsible }}
       run: |
         set +o pipefail
-        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint default_responsible"
+        # web_domains e so da triagem, do refinamento e do break-down (action
+        # web-domains): aqui entra para nao gerar aviso e para o valor que nao
+        # e texto falhar igual; nenhum passo abaixo o usa.
+        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint default_responsible web_domains"
         emit() {
           local d="EOF_$(openssl rand -hex 8)"
           { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_OUTPUT"
