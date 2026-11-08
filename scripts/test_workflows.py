@@ -875,6 +875,49 @@ class SkillsMention(unittest.TestCase):
         self.assertNotIn("ainda não marcam", notif)
 
 
+PREMISSA_LINK = "../issue-triage/AGENT-BRIEF.md#premissa-externa"
+
+
+class SkillsPremise(unittest.TestCase):
+    """Premissa externa: uma secao no AGENT-BRIEF.md, citada por quem escreve."""
+
+    def brief(self):
+        return (SKILLS / "issue-triage" / "AGENT-BRIEF.md").read_text()
+
+    def section(self):
+        return self.brief().split("\n## Premissa externa\n", 1)[1].split("\n## ", 1)[0]
+
+    def test_secao_nomeia_os_quatro_textos_e_as_regras(self):
+        section = " ".join(self.section().replace("**", "").split())
+        for texto in ("brief completo", "leitura de codigo", "refinamento", "corpo de PR"):
+            self.assertIn(texto, section, texto)
+        self.assertIn("Premissa nao verificada: <premissa>; fonte: <payload/log/teste>; "
+                      "se estiver errada, descarta <x>", section)
+        self.assertIn("URL consultado", section)
+        self.assertIn("Fonte secundaria", section)
+        self.assertIn("continua nao verificada", section)
+
+    def test_brief_completo_aponta_para_a_secao_sem_repetir(self):
+        brief = self.brief()
+        full = brief.split("\n## Brief completo", 1)[1].split("\n## Leitura de codigo", 1)[0]
+        self.assertIn("[Premissa externa](#premissa-externa)", full)
+        # O texto da regra mora so na secao nova.
+        self.assertNotIn("URL consultado", full)
+        self.assertNotIn("documentacao oficial", full)
+        self.assertEqual(brief.count("Fonte secundaria"), 1)
+
+    def test_refinement_cita_a_secao(self):
+        text = (SKILLS / "issue-refinement" / "SKILL.md").read_text()
+        final = text.split("\n## Refinamento\n", 1)[1]
+        self.assertIn(PREMISSA_LINK, final)
+
+    def test_remote_to_pr_aplica_nos_dois_modos(self):
+        text = (SKILLS / "remote-to-pr" / "SKILL.md").read_text()
+        new, existing = text.split("\n## PR existente\n", 1)
+        self.assertIn(PREMISSA_LINK, new.split("\n## Pedido de review\n", 1)[0])
+        self.assertIn(PREMISSA_LINK, existing)
+
+
 def workflow_run(block):
     """Texto do `run: |` de um passo de workflow (indentacao de 10)."""
     run = block.split("        run: |\n", 1)[1]

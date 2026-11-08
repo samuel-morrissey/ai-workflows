@@ -49,6 +49,12 @@ Dois ramos, pelo que quem chama passa:
    "Nao corrigido: <motivo>". QA que nao rodou usa a declaracao do
    `TEMPLATE.md`, com o motivo que quem chamou deu.
 
+   **Premissa externa.** Corpo que se apoia em comportamento de terceiro
+   (gateway, SDK, API, servico externo) segue a secao
+   [Premissa externa](../issue-triage/AGENT-BRIEF.md#premissa-externa) do
+   `AGENT-BRIEF.md`: a premissa nao conferida em fonte oficial entra marcada
+   como nao verificada; a conferida leva o URL consultado.
+
 2. **Base e head vem de quem chamou.** Quem chama ja definiu a base pela
    `issue-git-flow`. Use o par recebido, sem resolver pela branch padrao.
 
@@ -167,6 +173,11 @@ quando o PR abriu, e quem esta revisando ja acompanha o PR.
      mantenha as capturas e acrescente, logo abaixo do titulo da secao, a
      linha "Capturas anteriores a correcao de <commit>: nao refletem
      <o que mudou>."
+
+   Texto novo desta rodada que se apoia em comportamento de terceiro segue
+   a mesma regra do PR novo: a secao
+   [Premissa externa](../issue-triage/AGENT-BRIEF.md#premissa-externa) do
+   `AGENT-BRIEF.md`.
 
 3. **Aplique direto**, sem perguntar:
    `gh pr edit <pr> --body-file <arquivo-temporario>`. Depois confira que
