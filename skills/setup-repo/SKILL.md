@@ -1,6 +1,6 @@
 ---
 name: setup-repo
-description: Configura um repositorio consumidor do fluxo de issues a partir do relatorio do doctor - infere os comandos do projeto, redige a skill evidencias, levanta colisoes de labels, pergunta tudo de uma vez e abre o PR no repositorio alvo. Use para ligar um repositorio novo ao fluxo ou para completar um parcialmente configurado.
+description: Configura um repositorio consumidor do fluxo de issues a partir do relatorio do doctor - infere os comandos do projeto, redige a skill evidencias, levanta colisoes de labels e os fornecedores para web_domains, pergunta tudo de uma vez e abre o PR no repositorio alvo. Use para ligar um repositorio novo ao fluxo, para completar um parcialmente configurado ou para propor web_domains num ja configurado.
 argument-hint: "[owner/repo]"
 arguments: repo
 disable-model-invocation: true
@@ -19,10 +19,11 @@ Divisao de trabalho, para nao duplicar nada:
 | Quem | Faz |
 |---|---|
 | `doctor check` | diz o que falta, diverge ou exige humano |
-| esta skill | infere comandos, redige a skill `evidencias`, propoe mapeamento de labels, pergunta, abre o PR com os arquivos |
+| esta skill | infere comandos, redige a skill `evidencias`, propoe mapeamento de labels e os `web_domains` dos fornecedores, pergunta, abre o PR com os arquivos |
 | `doctor fix --only secrets,vars,labels,topic` | secrets, variaveis, os labels do fluxo (cria e corrige) e topic, antes do PR; o `ai.yml` fica fora porque o PR desta skill ja o traz |
 
-Nao escreva arquivo que o `doctor` reporta `ok`. Nao decida sozinho o que e
+Nao escreva arquivo que o `doctor` reporta `ok` (a unica excecao e
+acrescentar `web_domains` ao `.github/ai-workflows.yml`, passo 6.2). Nao decida sozinho o que e
 pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 
 ## Argumento
@@ -47,9 +48,14 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
    desenvolvimento. Nos passos seguintes, `doctor` e o arquivo baixado.
 
    Saida 2 (sem acesso, repositorio inexistente ou arquivado): pare e
-   reporte o erro, sem tentar contornar. Saida 0: diga que o repositorio ja
-   esta configurado e termine. Guarde os itens que nao estao `ok`: sao o
-   unico escopo desta rodada.
+   reporte o erro, sem tentar contornar. Guarde os itens em `falta`, `diverge`
+   ou `manual`, mais o `info` de `web_domains` ausente no item `config`
+   ("sem web_domains"): sao o unico escopo desta rodada. Esse `info` nao
+   encerra o setup, mesmo com saida 0: o `doctor` nao consegue propor
+   fornecedores, e esta skill sim. Os outros `info` seguem fora do escopo. Saida 0 sem esse
+   `info`: diga que o repositorio ja esta configurado e termine. Saida 0
+   com ele: o escopo e so `web_domains` (passo 2, levantamento de
+   fornecedores), e o `ai.yml` ou outro arquivo `ok` fica como esta.
 
 2. **Leia o projeto.** Pela API (`gh api repos/{owner}/{repo}/contents/...`),
    sem clonar ainda. O que procurar e o que cada achado diz:
@@ -91,6 +97,40 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
    quando o dono e uma conta pessoal. Sem a chave, issue de bot sem
    responsavel fica sem mencao, sem erro.
 
+   Quando `web_domains` esta no escopo (o `info` de chave ausente, ou o
+   `diverge` de linha invalida), levante os **fornecedores** externos do
+   projeto, os servicos cuja documentacao a triagem e o refinamento vao
+   precisar ler:
+
+   - SDKs e clientes nas dependencias: `package.json`, `requirements*.txt`,
+     `pyproject.toml`, `go.mod` (e os equivalentes da tabela acima);
+   - APIs e gateways citados no codigo (URLs base, clientes HTTP, webhooks;
+     `gh api "search/code?q=repo:<owner/repo>+<termo>"` ajuda);
+   - ADRs (`docs/adr/`) e `CONTEXT.md`, que dizem de que o dominio depende.
+
+   Ficam de fora os que a lista fixa ja cobre (GitHub e Claude:
+   `docs.github.com`, `code.claude.com`, `platform.claude.com`), dominio
+   repetido e, numa chave que ja existe, o que ela ja tem. Para cada
+   fornecedor, escolha a **URL de entrada** na documentacao oficial:
+
+   1. o `llms.txt` primeiro, quando existe (`https://<docs>/llms.txt`);
+   2. sem `llms.txt`, a pagina indice da documentacao oficial.
+
+   Confira cada candidata com `curl`, sem seguir redirecionamento:
+
+   ```bash
+   curl -sSI -o /dev/null -w '%{http_code} %{redirect_url}\n' <url>
+   ```
+
+   `200` vale como esta. Redirecionamento no mesmo host: use o destino final
+   (repita o `curl` nele ate dar `200`). Redirecionamento para outro host:
+   nunca use essa URL, porque o `WebFetch` nao segue o salto e a entrada
+   fica inutil; tente a URL do host de destino, se ele tambem for oficial do
+   fornecedor. Sem URL oficial que sirva, o fornecedor fica fora da
+   proposta, e a mensagem do passo 5 diz por que. Guarde, para cada
+   entrada, o motivo: o arquivo ou ADR que mostra a dependencia (ex.: "o
+   reembolso depende do Asaas, ADR 0008").
+
 3. **Redija a skill `evidencias`** quando o `doctor` a reportou `manual` ou
    `diverge`. Modelo em `skills/issue-qa/EVIDENCIAS-PROJETO.md` deste plugin
    (ou pela mesma URL raw do passo 1). Preencha as cinco secoes com o que o
@@ -111,6 +151,12 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 
    - os tres blocos de comandos propostos, para confirmar ou ajustar;
    - o `default_responsible` proposto, ou nenhum;
+   - a lista de `web_domains` proposta, uma entrada por fornecedor, cada uma
+     com a recomendacao e o motivo (ex.: "`https://docs.asaas.com/llms.txt`:
+     o reembolso depende do Asaas, ADR 0008"); os fornecedores deixados de
+     fora, com o porque (sem URL oficial, so redireciona para outro host);
+     a correcao de cada linha invalida que o `doctor` apontou; e, sem
+     nenhum fornecedor, a recomendacao de ficar sem a chave;
    - QA ligado agora ou depois, e `PROJECT_ENV` ou nao, com o custo em uma
      frase (o agente mais ate dois QAs, cada um subindo o app);
    - bucket: usar o do dono (variaveis ja existem) ou nenhum (artifact);
@@ -129,7 +175,14 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
       `.github/workflows/ai.yml` (copia exata do modelo, baixado de
       `samuel-morrissey/ai-workflows` na `main`, sem editar),
       `.github/ai-workflows.yml` e `.claude/skills/evidencias/SKILL.md`.
-      Arquivo que o `doctor` deu `ok` fica como esta.
+      Arquivo que o `doctor` deu `ok` fica como esta, com uma excecao: o
+      `web_domains` aceito no passo 5 e acrescentado ao
+      `.github/ai-workflows.yml` existente, mesmo com o `config` em `ok` ou
+      `info`, sem reescrever nem reordenar as outras chaves (a chave nova
+      vai no fim, em bloco `|`, uma entrada por linha). Se a chave ja
+      existe, entram so as entradas que faltam, no fim do bloco; as do
+      humano ficam como estao. Linha invalida e corrigida so se o humano
+      aceitou a correcao.
    3. Rode `doctor fix <owner/repo> --only secrets,vars,labels,topic`,
       antes de abrir o PR. O `--only` deixa o item `ai-yml` de fora: sem
       ele, o `doctor` abriria o proprio PR com o `ai.yml`, porque o PR
@@ -148,7 +201,10 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
         PROJECT_ENV -R <owner/repo>` com o conteudo esperado; o valor e do
         humano, nao seu;
       - em **Como testar**, o roteiro e: mergear, criar um issue, colocar
-        `needs-triage` e conferir a aba Actions.
+        `needs-triage` e conferir a aba Actions;
+      - `web_domains`: as entradas acrescentadas, com o motivo de cada uma;
+        sem fornecedor externo (ou com todos recusados), o PR diz que a
+        ausencia da chave foi decidida.
    5. Rode `doctor check <owner/repo>` de novo, com o PR aberto. O esperado:
       `ai-yml` em `manual` apontando para o PR ("PR aberto com o modelo,
       falta o merge"), `config` e `evidencias` como estavam (so mudam no
@@ -172,8 +228,23 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 - **Backend externo sem emulador**: recomende comecar sem QA e ligar depois
   com `PROJECT_ENV`, salvo se o humano ja tem chave de teste em maos.
 - **Repositorio parcialmente configurado**: escopo e so o que o `doctor`
-  apontou. Nao reescreva o `ai.yml` se ele esta `ok`; nao mexa na skill
-  `evidencias` que ja tem as cinco secoes.
+  apontou, incluindo o `info` de `web_domains` ausente. Nao reescreva o
+  `ai.yml` se ele esta `ok` (em `diverge`, ele e atualizado com o modelo,
+  como sempre); nao mexa na skill `evidencias` que ja tem as cinco secoes.
+- **Ja configurado, so sem `web_domains`** (tudo `ok` mais o `info`): o
+  setup roda so o levantamento de fornecedores e a pergunta; o PR traz so a
+  chave acrescentada ao `.github/ai-workflows.yml`. O passo 6.3 (`doctor
+  fix`) nao tem o que corrigir e pode ser pulado.
+- **Ja tem `web_domains`**: proponha so as entradas que faltam; nunca
+  remove nem reescreve as do humano. Linha invalida (`diverge`): proponha a
+  correcao na mesma mensagem do passo 5.
+- **Sem fornecedor externo** (ou todos recusados, ou nenhum com URL
+  oficial que sirva): o repositorio fica sem a chave. Se nada mais estava
+  no escopo, nao ha PR: a resposta do passo 7 diz que a ausencia foi
+  decidida. Com PR, o texto dele diz o mesmo. O `info` volta nas proximas
+  rodadas do `doctor`: e repeticao, nao erro.
+- **Sem `.github/ai-workflows.yml`**: o `config` sai `falta` ou `manual`
+  como sempre; o arquivo novo ja nasce com o `web_domains` aceito.
 - **Outra toolchain** (Python, Go, Rust, PHP): mesma logica, com os
   comandos daquela toolchain; a CI existente e a melhor fonte.
 

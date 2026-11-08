@@ -258,5 +258,71 @@ class Labels(unittest.TestCase):
         self.assertEqual(doctor.label_collisions(labels), ["bug", "docs", "priority-high"])
 
 
+def flat(text):
+    return " ".join(text.replace("**", "").split())
+
+
+def section(text, start, end="\n## "):
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+class SetupRepoWebDomains(unittest.TestCase):
+    """A skill setup-repo propoe web_domains, tambem em repositorio ja configurado."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "skills", "setup-repo", "SKILL.md"), encoding="utf-8") as fh:
+            cls.skill = fh.read()
+        with open(os.path.join(root, "README.md"), encoding="utf-8") as fh:
+            cls.readme = fh.read()
+
+    def step(self, n):
+        return flat(section(self.skill, f"\n{n}. ", f"\n{n + 1}. "))
+
+    def test_saida_0_com_o_info_de_web_domains_nao_encerra(self):
+        s = self.step(1)
+        self.assertIn("Saida 0", s)
+        self.assertIn("`info` de `web_domains`", s)
+        self.assertIn("nao encerra", s)
+        self.assertIn("Os outros `info` seguem fora do escopo", s)
+
+    def test_leitura_levanta_fornecedores_e_confere_a_url(self):
+        s = self.step(2)
+        for texto in ("fornecedores", "`package.json`", "`requirements*.txt`", "`pyproject.toml`", "`go.mod`",
+                      "ADRs", "`CONTEXT.md`", "lista fixa", "`llms.txt` primeiro", "`curl`",
+                      "outro host", "destino final", "pagina indice"):
+            self.assertIn(texto, s, texto)
+
+    def test_pergunta_unica_traz_a_lista_com_motivo(self):
+        s = self.step(5)
+        self.assertIn("`web_domains`", s)
+        self.assertIn("recomendacao e o motivo", s)
+        self.assertIn("ADR 0008", s)
+
+    def test_aplicar_acrescenta_sem_reescrever(self):
+        s = self.step(6)
+        self.assertIn("`web_domains`", s)
+        self.assertIn("sem reescrever nem reordenar as outras chaves", s)
+        self.assertIn("so as entradas que faltam", s)
+        self.assertIn("excecao", s)
+
+    def test_casos_cobrem_chave_existente_e_sem_fornecedor(self):
+        s = flat(section(self.skill, "\n## Casos\n"))
+        for texto in ("Ja tem `web_domains`", "nunca remove", "Sem fornecedor externo", "nao ha PR",
+                      "foi decidida", "repeticao, nao erro", "Repositorio parcialmente configurado"):
+            self.assertIn(texto, s, texto)
+
+    def test_readme_descreve_a_proposta_e_o_info(self):
+        config = self.readme.split("\n### O arquivo `.github/ai-workflows.yml`\n", 1)[1].split("\n### ", 1)[0]
+        item = flat(config.split("- `web_domains`:", 1)[1])
+        for texto in ("`setup-repo`", "`info`", "`llms.txt`", "`curl`", "outro host"):
+            self.assertIn(texto, item, texto)
+        row = next(line for line in self.readme.splitlines() if line.startswith("| `config` |"))
+        self.assertIn("`info`", row)
+        self.assertIn("`setup-repo`", row)
+        self.assertIn("web_domains", row)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
