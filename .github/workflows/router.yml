@@ -24,6 +24,9 @@ name: AI Router
 # Um label de estado aplicado por humano (`needs-triage`, `needs-refinement`,
 # `needs-break-down`) tambem dispara a etapa dele, sem precisar de `go`.
 #
+# O label `undo` e o sinal humano de volta: desfaz a ultima mudanca de estado
+# feita por uma etapa (job issue-undo), e o issue fica parado esperando `go`.
+#
 # Num PR aberto, a correcao (pr-fix) responde a uma acao explicita: review com
 # *Request changes*, review ou comentario que cita `@claude`, ou comentario
 # humano no PR com `awaiting-reply` (resposta a um handoff da correcao).
@@ -282,6 +285,27 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  # Undo: um humano aplica `undo` num issue sem work-in-progress. Desfaz a
+  # ultima mudanca de estado feita por uma etapa (refinamento ou quebra) ou
+  # recusa com comentario (implementacao comecada, [SUB-TASK], needs-triage,
+  # issue fechado, triagem ainda nao suportada). Sem guarda de estado nem de
+  # aberto: a recusa tambem e resposta. Com work-in-progress o evento e
+  # pulado, mas o `undo` fica no issue: a etapa que esta rodando (triagem,
+  # refinamento ou quebra) o processa ao terminar. Num pai com a cadeia de
+  # sub-tasks viva, ele nao roda: tire o work-in-progress do pai para
+  # abandonar a cadeia e aplique `undo` de novo. Nao inicia nada: o `go`
+  # roda a etapa do estado de novo.
+  issue-undo:
+    if: >
+      github.event_name == 'issues' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'undo' &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress')
+    concurrency:
+      group: ai-undo-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    uses: samuel-morrissey/ai-workflows/.github/workflows/issue-undo.yml@main
 
   # Implementacao: `go` em issue aberto com `ready-for-agent`, resposta
   # humana a um handoff da implementacao (`ready-for-agent` +

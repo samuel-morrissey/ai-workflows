@@ -76,6 +76,7 @@ SKILL_SECTIONS = ("evidencia ideal", "como subir", "dados e acesso", "antes", "l
 # Cor e descricao canonicas (skills/issue-labeling/SKILL.md).
 FLOW_LABELS = {
     "go": ("3FB950", "Pode seguir: roda a etapa do estado atual"),
+    "undo": ("E4E669", "Desfaz a ultima etapa: volta o issue ao estado anterior"),
     "needs-triage": ("FBCA04", "Issue crua aguardando triagem"),
     "needs-discovery": ("FBCA04", "Falta descobrir os limites do que se quer construir"),
     "needs-refinement": ("FBCA04", "Falta lapidar requisitos ou esclarecer a solicitacao"),

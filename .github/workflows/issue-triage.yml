@@ -144,6 +144,20 @@ jobs:
             fi
           fi
 
+      # `undo` aplicado durante a rodada: o evento dele foi pulado pela
+      # guarda de work-in-progress, mas o label nao e descartado. Processado
+      # aqui, com o work-in-progress ainda nesta rodada: desfaz a ultima
+      # mudanca de estado, que pode ser a que esta rodada acabou de fazer, ou
+      # recusa com comentario. Sem `undo` no issue, nada acontece. Falha aqui
+      # nao segura o work-in-progress.
+      - name: Processar undo da rodada
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/undo@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+          pending: "true"
+
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker
       # que o aplicou (skip vazio), para nao apagar o label de outro worker.
       # Um `go` que chegou durante a rodada tambem sai: o evento dele foi

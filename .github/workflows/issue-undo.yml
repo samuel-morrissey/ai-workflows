@@ -1,0 +1,80 @@
+name: Issue Undo
+
+# Workflow reutilizavel do label `undo`. Chamado pelo router.yml quando um
+# humano aplica `undo` num issue sem work-in-progress. Desfaz a ultima
+# mudanca de estado feita por uma etapa, a excecao da regra 2 da skill
+# issue-labeling:
+#
+# - refinamento: o issue volta de needs-break-down a needs-refinement;
+# - quebra: o pai volta de ready-for-* a needs-break-down, e cada sub-task
+#   criada pela quebra sai da lista de sub-issues, perde os blocked_by e e
+#   fechada como "not planned";
+# - triagem: ainda nao suportado (recusa com comentario).
+#
+# Recusa, com comentario do motivo e do caminho e sem mudar labels de estado:
+# implementacao comecada (awaiting-pr-review, sub-task com PR aberto ou
+# mergeado, devolucao do pr-closed.yml como ultima mudanca), [SUB-TASK],
+# needs-triage e issue fechado. A regra mora em scripts/undo.py, pela action
+# undo. O `undo` sai ao comecar, como o `go`; nada e disparado depois: o `go`
+# roda a etapa do estado de novo. Os comentarios nao marcam ninguem. Sem
+# agente: so gh.
+
+on:
+  workflow_call:
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  issue-undo:
+    name: Undo Issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolver numero do issue
+        id: target
+        env:
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ -z "$EVENT_NUMBER" ]; then
+            echo "::error::Evento sem issue: dispare o workflow chamador em um evento de issue."
+            exit 1
+          fi
+          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # Guarda de concorrencia, como nas etapas. Um `undo` que chega com
+      # work-in-progress fica no issue: a etapa que esta rodando o processa
+      # ao terminar. Num pai com a cadeia de sub-tasks viva, ele nao roda:
+      # abandonar a cadeia (tirar o work-in-progress do pai) vem antes.
+      - name: Aplicar work-in-progress
+        id: wip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
+            echo "::notice::Issue #$NUMBER ja esta com work-in-progress; o undo fica para o fim da rodada. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh label create work-in-progress --color D93F0B \
+            --description "Worker em execucao nesta issue" 2>/dev/null || true
+          gh label create undo --color E4E669 \
+            --description "Desfaz a ultima etapa: volta o issue ao estado anterior" 2>/dev/null || true
+          gh issue edit "$NUMBER" --add-label work-in-progress
+
+      - name: Desfazer a ultima etapa
+        if: steps.wip.outputs.skip != 'true'
+        uses: samuel-morrissey/ai-workflows/.github/actions/undo@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+
+      # Remove o WIP mesmo quando o passo anterior falha, mas so se foi este
+      # workflow que o aplicou.
+      - name: Remover work-in-progress
+        if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.target.outputs.number }}
+        run: |
+          gh issue edit "$NUMBER" --remove-label work-in-progress

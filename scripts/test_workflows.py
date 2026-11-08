@@ -1420,19 +1420,37 @@ def router_if(job):
 
 
 def evaluate(cond, event_name, payload):
-    """Avalia um `if` simples do router (so ==, !=, &&, ||, !) contra o evento."""
+    """Avalia um `if` do router contra o evento: ==, !=, &&, ||, ! e as
+    funcoes contains, startsWith e join (com o filtro `.*.` do GitHub)."""
     ctx = {"event_name": event_name, "event": payload}
 
-    def lookup(m):
-        value = ctx
-        for key in m.group(1).split("."):
+    def get(value, keys):
+        for i, key in enumerate(keys):
+            if key == "*":
+                return [get(v, keys[i + 1:]) for v in (value or [])] if isinstance(value, list) else None
             value = value.get(key) if isinstance(value, dict) else None
-        return repr(value)
+        return value
 
-    expr = re.sub(r"\bgithub\.([\w.]+)", lookup, cond)
+    def lookup(m):
+        return repr(get(ctx, m.group(1).split(".")))
+
+    def contains(hay, needle):
+        if isinstance(hay, list):
+            return needle in hay
+        return hay is not None and str(needle).lower() in str(hay).lower()
+
+    def starts_with(text, prefix):
+        return text is not None and str(text).lower().startswith(str(prefix).lower())
+
+    def join(items, sep=","):
+        return sep.join(str(i) for i in items) if isinstance(items, list) else (items or "")
+
+    expr = re.sub(r"\bgithub\.([\w.*]+)", lookup, cond)
     expr = expr.replace("&&", " and ").replace("||", " or ")
-    expr = re.sub(r"!(?!=)", " not ", expr).replace("true", "True").replace("false", "False")
-    return eval(expr, {})
+    expr = re.sub(r"!(?!=)", " not ", expr)
+    expr = re.sub(r"\btrue\b", "True", re.sub(r"\bfalse\b", "False", expr))
+    expr = expr.replace("startsWith(", "starts_with(")
+    return eval(expr, {"contains": contains, "starts_with": starts_with, "join": join})
 
 
 def closed_event(merged, base="main", action="closed"):
