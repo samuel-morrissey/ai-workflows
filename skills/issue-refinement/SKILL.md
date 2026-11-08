@@ -4,7 +4,7 @@ description: Refinamento assincrono de um issue needs-refinement - investiga o c
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Bash(git show:*) Read Grep Glob WebFetch(domain:docs.github.com) WebFetch(domain:docs.claude.com)
+allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Bash(git show:*) Read Grep Glob WebFetch(domain:docs.github.com) WebFetch(domain:code.claude.com) WebFetch(domain:platform.claude.com)
 ---
 
 # Refinement

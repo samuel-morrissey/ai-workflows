@@ -78,10 +78,13 @@ continua nao verificada. Texto sem premissa externa nao ganha linha nenhuma.
 ## Uso da web
 
 Vale para a triagem, o refinamento e a quebra, que tem `WebFetch` restrito a
-uma lista fixa de dominios: **`docs.github.com`** e **`docs.claude.com`**. E
-o meio de conferir uma premissa externa sobre GitHub ou Claude na fonte
-oficial (secao acima). URL fora da lista a ferramenta recusa: a premissa
-fica nao verificada.
+uma lista fixa de dominios: **`docs.github.com`**, **`code.claude.com`**
+(Claude Code) e **`platform.claude.com`** (API e plataforma). E o meio de
+conferir uma premissa externa sobre GitHub ou Claude na fonte oficial (secao
+acima). URL fora da lista a ferramenta recusa: a premissa fica nao
+verificada. `docs.claude.com` e `docs.anthropic.com` ficam fora: so
+redirecionam para os dois hosts acima, e o `WebFetch` nao segue
+redirecionamento para outro host.
 
 - **`llms.txt` primeiro.** Antes de qualquer outra pagina de um dominio,
   tente `https://<dominio>/llms.txt`. Quando existir, navegue a partir dele.

@@ -94,7 +94,7 @@ jobs:
           # WebFetch so na lista fixa de dominios (Uso da web, no AGENT-BRIEF.md da issue-triage).
           claude_args: |
             --model claude-opus-5-5
-            --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue create:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(git log:*),Read,Grep,Glob,WebFetch(domain:docs.github.com),WebFetch(domain:docs.claude.com),Skill,TodoWrite"
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue create:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(git log:*),Read,Grep,Glob,WebFetch(domain:docs.github.com),WebFetch(domain:code.claude.com),WebFetch(domain:platform.claude.com),Skill,TodoWrite"
             --max-turns 100
             --append-system-prompt "${{ steps.responsavel.outputs.sentence }}"
 

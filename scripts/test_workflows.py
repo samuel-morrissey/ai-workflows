@@ -919,7 +919,7 @@ class SkillsPremise(unittest.TestCase):
 
 
 # Web das etapas de issue: lista fixa de dominios, nos dois lados do espelho.
-WEB_DOMAINS = {"docs.github.com", "docs.claude.com"}
+WEB_DOMAINS = {"docs.github.com", "code.claude.com", "platform.claude.com"}
 WEB_STAGES = {"issue-triage.yml": "issue-triage", "issue-refinement.yml": "issue-refinement",
               "issue-break-down.yml": "issue-break-down"}
 NO_WEB_STAGES = {"issue-remote-implement.yml": "issue-remote-implement",
@@ -948,7 +948,7 @@ def web_tools(tools):
 
 
 class WebAccess(unittest.TestCase):
-    """Triagem, refinamento e break-down leem docs.github.com e docs.claude.com."""
+    """Triagem, refinamento e break-down leem so a lista fixa de dominios (WEB_DOMAINS)."""
 
     def expected(self):
         return {"WebFetch(domain:%s)" % d for d in WEB_DOMAINS}
