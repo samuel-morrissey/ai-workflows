@@ -55,6 +55,7 @@ RESP = "Resolver responsavel"
 WEB = "Ler dominios da web"
 ENV = "Preparar ambiente do agente"
 EVIDENCE = "Publicar evidencias"
+UNDO = "Processar undo da rodada"
 
 # Mapeamento passo -> grupo, por etapa. Todo passo do job da etapa entra aqui
 # (ou em IGNORED): passo novo ou renomeado num workflow sem entrada aqui faz
@@ -65,17 +66,19 @@ STAGES = {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
         WEB: "preparo",
         AGENT: "agente",
-        "Remover needs-triage se a triagem concluiu": "pos-agente", UNWIP: "pos-agente"}},
+        "Remover needs-triage se a triagem concluiu": "pos-agente", UNDO: "pos-agente", UNWIP: "pos-agente"}},
     "issue-refinement": {"job": "Refine Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
         WEB: "preparo",
         AGENT: "agente",
-        "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNWIP: "pos-agente"}},
+        "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNDO: "pos-agente",
+        UNWIP: "pos-agente"}},
     "issue-break-down": {"job": "Break Down Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
         WEB: "preparo",
         AGENT: "agente",
-        "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNWIP: "pos-agente"}},
+        "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNDO: "pos-agente",
+        UNWIP: "pos-agente"}},
     "issue-remote-implement": {"job": "Implement Issue", "steps": {
         CHECKOUT: "preparo", "Resolver alvo": "preparo", WIP: "preparo", RESP: "preparo",
         "Baixar o planner": "preparo",

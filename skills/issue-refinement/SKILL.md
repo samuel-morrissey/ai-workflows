@@ -68,6 +68,15 @@ issue.
      daquela rodada;
    - os comentarios humanos depois da ultima rodada sao as **respostas**.
 
+   **Rodando de novo depois de um `undo`.** Um comentario `## Undo` que
+   desfez o refinamento (ver "Label de volta" da `issue-labeling`) marca o
+   `## Refinamento` anterior a ele como **substituido**: ele nao e mais o
+   contrato, e esta rodada escreve um novo. As decisoes da conversa (o
+   "Decidido ate aqui" das rodadas e o proprio `## Refinamento` desfeito)
+   continuam valendo, a menos que um comentario humano posterior ao `undo`
+   as mude; esses comentarios entram como insumo, como respostas. Sem
+   pergunta nova na fronteira, a rodada vai direto ao refinamento (passo 6).
+
    Mapeie cada resposta para a pergunta dela. "ok", "LGTM" ou "resto ok"
    aceitam a recomendacao. Resposta fora das opcoes vale como decisao,
    inclusive com as regras novas que ela trouxer. Resposta ambigua volta como

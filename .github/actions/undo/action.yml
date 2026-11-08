@@ -1,0 +1,47 @@
+name: Undo do issue
+description: >-
+  Processa o label `undo` de um issue (scripts/undo.py): desfaz a ultima
+  mudanca de estado feita por uma etapa (refinamento ou quebra) ou recusa com
+  um comentario que diz o motivo e o caminho. Tira o `undo` do issue.
+
+# Chamada pelo issue-undo.yml (destino `issue-undo` do router) e, com
+# pending: true, pelo passo "Processar undo da rodada" das etapas de triagem,
+# refinamento e quebra: um `undo` aplicado durante a rodada (pulado pela
+# guarda de work-in-progress) e processado quando ela termina. Sem agente:
+# so gh. O work-in-progress e de quem chama.
+
+inputs:
+  number:
+    description: Issue a desfazer.
+    required: true
+  pending:
+    description: >-
+      "true": so age se o issue carrega `undo` (fim de rodada de etapa).
+    required: false
+    default: "false"
+
+outputs:
+  result:
+    description: JSON do undo.py (action revert, refuse ou none).
+    value: ${{ steps.undo.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - name: Processar undo
+      id: undo
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ inputs.number }}
+        PENDING: ${{ inputs.pending }}
+        # O script vem junto com a action, na mesma ref: a raiz do
+        # repositorio fica tres niveis acima de .github/actions/undo.
+        UNDO_PY: ${{ github.action_path }}/../../../scripts/undo.py
+      run: |
+        ARGS=(run "$NUMBER")
+        if [ "$PENDING" = "true" ]; then ARGS+=(--pending); fi
+        OUT=$(python3 -I "$UNDO_PY" "${ARGS[@]}")
+        echo "result=$OUT" >> "$GITHUB_OUTPUT"
+        echo "::notice::undo #${NUMBER}: $OUT"

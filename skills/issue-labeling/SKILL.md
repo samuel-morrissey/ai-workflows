@@ -91,6 +91,56 @@ roda so ela (ver "Pai e sub-tasks").
 |---|---|---|---|---|
 | `go` | Pode seguir: roda a etapa do estado atual | Aplica: um humano. Remove: o workflow, ao comecar a rodada — nenhuma skill o toca | `3FB950` | Pode seguir: roda a etapa do estado atual |
 
+## Label de volta
+
+`undo` tambem nao e estado: e o "volta um passo" do humano. Desfaz a
+**ultima mudanca de label de estado feita por uma etapa** (triagem,
+refinamento ou quebra) e deixa o issue parado no estado de antes, esperando
+`go`. Quem roda e o workflow `issue-undo.yml` (sem agente), destino
+`issue-undo` do router.
+
+| Label | Significado | Quem aplica e remove | Cor | Descricao |
+|---|---|---|---|---|
+| `undo` | Desfaz a ultima etapa: volta o issue ao estado anterior | Aplica: um humano. Remove: o workflow, ao comecar a reversao, como o `go` — nenhuma skill o toca | `E4E669` | Desfaz a ultima etapa: volta o issue ao estado anterior |
+
+O que cada `undo` desfaz:
+
+- **refinamento**: o issue volta de `needs-break-down` a `needs-refinement`.
+  Nada mais muda;
+- **quebra**: o pai volta de `ready-for-*` a `needs-break-down`. Cada
+  sub-task criada pela quebra sai da lista de sub-issues do pai, perde as
+  dependencias `blocked_by` e e fechada como "not planned" (a ja fechada
+  fica fechada);
+- **triagem**: ainda nao suportado. O `undo` cuja ultima etapa e a triagem
+  e recusado com um comentario, sem mudar nada.
+
+Rodada que terminou em pergunta nao mudou o estado e nao conta: o `undo`
+desfaz a mudanca anterior a ela, e o `awaiting-reply` sai junto. As
+mudancas do proprio `undo` tambem nao contam: aplicar `undo` de novo desfaz
+a etapa anterior a ja desfeita (um pai que voltou da quebra a
+`needs-break-down` vai a `needs-refinement`). A ultima etapa sai dos
+comentarios de etapa do issue (`## Triagem`, `## Refinamento`, `## Quebra`),
+e cada reversao posta um comentario novo dizendo o que foi desfeito e para
+qual estado o issue voltou, sem `@`. Os comentarios anteriores ficam como
+historico.
+
+O `undo` e recusado, com um comentario que diz o motivo e o caminho e sem
+mudar label de estado, quando:
+
+- a implementacao comecou: issue em `awaiting-pr-review`, pai com alguma
+  sub-task com PR aberto ou mergeado, ou a ultima mudanca de estado foi a
+  devolucao do `pr-closed.yml`. Caminho: fechar o PR sem merge;
+- o issue e `[SUB-TASK]`, esta em `needs-triage` (nada a desfazer) ou esta
+  fechado.
+
+Com `work-in-progress`, o `undo` nao roda na hora e nao e descartado: a
+rodada de triagem, refinamento ou quebra que esta rodando o processa ao
+terminar, e ele pode desfazer a mudanca que essa rodada acabou de fazer.
+Nenhuma run e cancelada. Num pai com a cadeia de sub-tasks viva
+(`ready-for-agent` + `work-in-progress`) ele nao roda: para desfazer a
+quebra, tire o `work-in-progress` do pai para abandonar a cadeia (ver
+"Label de trabalho") e aplique `undo` de novo.
+
 ## Label de espera
 
 `awaiting-reply` tambem nao e estado: diz que a ultima rodada terminou em uma
@@ -106,7 +156,11 @@ Lendo os labels juntos:
 - `needs-triage` + `awaiting-reply` — esperando o humano responder; a
   resposta dispara a proxima rodada;
 - `needs-triage` + `work-in-progress` — worker atuando agora;
-- `needs-triage` sozinho — esperando `go` para a triagem rodar.
+- `needs-triage` sozinho — esperando `go` para a triagem rodar;
+- `needs-refinement` + `work-in-progress` + `undo` — o `undo` chegou durante
+  a rodada e sera processado quando ela terminar;
+- `needs-break-down` sozinho, logo depois de um comentario `## Undo` — a
+  quebra foi desfeita; esperando `go` para quebrar de novo.
 
 ## Labels em PR
 
@@ -200,7 +254,15 @@ o status atualizado.
    que esta aberto, em `awaiting-pr-review`, sem `work-in-progress` e sem
    outro PR aberto que o declare, e para o pai do `Parte de` que esta em
    `awaiting-pr-review`. Nada dispara sozinho: um `go` retoma a
-   implementacao (no pai, a cadeia). `wontfix` e `deferred` podem vir de qualquer estagio:
+   implementacao (no pai, a cadeia).
+   **Excecao: o label `undo` volta uma etapa.** O workflow `issue-undo.yml`
+   (sem agente) desfaz a ultima mudanca de estado feita por uma etapa: o
+   refinamento (`needs-break-down` volta a `needs-refinement`) ou a quebra
+   (`ready-for-*` volta a `needs-break-down`, e as sub-tasks da quebra saem
+   do pai e fecham como "not planned"). Implementacao comecada, `[SUB-TASK]`,
+   `needs-triage` e issue fechado recusam; ver "Label de volta". Nada dispara
+   sozinho: um `go` roda a etapa do estado de novo.
+   `wontfix` e `deferred` podem vir de qualquer estagio:
    tirar a issue do fluxo e decisao humana a qualquer momento (regra 4).
    Correcao de
    classificacao ou problema pos-merge vira **issue nova** vinculada — o label
@@ -245,4 +307,5 @@ o status atualizado.
    como label de estado nem e trocado junto com ele. Nenhuma skill aplica ou
    remove `work-in-progress`; o `awaiting-reply` so e aplicado pela skill que
    encerra a rodada com pergunta impeditiva; o `priority` segue a secao
-   "Label de prioridade".
+   "Label de prioridade". `go` e `undo` tambem nao sao estado: so um humano
+   os aplica e so o workflow os remove.

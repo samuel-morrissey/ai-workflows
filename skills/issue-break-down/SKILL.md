@@ -54,6 +54,14 @@ issue.
    comente o estado atual e pare. Isso evita duplicar sub-tasks numa rodada
    repetida.
 
+   **Rodando de novo depois de um `undo`.** O `undo` da quebra (ver "Label de
+   volta" da `issue-labeling`) tira cada sub-task da lista de sub-issues do
+   pai e a fecha como "not planned", e o pai volta a `needs-break-down`:
+   a conferencia acima passa. Crie sub-tasks novas. As fechadas pelo `undo`
+   e o `## Quebra` anterior ao comentario `## Undo` nao contam como "ja
+   quebrado"; nao as reabra nem as religue ao pai. Um comentario humano
+   posterior ao `undo` (o motivo de refazer a quebra) entra como insumo.
+
    Issue com `wontfix` ou `deferred`: complete o fechamento da regra 4 da
    `issue-labeling` e pare.
 
