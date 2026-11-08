@@ -20,6 +20,8 @@ from test_sub_tasks import (  # noqa: E402,F401
     Worker as SubTasksWorker)
 from test_responsible import (  # noqa: E402,F401
     Cli as ResponsibleCli, Rules as ResponsibleRules)
+from test_web_domains import (  # noqa: E402,F401
+    Cli as WebDomainsCli, Entry as WebDomainsEntry, Extract as WebDomainsExtract, Read as WebDomainsRead)
 from test_metrics import (  # noqa: E402,F401
     Compare as MetricsCompare, Mapping as MetricsMapping, Readme as MetricsReadme, Run as MetricsRun, Session as MetricsSession,
     Shape as MetricsShape, Subagents as MetricsSubagents)
