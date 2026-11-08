@@ -4,7 +4,7 @@ description: Refinamento assincrono de um issue needs-refinement - investiga o c
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Bash(git show:*) Read Grep Glob
+allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git log:*) Bash(git show:*) Read Grep Glob WebFetch(domain:docs.github.com) WebFetch(domain:docs.claude.com)
 ---
 
 # Refinement
@@ -146,7 +146,8 @@ de [AGENT-BRIEF.md](../issue-triage/AGENT-BRIEF.md): duravel, comportamental e
 com nomes reais de conceitos e contratos. Premissa sobre comportamento de
 terceiro, aqui e nos comentarios de rodada, segue a secao
 [Premissa externa](../issue-triage/AGENT-BRIEF.md#premissa-externa): marcada
-como nao verificada, ou com o URL da fonte oficial consultada.
+como nao verificada, ou com o URL da fonte oficial consultada. Ao usar web,
+siga [Uso da web](../issue-triage/AGENT-BRIEF.md#uso-da-web).
 
 ```markdown
 ## Refinamento

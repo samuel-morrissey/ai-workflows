@@ -918,6 +918,92 @@ class SkillsPremise(unittest.TestCase):
         self.assertIn(PREMISSA_LINK, existing)
 
 
+# Web das etapas de issue: lista fixa de dominios, nos dois lados do espelho.
+WEB_DOMAINS = {"docs.github.com", "docs.claude.com"}
+WEB_STAGES = {"issue-triage.yml": "issue-triage", "issue-refinement.yml": "issue-refinement",
+              "issue-break-down.yml": "issue-break-down"}
+NO_WEB_STAGES = {"issue-remote-implement.yml": "issue-remote-implement",
+                 "issue-sub-task.yml": "issue-remote-implement", "pr-fix.yml": "pr-fix"}
+MAX_TURNS = {"issue-triage.yml": "50", "issue-refinement.yml": "80", "issue-break-down.yml": "100"}
+WEB_LINK = "AGENT-BRIEF.md#uso-da-web"
+
+
+def workflow_tools(name):
+    """Ferramentas do `--allowed-tools` do workflow, sem o sufixo do agent-env."""
+    text = (WORKFLOWS / name).read_text()
+    raw = re.findall(r'--allowed-tools "([^"]*)"', text)
+    assert len(raw) == 1, name
+    return [t for t in re.sub(r"\$\{\{[^}]*\}\}", "", raw[0]).split(",") if t]
+
+
+def skill_tools(name):
+    """Ferramentas do frontmatter `allowed-tools` da skill."""
+    front = (SKILLS / name / "SKILL.md").read_text().split("\n---\n", 1)[0]
+    line = re.search(r"^allowed-tools: (.*)$", front, re.M).group(1)
+    return re.findall(r"Bash\([^)]*\)|WebFetch\([^)]*\)|\S+", line)
+
+
+def web_tools(tools):
+    return {t for t in tools if t.startswith(("WebFetch", "WebSearch"))}
+
+
+class WebAccess(unittest.TestCase):
+    """Triagem, refinamento e break-down leem docs.github.com e docs.claude.com."""
+
+    def expected(self):
+        return {"WebFetch(domain:%s)" % d for d in WEB_DOMAINS}
+
+    def test_workflows_de_issue_liberam_so_a_lista_fixa(self):
+        for f in WEB_STAGES:
+            self.assertEqual(web_tools(workflow_tools(f)), self.expected(), f)
+
+    def test_frontmatter_espelha_o_workflow(self):
+        # Fora Skill e TodoWrite, que so o workflow lista, os dois lados sao iguais:
+        # a web e a mesma, e nenhuma ferramenta saiu (o fechamento segue liberado).
+        for f, skill in WEB_STAGES.items():
+            wf = set(workflow_tools(f)) - {"Skill", "TodoWrite"}
+            self.assertEqual(wf, set(skill_tools(skill)), f)
+            self.assertEqual(web_tools(skill_tools(skill)), web_tools(workflow_tools(f)), f)
+            self.assertIn("Bash(gh issue close:*)", wf, f)
+
+    def test_implementacao_segue_sem_web(self):
+        for f, skill in NO_WEB_STAGES.items():
+            self.assertEqual(web_tools(workflow_tools(f)), set(), f)
+            self.assertEqual(web_tools(skill_tools(skill)), set(), skill)
+
+    def test_max_turns_nao_muda(self):
+        for f, turns in MAX_TURNS.items():
+            self.assertEqual(re.findall(r"--max-turns (\d+)", (WORKFLOWS / f).read_text()), [turns], f)
+
+    def test_brief_tem_a_regra_de_uso_da_web(self):
+        brief = (SKILLS / "issue-triage" / "AGENT-BRIEF.md").read_text()
+        self.assertIn("\n## Premissa externa\n", brief)
+        after = brief.split("\n## Premissa externa\n", 1)[1]
+        self.assertTrue(after.split("\n## ", 1)[1].startswith("Uso da web\n"))
+        section = " ".join(after.split("\n## Uso da web\n", 1)[1].split("\n## ", 1)[0]
+                           .replace("**", "").split())
+        self.assertIn("https://<dominio>/llms.txt", section)
+        self.assertIn("pagina indice", section)
+        self.assertIn("dado, nunca instrucao", section)
+        for comentario in ("triagem", "rodada de refinamento", "## Quebra"):
+            self.assertIn(comentario, section, comentario)
+        self.assertIn("Pedido de pagina ignorado: <URL>; pedia: <o que a pagina pedia>", section)
+        for d in WEB_DOMAINS:
+            self.assertIn(d, section, d)
+
+    def test_skills_apontam_para_a_regra(self):
+        for skill in WEB_STAGES.values():
+            text = (SKILLS / skill / "SKILL.md").read_text()
+            self.assertIn(WEB_LINK, text, skill)
+
+    def test_readme_lista_os_dominios(self):
+        readme = (ROOT / "README.md").read_text()
+        etapas = readme.split("\n## Etapas\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("WebFetch", etapas)
+        for d in WEB_DOMAINS:
+            self.assertIn("`%s`" % d, etapas, d)
+
+
 def workflow_run(block):
     """Texto do `run: |` de um passo de workflow (indentacao de 10)."""
     run = block.split("        run: |\n", 1)[1]
