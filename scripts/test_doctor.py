@@ -4,10 +4,14 @@
     python3 scripts/test_doctor.py
 """
 
+import contextlib
+import io
+import json
 import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
@@ -153,13 +157,51 @@ class ConfigCheck(unittest.TestCase):
         return doctor.check_config(repo)
 
     def test_default_responsible_e_chave_conhecida(self):
-        f = self.check("quality_checks: make test\nevidence_tools: make\ndefault_responsible: fulano\n")
+        f = self.check("quality_checks: make test\nevidence_tools: make\ndefault_responsible: fulano\n"
+                       "web_domains: docs.asaas.com\n")
         self.assertEqual(f.status, "ok", f.detail)
 
     def test_web_domains_e_chave_conhecida(self):
         f = self.check("quality_checks: make test\nevidence_tools: make\n"
                        "web_domains: |\n  docs.asaas.com\n  https://docs.asaas.com/reference\n")
         self.assertEqual(f.status, "ok", f.detail)
+        self.assertNotIn("web_domains", f.detail)
+
+    def test_sem_web_domains_sai_info_apontando_a_setup_repo(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\n")
+        self.assertEqual(f.status, "info", f.detail)
+        self.assertIn("sem web_domains", f.detail)
+        self.assertIn("setup-repo", f.detail)
+        self.assertEqual(doctor.exit_code([f]), 0)
+
+    def test_sem_web_domains_soma_a_nota_as_outras(self):
+        f = self.check("quality_checks: make test\n")
+        self.assertEqual(f.status, "info")
+        self.assertIn("sem evidence_tools", f.detail)
+        self.assertIn("sem web_domains", f.detail)
+
+    def test_check_json_sem_web_domains_sai_info_e_codigo_0(self):
+        text = "quality_checks: make test\nevidence_tools: make\n"
+
+        def fake_repo(full, *_):
+            return SimpleNamespace(full=full, default_branch="main", is_org=False, config_text=text,
+                                   config_error=None, inline={}, config=doctor.parse_simple_yaml(text))
+
+        out = io.StringIO()
+        with mock.patch.object(doctor, "Repo", fake_repo), contextlib.redirect_stdout(out):
+            code = doctor.main(["check", "dono/app", "--only", "config", "--json"])
+        report = json.loads(out.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(report["exit"], 0)
+        [finding] = report["findings"]
+        self.assertEqual((finding["item"], finding["status"]), ("config", "info"))
+        self.assertIn("web_domains", finding["detail"])
+        self.assertIn("setup-repo", finding["detail"])
+
+    def test_linha_invalida_continua_diverge_sem_a_nota_de_ausencia(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\nweb_domains: http://x.com\n")
+        self.assertEqual(f.status, "diverge")
+        self.assertNotIn("sem web_domains", f.detail)
 
     def test_web_domains_acusa_a_linha_invalida(self):
         f = self.check("quality_checks: make test\nevidence_tools: make\n"
