@@ -54,6 +54,9 @@ import unicodedata
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import web_domains  # noqa: E402
+
 TEMPLATE_REPO = "samuel-morrissey/ai-workflows"
 AI_YML = ".github/workflows/ai.yml"
 CONFIG_FILE = ".github/ai-workflows.yml"
@@ -63,7 +66,7 @@ BRANCH_PREFIX = "ai-workflows/"
 DOCTOR_BRANCH = BRANCH_PREFIX + "doctor"
 CONFIG_KEYS = ("setup_commands", "quality_checks", "evidence_tools",
                "evidence_bucket", "evidence_public_url", "evidence_endpoint",
-               "default_responsible")
+               "default_responsible", "web_domains")
 VAR_NAMES = ("EVIDENCE_BUCKET", "EVIDENCE_PUBLIC_URL", "EVIDENCE_ENDPOINT")
 SECRET_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
 SECRET_BUCKET = ("EVIDENCE_ACCESS_KEY_ID", "EVIDENCE_SECRET_ACCESS_KEY")
@@ -532,7 +535,16 @@ def check_config(repo):
         notes.append("sem quality_checks: o PR sai declarando que nao houve verificacao")
     if not repo.config.get("evidence_tools", "").strip():
         notes.append("sem evidence_tools: o QA independente nao roda")
-    status = "diverge" if unknown else ("info" if notes else "ok")
+    # Mesma validacao da action web-domains: a linha que o workflow ignora.
+    invalid = []
+    for line in web_domains.entries(repo.config.get("web_domains", "")):
+        try:
+            web_domains.parse_entry(line)
+        except ValueError as exc:
+            invalid.append(f"{line} ({exc})")
+    if invalid:
+        notes.append(f"web_domains com linha ignorada pelo workflow: {'; '.join(invalid)}")
+    status = "diverge" if unknown or invalid else ("info" if notes else "ok")
     return Finding("config", status, "; ".join(notes) or f"{CONFIG_FILE} valido")
 
 

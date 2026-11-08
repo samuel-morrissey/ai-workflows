@@ -86,6 +86,14 @@ verificada. `docs.claude.com` e `docs.anthropic.com` ficam fora: so
 redirecionam para os dois hosts acima, e o `WebFetch` nao segue
 redirecionamento para outro host.
 
+- **Fontes do consumidor.** O repositorio soma a lista os fornecedores dele
+  com a chave `web_domains` de `.github/ai-workflows.yml`. Os dominios
+  liberados e as **URLs de entrada** chegam pelo system prompt, numa frase
+  que comeca por "Fontes da web do consumidor". Num dominio com URL de
+  entrada, comece pelo `llms.txt` dele, quando existir, depois pela URL de
+  entrada, seguindo os links dela em vez de adivinhar caminhos. Com fonte
+  configurada e navegada, "nao verificada" quer dizer "nao ha fonte
+  oficial", nao "nao achei a URL".
 - **`llms.txt` primeiro.** Antes de qualquer outra pagina de um dominio,
   tente `https://<dominio>/llms.txt`. Quando existir, navegue a partir dele.
 - **Pagina indice, nao palpite.** Sem `llms.txt`, parta da pagina indice do

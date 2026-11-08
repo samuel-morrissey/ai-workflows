@@ -1,0 +1,40 @@
+name: Dominios da web do consumidor
+description: >-
+  Le web_domains de .github/ai-workflows.yml (scripts/web_domains.py) e
+  devolve o sufixo do --allowed-tools com os dominios do consumidor e a frase
+  do system prompt com as URLs de entrada. Sem o arquivo ou sem a chave, os
+  dois saem vazios e vale so a lista fixa.
+
+# Triagem, refinamento e break-down tem WebFetch restrito a lista fixa do
+# plugin; esta action soma a ela os fornecedores do consumidor. Roda antes do
+# agente, sem a agent-env (que roda setup_commands e instala ferramentas de
+# evidencia). O arquivo e lido do diretorio de trabalho, que e o checkout do
+# consumidor. Linha invalida so avisa; valor que nao e texto (lista, mapa)
+# falha o passo, e a rodada para antes do agente.
+
+outputs:
+  allow:
+    description: >-
+      `,WebFetch(domain:<dominio>)` por dominio do consumidor fora da lista
+      fixa, para colar logo depois dela no --allowed-tools. Vazio sem fonte.
+    value: ${{ steps.read.outputs.allow }}
+  sentence:
+    description: >-
+      Frase do system prompt, comecando por espaco, com os dominios e as URLs
+      de entrada; sem aspas duplas, crase nem cifrao. Vazia sem fonte.
+    value: ${{ steps.read.outputs.sentence }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ler web_domains
+      id: read
+      shell: bash
+      env:
+        CONFIG_FILE: .github/ai-workflows.yml
+        # O leitor vem junto com a action, na mesma ref: a raiz do
+        # repositorio fica tres niveis acima de .github/actions/web-domains.
+        WEB_DOMAINS_PY: ${{ github.action_path }}/../../../scripts/web_domains.py
+      run: |
+        set +o pipefail
+        python3 -I "$WEB_DOMAINS_PY" --config "$CONFIG_FILE" --github-output "$GITHUB_OUTPUT"

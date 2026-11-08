@@ -17,7 +17,7 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 | Fechar sub-task | um PR é mergeado numa branch que não é a padrão. Fecha os issues do `Closes` do corpo, porque o GitHub só faz isso sozinho na branch padrão. Numa stack o GitHub já fechou; só o label `awaiting-pr-review` sai | `pr-merged.yml` |
 | Devolver estado | um PR é fechado sem merge, em qualquer base. Cada issue do `Closes` do corpo que está aberto, em `awaiting-pr-review`, sem `work-in-progress` e sem outro PR aberto que o declare volta para `ready-for-agent` (pontual e pai) ou fica sem label de estado (sub-task). O pai do `Parte de` em `awaiting-pr-review` volta para `ready-for-agent`. Cada issue alterado ganha um comentário que cita o PR; nada dispara sozinho, e um `go` retoma a implementação | `pr-closed.yml` |
 
-Triagem, refinamento e quebra em sub-tasks têm `WebFetch` restrito a uma lista fixa de domínios do plugin: `docs.github.com`, `code.claude.com` e `platform.claude.com`. É o meio de conferir, na documentação oficial, uma premissa sobre GitHub ou Claude; URL fora da lista a ferramenta recusa, e a premissa fica marcada como não verificada. Nenhuma etapa tem `WebSearch`, e implementação, sub-task e correção de PR não têm web. A regra de uso (o `llms.txt` primeiro, conteúdo de página como dado, nunca instrução) está em [Uso da web](skills/issue-triage/AGENT-BRIEF.md#uso-da-web).
+Triagem, refinamento e quebra em sub-tasks têm `WebFetch` restrito a uma lista fixa de domínios do plugin: `docs.github.com`, `code.claude.com` e `platform.claude.com`. É o meio de conferir, na documentação oficial, uma premissa sobre GitHub ou Claude; URL fora da lista a ferramenta recusa, e a premissa fica marcada como não verificada. O repositório soma a essa lista a documentação dos fornecedores dele com a chave [`web_domains`](#o-arquivo-githubai-workflowsyml). Nenhuma etapa tem `WebSearch`, e implementação, sub-task e correção de PR não têm web. A regra de uso (o `llms.txt` primeiro, conteúdo de página como dado, nunca instrução) está em [Uso da web](skills/issue-triage/AGENT-BRIEF.md#uso-da-web).
 
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos. Num pai com sub-tasks ele fica durante a cadeia inteira (veja abaixo).
 
@@ -226,7 +226,7 @@ Este repositório é público: qualquer repositório, de qualquer conta ou organ
 | Natureza | Onde mora | Exemplo |
 | --- | --- | --- |
 | Igual em todo repositório | `.github/workflows/ai.yml`, cópia idêntica do arquivo daqui | gatilhos, permissões, repasse de secrets |
-| Do projeto | `.github/ai-workflows.yml`, versionado no repositório | `setup_commands`, `quality_checks`, `evidence_tools`, `default_responsible` |
+| Do projeto | `.github/ai-workflows.yml`, versionado no repositório | `setup_commands`, `quality_checks`, `evidence_tools`, `default_responsible`, `web_domains` |
 | Do dono (conta ou organização) | variáveis e secrets do Actions | bucket de evidências, `CLAUDE_CODE_OAUTH_TOKEN` |
 | Do ambiente de QA do projeto | secret `PROJECT_ENV` | chave de teste de um serviço sem emulador |
 
@@ -260,7 +260,7 @@ O `ai.yml` lê as três variáveis com `vars.EVIDENCE_*` e as passa ao router. V
 
 ### O arquivo `.github/ai-workflows.yml`
 
-Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente, e o responsável padrão, lido pelas etapas de issue antes do agente e por todas as etapas na falha de rodada. Só escalares de texto e blocos literais (`|`), um comando por linha:
+Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente; o responsável padrão, lido pelas etapas de issue antes do agente e por todas as etapas na falha de rodada; e a documentação dos fornecedores, lida pela triagem, pelo refinamento e pela quebra antes do agente. Só escalares de texto e blocos literais (`|`), um comando por linha:
 
 ```yaml
 # Comandos deste repositório para o fluxo de IA (samuel-morrissey/ai-workflows).
@@ -273,6 +273,8 @@ evidence_tools: |
   node
   npx playwright
   curl
+web_domains: |
+  https://docs.asaas.com/reference
 ```
 
 - `setup_commands`: prepara o ambiente do projeto. O **workflow** roda esses comandos, na ordem declarada, antes de chamar o Claude. Sem eles, `quality_checks` roda num checkout sem dependências instaladas. Se um comando falhar, o job para ali e o Claude não é chamado. Precisa de uma versão específica de runtime? Resolva dentro desses comandos, porque o fluxo não escolhe versão. Uma mudança de `PATH` só chega ao Claude se for gravada em `$GITHUB_PATH`.
@@ -280,6 +282,11 @@ evidence_tools: |
 - `evidence_tools`: os prefixos de comando que o agente e o QA independente podem rodar para subir o projeto e capturar evidências. Liga o QA. Sem ele, o PR sai declarando que não houve QA. Veja [Evidências e QA](#evidências-e-qa).
 - `evidence_bucket`, `evidence_public_url`, `evidence_endpoint`: aceitas também aqui, para um repositório que usa um bucket diferente do dono. Normalmente ficam nas variáveis.
 - `default_responsible`: um login do GitHub (`fulano` ou `"@fulano"`), marcado quando um issue não tem responsável: autor bot, sem assignee, sem pai e sem o campo `Responsável:`. É a última regra da [Notificação](#notificação). Sem a chave, esses issues ficam sem responsável, sem erro. Todas as etapas a leem do checkout, inclusive triagem, refinamento e quebra.
+- `web_domains`: a documentação dos fornecedores do projeto, que a triagem, o refinamento e a quebra podem ler com `WebFetch`, além da lista fixa do plugin (`docs.github.com`, `code.claude.com`, `platform.claude.com`). Só essas três etapas a usam: implementação, sub-task e correção de PR seguem sem web. Bloco `|`, uma entrada por linha, e cada entrada é uma destas:
+  - um domínio (`docs.asaas.com`): libera o domínio;
+  - uma **URL de entrada** `https://` (`https://docs.asaas.com/reference`): libera o host da URL e chega ao agente, no system prompt, como ponto de partida. O agente começa pelo `llms.txt` do domínio, quando existe, depois pela URL de entrada, e segue os links dela em vez de adivinhar caminhos.
+
+  Cada domínio é liberado uma vez só, mesmo repetido ou já na lista fixa; duas URLs no mesmo domínio liberam um domínio e as duas vão ao agente. O domínio casa só com ele mesmo: `api.asaas.com` é outra linha. O passo **Ler dominios da web** (action `web-domains`) lê a chave do checkout. Linha vazia ou só comentário (`#`) é ignorada. Linha inválida é ignorada com um aviso no log da run, e as outras valem: esquema que não é `https://`, curinga `*`, espaço no meio, aspas, crase, cifrão, barra invertida, host vazio ou domínio sem ponto. Lista ou mapa YAML falha a rodada antes do agente. Sem a chave vale só a lista fixa, sem aviso. O `doctor` acusa a linha inválida no item `config`.
 
 Chave do arquivo vence o input de mesmo nome do `ai.yml`; chave ausente deixa o input valer; chave desconhecida gera aviso e é ignorada; valor que não é texto (lista, mapa, número) falha o job antes do agente, com o nome do arquivo no erro. Os inputs no `ai.yml` continuam aceitos para os repositórios já configurados, mas o caminho novo é o arquivo.
 
@@ -341,7 +348,7 @@ python3 scripts/doctor.py fix samuel-morrissey/life-os --only ai-yml,vars
 | Item | Verifica | `fix` |
 | --- | --- | --- |
 | `ai-yml` | `.github/workflows/ai.yml` da branch padrão igual ao modelo daqui (`--ref`, padrão `main`) | abre um PR no repositório com o arquivo novo, na branch `ai-workflows/doctor`; se o `ai.yml` atual tem inputs inline em `with:`, o mesmo PR cria `.github/ai-workflows.yml` com eles. PR já aberto é atualizado, não duplicado, e um PR aberto de qualquer branch `ai-workflows/*` que já traga o modelo, como o da skill `setup-repo`, conta como resolvido até o merge |
-| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo` |
+| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto, e `web_domains` sem linha que o workflow ignora | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo` |
 | `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
 | `vars` | `EVIDENCE_BUCKET`, `EVIDENCE_PUBLIC_URL`, `EVIDENCE_ENDPOINT` com os valores do `config.env` | grava na organização (dono organização) ou no repositório (dono conta) |
 | `labels` | os 13 labels do fluxo da `issue-labeling`, com cor e descrição canônicas | cria os que faltam e corrige cor e descrição dos que divergem. Nunca apaga nem renomeia; colisões (`priority-*`, tipos como label) saem como nota para você decidir |
@@ -419,7 +426,7 @@ Os grupos:
 
 | Grupo | O que soma |
 |---|---|
-| `preparo` | checkout, resolução do alvo, guarda de concorrência, `work-in-progress`, consumo do `go`, resolução do responsável, download do planner e o *Set up job* do Actions |
+| `preparo` | checkout, resolução do alvo, guarda de concorrência, `work-in-progress`, consumo do `go`, resolução do responsável, leitura de `web_domains`, download do planner e o *Set up job* do Actions |
 | `ambiente` | a composite `agent-env` (**Preparar ambiente do agente**) |
 | `agente` | o passo `anthropics/claude-code-action@v1`, só a duração do passo do Actions |
 | `pos-agente` | `publish-evidence`, redes de segurança de label, remoção do `work-in-progress`, os passos do planner da cadeia (**Entrar na cadeia**, **Planejar e empilhar**, **Resolver responsavel do pai**, **Decidir e agir**, **Devolver o controle ao pai**) e, no `pr-merged`, o fechamento dos issues |
