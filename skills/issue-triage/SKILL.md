@@ -4,7 +4,7 @@ description: Triagem de um issue cru - investiga o codigo, atribui tipo (MAP/SPE
 argument-hint: "[numero-do-issue]"
 arguments: issue
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Read Grep Glob
+allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh issue edit:*) Bash(gh issue comment:*) Bash(gh issue close:*) Bash(gh label list:*) Bash(gh label create:*) Read Grep Glob WebFetch(domain:docs.github.com) WebFetch(domain:code.claude.com) WebFetch(domain:platform.claude.com)
 ---
 
 # Triage
@@ -34,7 +34,8 @@ O criterio de classificacao e **grau de definicao, nao complexidade**.
 Siga o vocabulario da skill `issue-labeling` (tipos, labels de estado e regras de
 transicao). Invoque-a antes de aplicar qualquer label. Os formatos de brief e
 de leitura de codigo estao em [AGENT-BRIEF.md](AGENT-BRIEF.md) — leia antes
-de escrever qualquer um dos dois.
+de escrever qualquer um dos dois. Ao usar web, siga
+[Uso da web](AGENT-BRIEF.md#uso-da-web).
 
 Precisou de informacao ou decisao humana em qualquer passo? Siga a skill
 `issue-async-first`: uma unica mensagem no issue, com handoff completo, e encerre a
