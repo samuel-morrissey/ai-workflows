@@ -4,10 +4,14 @@
     python3 scripts/test_doctor.py
 """
 
+import contextlib
+import io
+import json
 import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
@@ -153,13 +157,51 @@ class ConfigCheck(unittest.TestCase):
         return doctor.check_config(repo)
 
     def test_default_responsible_e_chave_conhecida(self):
-        f = self.check("quality_checks: make test\nevidence_tools: make\ndefault_responsible: fulano\n")
+        f = self.check("quality_checks: make test\nevidence_tools: make\ndefault_responsible: fulano\n"
+                       "web_domains: docs.asaas.com\n")
         self.assertEqual(f.status, "ok", f.detail)
 
     def test_web_domains_e_chave_conhecida(self):
         f = self.check("quality_checks: make test\nevidence_tools: make\n"
                        "web_domains: |\n  docs.asaas.com\n  https://docs.asaas.com/reference\n")
         self.assertEqual(f.status, "ok", f.detail)
+        self.assertNotIn("web_domains", f.detail)
+
+    def test_sem_web_domains_sai_info_apontando_a_setup_repo(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\n")
+        self.assertEqual(f.status, "info", f.detail)
+        self.assertIn("sem web_domains", f.detail)
+        self.assertIn("setup-repo", f.detail)
+        self.assertEqual(doctor.exit_code([f]), 0)
+
+    def test_sem_web_domains_soma_a_nota_as_outras(self):
+        f = self.check("quality_checks: make test\n")
+        self.assertEqual(f.status, "info")
+        self.assertIn("sem evidence_tools", f.detail)
+        self.assertIn("sem web_domains", f.detail)
+
+    def test_check_json_sem_web_domains_sai_info_e_codigo_0(self):
+        text = "quality_checks: make test\nevidence_tools: make\n"
+
+        def fake_repo(full, *_):
+            return SimpleNamespace(full=full, default_branch="main", is_org=False, config_text=text,
+                                   config_error=None, inline={}, config=doctor.parse_simple_yaml(text))
+
+        out = io.StringIO()
+        with mock.patch.object(doctor, "Repo", fake_repo), contextlib.redirect_stdout(out):
+            code = doctor.main(["check", "dono/app", "--only", "config", "--json"])
+        report = json.loads(out.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(report["exit"], 0)
+        [finding] = report["findings"]
+        self.assertEqual((finding["item"], finding["status"]), ("config", "info"))
+        self.assertIn("web_domains", finding["detail"])
+        self.assertIn("setup-repo", finding["detail"])
+
+    def test_linha_invalida_continua_diverge_sem_a_nota_de_ausencia(self):
+        f = self.check("quality_checks: make test\nevidence_tools: make\nweb_domains: http://x.com\n")
+        self.assertEqual(f.status, "diverge")
+        self.assertNotIn("sem web_domains", f.detail)
 
     def test_web_domains_acusa_a_linha_invalida(self):
         f = self.check("quality_checks: make test\nevidence_tools: make\n"
@@ -214,6 +256,72 @@ class Labels(unittest.TestCase):
         self.assertEqual(len(missing), len(doctor.FLOW_LABELS))
         self.assertEqual(different, [])
         self.assertEqual(doctor.label_collisions(labels), ["bug", "docs", "priority-high"])
+
+
+def flat(text):
+    return " ".join(text.replace("**", "").split())
+
+
+def section(text, start, end="\n## "):
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+class SetupRepoWebDomains(unittest.TestCase):
+    """A skill setup-repo propoe web_domains, tambem em repositorio ja configurado."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "skills", "setup-repo", "SKILL.md"), encoding="utf-8") as fh:
+            cls.skill = fh.read()
+        with open(os.path.join(root, "README.md"), encoding="utf-8") as fh:
+            cls.readme = fh.read()
+
+    def step(self, n):
+        return flat(section(self.skill, f"\n{n}. ", f"\n{n + 1}. "))
+
+    def test_saida_0_com_o_info_de_web_domains_nao_encerra(self):
+        s = self.step(1)
+        self.assertIn("Saida 0", s)
+        self.assertIn("`info` de `web_domains`", s)
+        self.assertIn("nao encerra", s)
+        self.assertIn("Os outros `info` seguem fora do escopo", s)
+
+    def test_leitura_levanta_fornecedores_e_confere_a_url(self):
+        s = self.step(2)
+        for texto in ("fornecedores", "`package.json`", "`requirements*.txt`", "`pyproject.toml`", "`go.mod`",
+                      "ADRs", "`CONTEXT.md`", "lista fixa", "`llms.txt` primeiro", "`curl`",
+                      "outro host", "destino final", "pagina indice"):
+            self.assertIn(texto, s, texto)
+
+    def test_pergunta_unica_traz_a_lista_com_motivo(self):
+        s = self.step(5)
+        self.assertIn("`web_domains`", s)
+        self.assertIn("recomendacao e o motivo", s)
+        self.assertIn("ADR 0008", s)
+
+    def test_aplicar_acrescenta_sem_reescrever(self):
+        s = self.step(6)
+        self.assertIn("`web_domains`", s)
+        self.assertIn("sem reescrever nem reordenar as outras chaves", s)
+        self.assertIn("so as entradas que faltam", s)
+        self.assertIn("excecao", s)
+
+    def test_casos_cobrem_chave_existente_e_sem_fornecedor(self):
+        s = flat(section(self.skill, "\n## Casos\n"))
+        for texto in ("Ja tem `web_domains`", "nunca remove", "Sem fornecedor externo", "nao ha PR",
+                      "foi decidida", "repeticao, nao erro", "Repositorio parcialmente configurado"):
+            self.assertIn(texto, s, texto)
+
+    def test_readme_descreve_a_proposta_e_o_info(self):
+        config = self.readme.split("\n### O arquivo `.github/ai-workflows.yml`\n", 1)[1].split("\n### ", 1)[0]
+        item = flat(config.split("- `web_domains`:", 1)[1])
+        for texto in ("`setup-repo`", "`info`", "`llms.txt`", "`curl`", "outro host"):
+            self.assertIn(texto, item, texto)
+        row = next(line for line in self.readme.splitlines() if line.startswith("| `config` |"))
+        self.assertIn("`info`", row)
+        self.assertIn("`setup-repo`", row)
+        self.assertIn("web_domains", row)
 
 
 if __name__ == "__main__":

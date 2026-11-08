@@ -185,7 +185,7 @@ Skills de apoio que as etapas acima seguem.
 ### Utilitários
 
 - **80-20** — modo Pareto: maior retorno com o menor esforço na tarefa dada.
-- **setup-repo** — configura um repositório consumidor a partir do relatório do `doctor`: infere os comandos do projeto, redige a skill `evidencias`, levanta colisões de labels, pergunta tudo de uma vez e abre o PR no repositório alvo. Veja [Configurar um repositório](#configurar-um-repositório).
+- **setup-repo** — configura um repositório consumidor a partir do relatório do `doctor`: infere os comandos do projeto, redige a skill `evidencias`, levanta colisões de labels e os fornecedores para `web_domains` (também num repositório já configurado), pergunta tudo de uma vez e abre o PR no repositório alvo. Veja [Configurar um repositório](#configurar-um-repositório).
 - **hello-issue** — skill de exemplo que valida a integração entre o marketplace e um repositório consumidor, publicando um comentário no issue informado.
 
 ### Usar as skills localmente
@@ -286,7 +286,9 @@ web_domains: |
   - um domínio (`docs.asaas.com`): libera o domínio;
   - uma **URL de entrada** `https://` (`https://docs.asaas.com/reference`): libera o host da URL e chega ao agente, no system prompt, como ponto de partida. O agente começa pelo `llms.txt` do domínio, quando existe, depois pela URL de entrada, e segue os links dela em vez de adivinhar caminhos.
 
-  Cada domínio é liberado uma vez só, mesmo repetido ou já na lista fixa; duas URLs no mesmo domínio liberam um domínio e as duas vão ao agente. O domínio casa só com ele mesmo: `api.asaas.com` é outra linha. O passo **Ler dominios da web** (action `web-domains`) lê a chave do checkout. Linha vazia ou só comentário (`#`) é ignorada. Linha inválida é ignorada com um aviso no log da run, e as outras valem: esquema que não é `https://`, curinga `*`, espaço no meio, aspas, crase, cifrão, barra invertida, host vazio ou domínio sem ponto. Lista ou mapa YAML falha a rodada antes do agente. Sem a chave vale só a lista fixa, sem aviso. O `doctor` acusa a linha inválida no item `config`.
+  Cada domínio é liberado uma vez só, mesmo repetido ou já na lista fixa; duas URLs no mesmo domínio liberam um domínio e as duas vão ao agente. O domínio casa só com ele mesmo: `api.asaas.com` é outra linha. O passo **Ler dominios da web** (action `web-domains`) lê a chave do checkout. Linha vazia ou só comentário (`#`) é ignorada. Linha inválida é ignorada com um aviso no log da run, e as outras valem: esquema que não é `https://`, curinga `*`, espaço no meio, aspas, crase, cifrão, barra invertida, host vazio ou domínio sem ponto. Lista ou mapa YAML falha a rodada antes do agente. Sem a chave vale só a lista fixa, sem aviso. O `doctor` acusa a linha inválida no item `config` (`diverge`) e, com o arquivo válido e sem a chave, dá `info` no mesmo item, apontando a skill `setup-repo`.
+
+  Quem propõe a chave é a skill `setup-repo`, também num repositório que já está todo `ok`: ela levanta os fornecedores externos do projeto (dependências, APIs e gateways no código, ADRs, `CONTEXT.md`), deixa de fora o que a lista fixa já cobre, escolhe para cada um a documentação oficial (o `llms.txt` primeiro, quando existe), confere com `curl` que a URL não redireciona para outro host e, no mesmo host, usa o destino final. A lista entra na pergunta única, com o motivo de cada entrada, e o setup só acrescenta as entradas que faltam, sem reescrever as outras chaves nem remover as do humano. Repositório sem fornecedor externo fica sem a chave: o `info` volta nas próximas rodadas do `doctor`, e isso é repetição, não erro.
 
 Chave do arquivo vence o input de mesmo nome do `ai.yml`; chave ausente deixa o input valer; chave desconhecida gera aviso e é ignorada; valor que não é texto (lista, mapa, número) falha o job antes do agente, com o nome do arquivo no erro. Os inputs no `ai.yml` continuam aceitos para os repositórios já configurados, mas o caminho novo é o arquivo.
 
@@ -310,7 +312,7 @@ python3 scripts/doctor.py check <owner/repo>
 python3 scripts/doctor.py fix <owner/repo>
 ```
 
-O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez, aplica o `doctor fix` e só então abre o PR no repositório alvo, com o texto coerente com o que já foi corrigido:
+O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels, os `web_domains` dos fornecedores) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez, aplica o `doctor fix` e só então abre o PR no repositório alvo, com o texto coerente com o que já foi corrigido:
 
 ```
 /samuel-morrissey-skills:setup-repo <owner/repo>
@@ -348,7 +350,7 @@ python3 scripts/doctor.py fix samuel-morrissey/life-os --only ai-yml,vars
 | Item | Verifica | `fix` |
 | --- | --- | --- |
 | `ai-yml` | `.github/workflows/ai.yml` da branch padrão igual ao modelo daqui (`--ref`, padrão `main`) | abre um PR no repositório com o arquivo novo, na branch `ai-workflows/doctor`; se o `ai.yml` atual tem inputs inline em `with:`, o mesmo PR cria `.github/ai-workflows.yml` com eles. PR já aberto é atualizado, não duplicado, e um PR aberto de qualquer branch `ai-workflows/*` que já traga o modelo, como o da skill `setup-repo`, conta como resolvido até o merge |
-| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto, e `web_domains` sem linha que o workflow ignora | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo` |
+| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto, e `web_domains` sem linha que o workflow ignora (linha inválida: `diverge`); sem a chave `web_domains`, `info` | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo`; sem `web_domains`, o `info` aponta a skill `setup-repo`, que propõe a chave com os fornecedores do projeto |
 | `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
 | `vars` | `EVIDENCE_BUCKET`, `EVIDENCE_PUBLIC_URL`, `EVIDENCE_ENDPOINT` com os valores do `config.env` | grava na organização (dono organização) ou no repositório (dono conta) |
 | `labels` | os 13 labels do fluxo da `issue-labeling`, com cor e descrição canônicas | cria os que faltam e corrige cor e descrição dos que divergem. Nunca apaga nem renomeia; colisões (`priority-*`, tipos como label) saem como nota para você decidir |

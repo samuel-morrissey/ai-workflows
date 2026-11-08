@@ -535,6 +535,9 @@ def check_config(repo):
         notes.append("sem quality_checks: o PR sai declarando que nao houve verificacao")
     if not repo.config.get("evidence_tools", "").strip():
         notes.append("sem evidence_tools: o QA independente nao roda")
+    if "web_domains" not in repo.config:
+        notes.append("sem web_domains: o WebFetch so alcanca a lista fixa; "
+                     "a skill setup-repo levanta os fornecedores e propoe a chave")
     # Mesma validacao da action web-domains: a linha que o workflow ignora.
     invalid = []
     for line in web_domains.entries(repo.config.get("web_domains", "")):
