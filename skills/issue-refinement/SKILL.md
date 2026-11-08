@@ -143,7 +143,10 @@ esta em exatamente um destes estados:
 
 O comentario final e o contrato da `issue-break-down`. Siga os principios
 de [AGENT-BRIEF.md](../issue-triage/AGENT-BRIEF.md): duravel, comportamental e
-com nomes reais de conceitos e contratos.
+com nomes reais de conceitos e contratos. Premissa sobre comportamento de
+terceiro, aqui e nos comentarios de rodada, segue a secao
+[Premissa externa](../issue-triage/AGENT-BRIEF.md#premissa-externa): marcada
+como nao verificada, ou com o URL da fonte oficial consultada.
 
 ```markdown
 ## Refinamento

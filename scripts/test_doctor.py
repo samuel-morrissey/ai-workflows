@@ -14,7 +14,7 @@ import doctor  # noqa: E402
 from test_workflows import (  # noqa: E402,F401
     AgentEnvConfig, ChainNoticeRun, ChainNoticeShape, PrClosedRun, PrClosedShape, PrFixTrigger, ResponsibleRun,
     ResponsibleShape, Run as WorkflowRun, SafetyNetRun, SafetyNetShape, Shape as WorkflowShape,
-    SkillsMention)
+    SkillsMention, SkillsPremise)
 from test_sub_tasks import (  # noqa: E402,F401
     Finish as SubTasksFinish, Notify as SubTasksNotify, Stack as SubTasksStack,
     Worker as SubTasksWorker)

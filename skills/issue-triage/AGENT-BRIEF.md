@@ -45,6 +45,36 @@ publica nova sem forma definida?).
 **Fora de escopo explicito.** O que NAO muda, dito com todas as letras —
 evita gold-plating e suposicoes sobre features vizinhas.
 
+## Premissa externa
+
+Vale para todo texto do fluxo que se apoia em comportamento de terceiro
+(gateway, SDK, API, servico externo): o **brief completo** (corpo de pontual
+e de `[SUB-TASK]`), a **leitura de codigo** de `[MAP]`/`[SPEC]`, os
+comentarios de **refinamento** (rodadas e `## Refinamento`) e o **corpo de
+PR** do fluxo remoto.
+
+- **Nao conferida em fonte oficial:** a premissa entra marcada como nao
+  verificada, numa linha propria, com a fonte de onde veio e o que cai se
+  estiver errada:
+
+  ```markdown
+  Premissa nao verificada: <premissa>; fonte: <payload/log/teste>; se estiver errada, descarta <x>
+  ```
+
+  O `<x>` e o que cai se a premissa estiver errada: uma alternativa, um caso
+  de borda decidido, um criterio.
+- **Conferida em fonte oficial** (documentacao, referencia de API ou
+  changelog do proprio fornecedor): sem a marca, com o **URL consultado** ao
+  lado da premissa.
+- **Fonte secundaria** (blog, forum, resposta de terceiros, resumo de busca)
+  nao vale como conferencia: a premissa continua nao verificada, e a fonte
+  secundaria entra como a `fonte` da linha.
+
+Nao e premissa externa o que o agente leu no codigo do proprio repositorio:
+e fato do codigo, sem marca. Premissa que vem de resposta humana no issue
+("o gateway faz X") cita o comentario como fonte; sem fonte oficial,
+continua nao verificada. Texto sem premissa externa nao ganha linha nenhuma.
+
 ## Brief completo (tipos pontuais)
 
 Vira o corpo do issue: e o contrato do `/issue-remote-implement` (os criterios de aceite
@@ -81,7 +111,7 @@ teste manual, ou decisao de design tomada durante a execucao.
 existe, contratos e conceitos envolvidos; todos os chamadores do caminho
 alterado, nao so o do relato>
 Premissa nao verificada: <premissa>; fonte: <payload/log/teste>; se estiver errada, descarta <x>
-(uma linha por premissa de terceiro sem documentacao conferida; sem nenhuma, omita)
+(uma linha por premissa externa nao verificada, ver [Premissa externa](#premissa-externa); sem nenhuma, omita)
 
 ## Comportamento esperado
 <o que deve acontecer depois da mudanca, especifico em casos e condicoes>
@@ -108,17 +138,9 @@ a funcao, o endpoint ou o comando que muda. Um chamador esquecido e um caso
 de borda que ninguem decidiu. (A leitura de codigo de `[MAP]`/`[SPEC]`, mais
 abaixo, nao muda: continua superficial.)
 
-**Premissa nao verificada.** Quando o brief se apoia num comportamento de
-terceiro (API, gateway, servico externo) inferido de payload, log ou teste
-manual, sem documentacao conferida, registre a premissa numa linha propria:
-
-```markdown
-Premissa nao verificada: <premissa>; fonte: <payload/log/teste>; se estiver errada, descarta <x>
-```
-
-O `<x>` e o que cai se a premissa estiver errada: uma alternativa, um caso
-de borda decidido, um criterio. Premissa conferida em documentacao oficial
-nao leva a marca: cite a documentacao como fonte normal.
+**Premissa nao verificada.** Premissa sobre comportamento de terceiro segue
+a secao [Premissa externa](#premissa-externa): a linha de premissa nao
+verificada vai no fim do Contexto.
 
 **Casos de borda: decididos e pendentes.** Os casos de borda se dividem em
 dois grupos:
