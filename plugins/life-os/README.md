@@ -9,8 +9,8 @@ Mora no marketplace `samuel-morrissey-ai-workflows`, ao lado do `samuel-morrisse
 - **O servidor MCP `life-os`**, declarado em [`.mcp.json`](.mcp.json): `type: http`, na URL de produção do Life OS (`https://life-os-psi-woad-65.vercel.app/api/mcp`), com o token no cabeçalho `Authorization: Bearer ${LIFE_OS_MCP_TOKEN}`. No `/mcp`, ele aparece como `plugin:life-os:life-os`, e as ferramentas como `mcp__plugin_life-os_life-os__<ferramenta>` (por exemplo, `mcp__plugin_life-os_life-os__guide`).
 - **As skills**, em [`skills/`](skills/), invocadas com o prefixo `life-os:`:
   - [`second-brain`](skills/second-brain/SKILL.md) (Conhecimento): a porta de entrada sempre que o agente vai usar o acervo. Carrega sozinha; veja [A second-brain](#a-second-brain).
+  - [`teach-me`](skills/teach-me/SKILL.md) (o Professor): ensina um tópico escrevendo Aulas num Curso. Só manual, com o Curso como primeiro argumento; veja [A teach-me](#a-teach-me).
   - [`teacher-helper`](skills/teacher-helper/SKILL.md) (o Desenvolvedor, antes `professor-developer`): veja [A teacher-helper](#a-teacher-helper).
-  - Ainda a entrar, numa versão seguinte: `teach-me` (o Professor), só manual, com o Curso como primeiro argumento (`/life-os:teach-me <curso> <pedido>`).
 
 ## Instalar
 
@@ -83,9 +83,29 @@ Carrega sozinha: sem `disable-model-invocation`, o agente a usa sempre que o ped
 
 Num servidor sem `get_method`, ela diz que a ferramenta falta e segue o método que o `guide` dessa versão traz. Cursos e Aulas ficam com a `teach-me`.
 
+## A teach-me
+
+O Professor do Aprendizado: ensina um tópico ao longo de várias sessões, escrevendo Aulas em MDX num Curso, e guarda o scratch de ensino (missão, recursos, revisão, registro de aprendizado e glossário do Curso) no Life OS. Ela não traz o método; o servidor o serve na ferramenta `get_method`, com o contexto `aprendizado`. Só manual, com o id do Curso como primeiro argumento:
+
+```
+/life-os:teach-me <curso> <o que aprender ou criar>
+/life-os:teach-me aws me ensine sobre VPC
+```
+
+A skill:
+
+1. confere a conexão, com a mesma parada da `second-brain`;
+2. chama `guide`;
+3. chama `get_method` com `context: "aprendizado"`;
+4. segue o texto devolvido como o método da sessão, entregando a ele o Curso e o pedido.
+
+O que fazer com Curso existente, ausente, inexistente ou arquivado é do método: sem Curso no argumento, ele lista os Cursos e pergunta qual. Tudo vai pelo MCP; a skill não cria, lê nem grava arquivo de Curso no diretório atual. Quando a Aula precisa de um Esboço que o Catálogo não expressa, o método chama a `teacher-helper` como subagente, se a sessão está no checkout do life-os, e, fora dele, abre a Solicitação de Esboço como issue no life-os.
+
+Num servidor que ainda não serve o método do Aprendizado (o `get_method` aceita só `conhecimento`), ela para e diz isso, sem ensinar de memória. Pedido do acervo fica com a `second-brain`.
+
 ## A teacher-helper
 
-O Desenvolvedor do contexto de Aprendizado. Quando o Catálogo não expressa um visual que a Aula precisa, o Professor (a skill `teach-me`, ou a `/professor` do learnings até ela chegar) a chama como subagente com uma spec de significado: a Aula, o que o visual transmite, os dados e se o padrão é reutilizável. Ela constrói o Esboço como componente React em `src/contexts/aprendizado/sketches/` do life-os, registra-o em `sketches/index.ts`, passa pela bateria de testes, abre o PR do Esboço e devolve ao Professor só a tag e o que ela significa. Nunca toca o Catálogo nem promove Esboço a Componente.
+O Desenvolvedor do contexto de Aprendizado. Quando o Catálogo não expressa um visual que a Aula precisa, o Professor (a skill [`teach-me`](#a-teach-me)) a chama como subagente com uma spec de significado: a Aula, o que o visual transmite, os dados e se o padrão é reutilizável. Ela constrói o Esboço como componente React em `src/contexts/aprendizado/sketches/` do life-os, registra-o em `sketches/index.ts`, passa pela bateria de testes, abre o PR do Esboço e devolve ao Professor só a tag e o que ela significa. Nunca toca o Catálogo nem promove Esboço a Componente.
 
 Só manual, e só com o checkout do life-os (`samuel-morrissey/life-os`, ou um worktree dele) como diretório atual, porque edita os arquivos de lá, roda os testes de lá e depende do deploy dele na Vercel:
 
@@ -94,7 +114,7 @@ cd <checkout do life-os>
 /life-os:teacher-helper <spec do Professor>
 ```
 
-Fora do life-os, ela para antes de qualquer edição e responde que só roda lá e como rodar. Enquanto isso, o Professor abre a Solicitação de Esboço como issue no life-os.
+Fora do life-os, ela para antes de qualquer edição e responde que só roda lá e como rodar. Nesse caso, o Professor abre a Solicitação de Esboço como issue no life-os.
 
 ## Publicar uma atualização
 
