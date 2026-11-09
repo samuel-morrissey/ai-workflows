@@ -17,3 +17,6 @@ evidence_tools: |
   python3 scripts/doctor.py
   python3 scripts/sub_tasks.py
   python3 scripts/test_doctor.py
+web_domains: |
+  https://docs.aws.amazon.com/cli/latest/reference/s3/
+  https://playwright.dev/docs/intro
