@@ -5,7 +5,7 @@
     "name": "Samuel de Lima",
     "url": "https://github.com/samuel-morrissey"
   },
-  "description": "Marketplace pessoal: as skills do fluxo de issues, no mesmo repositorio dos workflows que as rodam.",
+  "description": "Marketplace pessoal: as skills do fluxo de issues, no mesmo repositorio dos workflows que as rodam, e o plugin do Life OS.",
   "plugins": [
     {
       "name": "samuel-morrissey-skills",
@@ -18,6 +18,18 @@
         "tdd",
         "code-review",
         "grilling"
+      ]
+    },
+    {
+      "name": "life-os",
+      "source": "./plugins/life-os",
+      "description": "O servidor MCP do Life OS e as skills dos contextos de Conhecimento e Aprendizado.",
+      "category": "productivity",
+      "keywords": [
+        "life-os",
+        "mcp",
+        "second-brain",
+        "learning"
       ]
     }
   ]
