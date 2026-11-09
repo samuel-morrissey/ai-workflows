@@ -2,7 +2,7 @@
     "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
     "name": "life-os",
     "displayName": "Life OS",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "O servidor MCP do Life OS e as skills dos contextos de Conhecimento e Aprendizado.",
     "author": {
         "name": "Samuel de Lima",

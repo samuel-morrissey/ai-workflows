@@ -1,7 +1,8 @@
 # Verificação de conexão com o Life OS
 
-Texto que uma skill do plugin `life-os` devolve ao usuário quando as
-ferramentas `mcp__plugin_life-os_life-os__*` não aparecem ou respondem 401.
+Texto que as skills do plugin `life-os` (`second-brain` e `teach-me`)
+devolvem ao usuário quando as ferramentas `mcp__plugin_life-os_life-os__*` não
+aparecem ou respondem 401.
 Responda com ele e pare, sem chamar outra ferramenta do servidor:
 
 ```
