@@ -7,10 +7,11 @@ Mora no marketplace `samuel-morrissey-ai-workflows`, ao lado do `samuel-morrisse
 ## O que ele instala
 
 - **O servidor MCP `life-os`**, declarado em [`.mcp.json`](.mcp.json): `type: http`, na URL de produção do Life OS (`https://life-os-psi-woad-65.vercel.app/api/mcp`), com o token no cabeçalho `Authorization: Bearer ${LIFE_OS_MCP_TOKEN}`. No `/mcp`, ele aparece como `plugin:life-os:life-os`, e as ferramentas como `mcp__plugin_life-os_life-os__<ferramenta>` (por exemplo, `mcp__plugin_life-os_life-os__guide`).
-- **As skills**, invocadas com o prefixo `life-os:`. Ainda a entrar; cada uma chega numa versão seguinte do plugin:
-  - `second-brain` (Conhecimento): a porta de entrada sempre que o agente vai usar o Life OS. Automática pela descrição e também manual (`/life-os:second-brain`).
-  - `teacher-helper` (o Desenvolvedor, antes `professor-developer`): só manual, chamada pela `teach-me` quando o Catálogo não expressa um visual. Roda só com o life-os como diretório atual.
-  - `teach-me` (o Professor): só manual, com o Curso como primeiro argumento (`/life-os:teach-me <curso> <pedido>`).
+- **As skills**, em [`skills/`](skills/), invocadas com o prefixo `life-os:`:
+  - [`teacher-helper`](skills/teacher-helper/SKILL.md) (o Desenvolvedor, antes `professor-developer`): veja [A teacher-helper](#a-teacher-helper).
+  - Ainda a entrar, cada uma numa sub-task seguinte:
+    - `second-brain` (Conhecimento): a porta de entrada sempre que o agente vai usar o Life OS. Automática pela descrição e também manual (`/life-os:second-brain`).
+    - `teach-me` (o Professor): só manual, com o Curso como primeiro argumento (`/life-os:teach-me <curso> <pedido>`).
 
 ## Instalar
 
@@ -65,6 +66,19 @@ Numa sessão nova do Claude Code, com `LIFE_OS_MCP_TOKEN` exportado:
 2. Peça ao agente para chamar a ferramenta `mcp__plugin_life-os_life-os__guide`: ela responde com a apresentação do Life OS e das ferramentas dele.
 
 Se o servidor aparece sem o prefixo `plugin:life-os:`, é o servidor antigo vencendo; veja [Remover o servidor antigo](#remover-o-servidor-antigo).
+
+## A teacher-helper
+
+O Desenvolvedor do contexto de Aprendizado. Quando o Catálogo não expressa um visual que a Aula precisa, o Professor (a skill `teach-me`, ou a `/professor` do learnings até ela chegar) a chama como subagente com uma spec de significado: a Aula, o que o visual transmite, os dados e se o padrão é reutilizável. Ela constrói o Esboço como componente React em `src/contexts/aprendizado/sketches/` do life-os, registra-o em `sketches/index.ts`, passa pela bateria de testes, abre o PR do Esboço e devolve ao Professor só a tag e o que ela significa. Nunca toca o Catálogo nem promove Esboço a Componente.
+
+Só manual, e só com o checkout do life-os (`samuel-morrissey/life-os`, ou um worktree dele) como diretório atual, porque edita os arquivos de lá, roda os testes de lá e depende do deploy dele na Vercel:
+
+```
+cd <checkout do life-os>
+/life-os:teacher-helper <spec do Professor>
+```
+
+Fora do life-os, ela para antes de qualquer edição e responde que só roda lá e como rodar. Enquanto isso, o Professor abre a Solicitação de Esboço como issue no life-os.
 
 ## Publicar uma atualização
 
