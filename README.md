@@ -177,6 +177,7 @@ O marketplace `samuel-morrissey-ai-workflows` tem dois plugins:
 
 - **`samuel-morrissey-skills`**, com raiz neste repositório e as skills em `skills/`: as skills do fluxo, descritas abaixo.
 - **`life-os`**, em `plugins/life-os/`: o servidor MCP do Life OS e as skills dos contextos de Conhecimento e Aprendizado. Instalação, token e conferência no [README do plugin](plugins/life-os/README.md).
+  - **second-brain** — a porta de entrada do Conhecimento (notas, tarefas, lacunas, Glossário e Documentos, sob Escopos): confere a conexão, chama `guide` e `get_method` e segue o método que o servidor devolve. Carrega sozinha quando o pedido envolve o acervo, e também à mão (`/life-os:second-brain`).
   - **teacher-helper** — o Desenvolvedor do Aprendizado (antes `professor-developer`, no life-os): a pedido do Professor, constrói um Esboço como componente React no life-os, registra, valida e devolve só como usá-lo. Só manual (`/life-os:teacher-helper <spec do Professor>`) e só com o checkout do life-os como diretório atual; fora dele, recusa e diz como rodar lá.
 
 As skills do fluxo. Cada etapa dos workflows invoca a sua com o número do issue como argumento (`/samuel-morrissey-skills:issue-triage 42`).
