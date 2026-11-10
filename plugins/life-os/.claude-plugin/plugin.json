@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+    "name": "life-os",
+    "displayName": "Life OS",
+    "version": "1.0.0",
+    "description": "O servidor MCP do Life OS e as skills dos contextos de Conhecimento e Aprendizado.",
+    "author": {
+        "name": "Samuel de Lima",
+        "url": "https://github.com/samuel-morrissey"
+    },
+    "repository": "https://github.com/samuel-morrissey/ai-workflows",
+    "keywords": [
+        "life-os",
+        "mcp",
+        "second-brain",
+        "learning",
+        "productivity"
+    ]
+}

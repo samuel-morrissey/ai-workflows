@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "life-os": {
+      "type": "http",
+      "url": "${LIFE_OS_MCP_URL:-https://life-os-psi-woad-65.vercel.app/api/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${LIFE_OS_MCP_TOKEN}"
+      }
+    }
+  }
+}
