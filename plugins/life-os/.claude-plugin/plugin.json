@@ -9,6 +9,9 @@
         "url": "https://github.com/samuel-morrissey"
     },
     "repository": "https://github.com/samuel-morrissey/ai-workflows",
+    "skills": [
+        "./skills/"
+    ],
     "keywords": [
         "life-os",
         "mcp",
