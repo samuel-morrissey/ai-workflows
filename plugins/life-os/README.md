@@ -8,10 +8,9 @@ Mora no marketplace `samuel-morrissey-ai-workflows`, ao lado do `samuel-morrisse
 
 - **O servidor MCP `life-os`**, declarado em [`.mcp.json`](.mcp.json): `type: http`, na URL de produção do Life OS (`https://life-os-psi-woad-65.vercel.app/api/mcp`), com o token no cabeçalho `Authorization: Bearer ${LIFE_OS_MCP_TOKEN}`. No `/mcp`, ele aparece como `plugin:life-os:life-os`, e as ferramentas como `mcp__plugin_life-os_life-os__<ferramenta>` (por exemplo, `mcp__plugin_life-os_life-os__guide`).
 - **As skills**, em [`skills/`](skills/), invocadas com o prefixo `life-os:`:
+  - [`second-brain`](skills/second-brain/SKILL.md) (Conhecimento): a porta de entrada sempre que o agente vai usar o acervo. Carrega sozinha; veja [A second-brain](#a-second-brain).
   - [`teacher-helper`](skills/teacher-helper/SKILL.md) (o Desenvolvedor, antes `professor-developer`): veja [A teacher-helper](#a-teacher-helper).
-  - Ainda a entrar, cada uma numa sub-task seguinte:
-    - `second-brain` (Conhecimento): a porta de entrada sempre que o agente vai usar o Life OS. Automática pela descrição e também manual (`/life-os:second-brain`).
-    - `teach-me` (o Professor): só manual, com o Curso como primeiro argumento (`/life-os:teach-me <curso> <pedido>`).
+  - Ainda a entrar, numa versão seguinte: `teach-me` (o Professor), só manual, com o Curso como primeiro argumento (`/life-os:teach-me <curso> <pedido>`).
 
 ## Instalar
 
@@ -66,6 +65,23 @@ Numa sessão nova do Claude Code, com `LIFE_OS_MCP_TOKEN` exportado:
 2. Peça ao agente para chamar a ferramenta `mcp__plugin_life-os_life-os__guide`: ela responde com a apresentação do Life OS e das ferramentas dele.
 
 Se o servidor aparece sem o prefixo `plugin:life-os:`, é o servidor antigo vencendo; veja [Remover o servidor antigo](#remover-o-servidor-antigo).
+
+## A second-brain
+
+A porta de entrada do Conhecimento: notas, tarefas, lacunas, Glossário e Documentos, sob Escopos. Ela não traz o método de uso; o servidor o serve na ferramenta `get_method`, versionado com ele. A skill:
+
+1. confere a conexão: se as ferramentas `mcp__plugin_life-os_life-os__*` não aparecem ou respondem 401, para e diz os três passos ([O token](#o-token), gerar o token em **Configurações > Acesso por MCP** e [Remover o servidor antigo](#remover-o-servidor-antigo)), sem chamar outra ferramenta;
+2. chama `guide`;
+3. chama `get_method` com `context: "conhecimento"`;
+4. segue o texto devolvido como o método da sessão, a começar pelo ritual de entrada dele.
+
+Carrega sozinha: sem `disable-model-invocation`, o agente a usa sempre que o pedido envolve o acervo ("o que anotei sobre X", "crie uma lacuna") ou uma ferramenta do Conhecimento. Também roda à mão:
+
+```
+/life-os:second-brain <pedido sobre o acervo>
+```
+
+Num servidor sem `get_method`, ela diz que a ferramenta falta e segue o método que o `guide` dessa versão traz. Cursos e Aulas ficam com a `teach-me`.
 
 ## A teacher-helper
 
