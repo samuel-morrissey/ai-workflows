@@ -111,8 +111,18 @@ O que cada `undo` desfaz:
   sub-task criada pela quebra sai da lista de sub-issues do pai, perde as
   dependencias `blocked_by` e e fechada como "not planned" (a ja fechada
   fica fechada);
-- **triagem**: ainda nao suportado. O `undo` cuja ultima etapa e a triagem
-  e recusado com um comentario, sem mudar nada.
+- **triagem**: o issue volta a `needs-triage`, com o titulo e o corpo de
+  antes da triagem. No pontual (`ready-for-*`), titulo e corpo voltam ao
+  que a citacao do comeco do brief registra; uma edicao humana do brief
+  se perde, e o comentario de reversao diz isso. Pontual cujo corpo nao
+  comeca pela citacao: o `undo` e recusado com um comentario dizendo que o
+  texto original nao foi encontrado no corpo, sem mudar nada. Em
+  `[MAP]`/`[SPEC]` e no pontual grande (`needs-*`) o corpo fica, e o
+  titulo volta com o prefixo do `(sugerido: ...)` da linha **Tipo:** do
+  `## Triagem`, ou sem prefixo quando ela nao o traz (triagem antiga ou
+  titulo original sem prefixo). O `## Triagem` fica, e `priority` tambem.
+  Um `go` roda a triagem de novo, que trata o `## Triagem` desfeito como
+  substituido.
 
 Rodada que terminou em pergunta nao mudou o estado e nao conta: o `undo`
 desfaz a mudanca anterior a ela, e o `awaiting-reply` sai junto. As
@@ -156,7 +166,8 @@ Lendo os labels juntos:
 - `needs-triage` + `awaiting-reply` — esperando o humano responder; a
   resposta dispara a proxima rodada;
 - `needs-triage` + `work-in-progress` — worker atuando agora;
-- `needs-triage` sozinho — esperando `go` para a triagem rodar;
+- `needs-triage` sozinho — esperando `go` para a triagem rodar (tambem
+  logo depois de um comentario `## Undo` que desfez a triagem);
 - `needs-refinement` + `work-in-progress` + `undo` — o `undo` chegou durante
   a rodada e sera processado quando ela terminar;
 - `needs-break-down` sozinho, logo depois de um comentario `## Undo` — a
@@ -256,8 +267,10 @@ o status atualizado.
    `awaiting-pr-review`. Nada dispara sozinho: um `go` retoma a
    implementacao (no pai, a cadeia).
    **Excecao: o label `undo` volta uma etapa.** O workflow `issue-undo.yml`
-   (sem agente) desfaz a ultima mudanca de estado feita por uma etapa: o
-   refinamento (`needs-break-down` volta a `needs-refinement`) ou a quebra
+   (sem agente) desfaz a ultima mudanca de estado feita por uma etapa: a
+   triagem (o estado seguinte volta a `needs-triage`, com titulo e corpo de
+   antes dela), o refinamento (`needs-break-down` volta a
+   `needs-refinement`) ou a quebra
    (`ready-for-*` volta a `needs-break-down`, e as sub-tasks da quebra saem
    do pai e fecham como "not planned"). Implementacao comecada, `[SUB-TASK]`,
    `needs-triage` e issue fechado recusam; ver "Label de volta". Nada dispara
