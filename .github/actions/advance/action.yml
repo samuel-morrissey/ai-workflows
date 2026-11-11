@@ -1,0 +1,95 @@
+name: Encadear a etapa seguinte
+description: >-
+  Encadeamento das etapas antes da implementacao (scripts/advance.py). Em
+  mode check, antes do agente, diz se a etapa seguinte sera chamada sozinha
+  (auto_advance e ai.yml do checkout) e devolve a frase do system prompt; em
+  mode run, depois da rodada, despacha a etapa seguinte com um
+  repository_dispatch do tipo ai-advance, ou comenta pedindo go quando ela
+  nao pode ser chamada.
+
+# Chamada pela triagem (issue-triage.yml) e pelo refinamento
+# (issue-refinement.yml). A quebra nunca encadeia: ela termina em ready-for-*,
+# e a implementacao continua esperando o go. O arquivo de configuracao e o
+# ai.yml sao lidos do diretorio de trabalho, que e o checkout do consumidor.
+# Sem agente: so gh.
+
+inputs:
+  mode:
+    description: "check (antes do agente) ou run (depois da rodada)."
+    required: true
+  stage:
+    description: "Etapa que esta rodando: triagem ou refinamento."
+    required: true
+  number:
+    description: Issue da rodada.
+    required: true
+  enabled:
+    description: "mode run: o enabled do mode check (true ou false)."
+    required: false
+    default: "false"
+  before:
+    description: "mode run: o label de estado do issue antes do agente (before do mode check)."
+    required: false
+    default: ""
+  logins:
+    description: "mode run: logins do responsavel, sem @, para o comentario que pede go."
+    required: false
+    default: ""
+  undo_result:
+    description: "mode run: JSON do undo processado na rodada (output result da action undo)."
+    required: false
+    default: ""
+
+outputs:
+  enabled:
+    description: "mode check: true quando a etapa seguinte sera chamada sozinha."
+    value: ${{ steps.check.outputs.enabled }}
+  sentence:
+    description: >-
+      mode check: frase "Encadeamento: ..." do system prompt, comecando por
+      espaco, sem aspas duplas, crase nem cifrao.
+    value: ${{ steps.check.outputs.sentence }}
+  before:
+    description: "mode check: label de estado do issue antes do agente."
+    value: ${{ steps.check.outputs.before }}
+  result:
+    description: "mode run: JSON do advance.py (action dispatch, none ou failed)."
+    value: ${{ steps.run.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ler encadeamento
+      id: check
+      if: inputs.mode == 'check'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        STAGE: ${{ inputs.stage }}
+        NUMBER: ${{ inputs.number }}
+        # O script vem junto com a action, na mesma ref: a raiz do
+        # repositorio fica tres niveis acima de .github/actions/advance.
+        ADVANCE_PY: ${{ github.action_path }}/../../../scripts/advance.py
+      run: |
+        python3 -I "$ADVANCE_PY" check --stage "$STAGE" --number "$NUMBER" --github-output "$GITHUB_OUTPUT"
+
+    - name: Chamar a etapa seguinte
+      id: run
+      if: inputs.mode == 'run'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        STAGE: ${{ inputs.stage }}
+        NUMBER: ${{ inputs.number }}
+        ENABLED: ${{ inputs.enabled }}
+        BEFORE: ${{ inputs.before }}
+        LOGINS: ${{ inputs.logins }}
+        UNDO_RESULT: ${{ inputs.undo_result }}
+        ADVANCE_PY: ${{ github.action_path }}/../../../scripts/advance.py
+      run: |
+        OUT=$(python3 -I "$ADVANCE_PY" run "$NUMBER" --stage "$STAGE" --before "$BEFORE" \
+          --enabled "$ENABLED" --logins "$LOGINS" --undo-result "$UNDO_RESULT")
+        echo "result=$OUT" >> "$GITHUB_OUTPUT"
+        echo "::notice::encadeamento #${NUMBER}: $OUT"

@@ -38,7 +38,13 @@ devolve:
   perde o prefixo da triagem e volta com o `(sugerido: [X])` da linha
   **Tipo:** do `## Triagem`, ou sem prefixo quando ela nao o traz.
 
-    undo.py run <issue> [--pending]
+Numa rodada encadeada (chamada pela etapa anterior pelo `ai-advance`, ver
+scripts/advance.py), o passo de fim de rodada passa `--chained-from` com a
+etapa que a chamou: o `undo` desfaz as duas, a mudanca de estado desta
+rodada (se houve) e a da etapa que a encadeou, cada uma com o seu
+comentario. Sem cadeia, desfaz uma etapa so.
+
+    undo.py run <issue> [--pending] [--chained-from triagem|refinamento]
 
 Saida: JSON com `action` (`revert`, `refuse` ou `none`), `stage`, `state` e
 `reason`. Erro de API: mensagem no stderr e saida 2.
@@ -76,6 +82,7 @@ BEFORE = {"triagem": "needs-triage", "refinamento": "needs-refinement", "quebra"
 NAMES = {"triagem": "triagem", "refinamento": "refinamento", "quebra": "quebra em sub-tasks"}
 ARTICLE = {"triagem": "a", "refinamento": "o", "quebra": "a"}
 AGAIN = {"triagem": "a triagem", "refinamento": "o refinamento", "quebra": "a quebra"}
+BY = {"triagem": "pela triagem", "refinamento": "pelo refinamento"}
 # Linhas do `## Triagem` e da citacao do brief (AGENT-BRIEF.md da issue-triage).
 TIPO_RE = re.compile(r"^\*\*Tipo:\*\*(.*)$", re.M)
 ESTADO_RE = re.compile(r"^\*\*Estado:\*\*\s*`([a-z-]+)`", re.M)
@@ -291,7 +298,10 @@ def revert_break_down(number, subs):
     return closed
 
 
-def run(number, pending=False):
+def run(number, pending=False, chained_from=None):
+    """Desfaz a ultima etapa. Com `chained_from` (a rodada foi chamada por essa
+    etapa, pelo encadeamento), desfaz tambem a que a encadeou: a mudanca desta
+    rodada, se houve, e a da etapa anterior."""
     issue = api(f"repos/{REPO}/issues/{number}")
     labels = labels_of(issue)
     if pending and UNDO not in labels:
@@ -316,6 +326,11 @@ def run(number, pending=False):
 
     last = events[-1]
     stage, before = last["kind"], BEFORE[last["kind"]]
+    # A etapa desta rodada mudou o estado e a de antes e a que a encadeou: as
+    # duas saem, esta primeiro. Se esta rodada nao mudou o estado, a ultima
+    # ja e a que encadeou, e sai so ela.
+    also = bool(chained_from) and stage != chained_from and len(events) >= 2 \
+        and events[-2]["kind"] == chained_from
     closed = revert_break_down(number, subs) if stage == "quebra" else []
     restored = revert_triage(issue, state, last.get("body")) if stage == "triagem" else []
     ensure_label(before)
@@ -333,14 +348,28 @@ def run(number, pending=False):
                          "bloqueios: " + ", ".join(f"#{n}" for n in closed) + ".")
         else:
             lines.append("**Sub-tasks:** nenhuma ligada a este issue.")
-    lines.append(f"**Estado:** o issue voltou de `{state}` para `{before}`. Aplique `go` para rodar "
-                 f"{AGAIN[stage]} de novo.")
+    if also:
+        g = ARTICLE[stage]
+        lines.append(f"**Cadeia:** {g} {NAMES[stage]} rodou encadead{g} {BY[chained_from]}, e o `undo` chegou "
+                     f"durante a rodada: {AGAIN[chained_from]} tambem e desfeit{ARTICLE[chained_from]}, no "
+                     "comentario seguinte. Nenhuma etapa seguinte e chamada.")
+        lines.append(f"**Estado:** o issue voltou de `{state}` para `{before}`.")
+    else:
+        if chained_from:
+            lines.append("**Cadeia:** o `undo` chegou durante uma etapa encadeada; nenhuma etapa seguinte e "
+                         "chamada.")
+        lines.append(f"**Estado:** o issue voltou de `{state}` para `{before}`. Aplique `go` para rodar "
+                     f"{AGAIN[stage]} de novo.")
     lines.append("Os comentarios anteriores ficam como historico; o comentario desfeito nao vale mais. "
                  + ("A triagem e a primeira etapa: nao ha etapa anterior para outro `undo` desfazer."
                     if stage == "triagem" else "Aplicar `undo` de novo desfaz a etapa anterior a esta."))
     comment(number, "\n".join(lines) + f"\n\n<!-- ai:undo etapa={stage} -->")
-    return {"action": "revert", "issue": number, "stage": stage, "state": before, "from": state,
-            "closed": closed}
+    result = {"action": "revert", "issue": number, "stage": stage, "state": before, "from": state,
+              "closed": closed}
+    if also:
+        result["also"] = run(number, chained_from=None)
+        result["state"] = result["also"].get("state", before)
+    return result
 
 
 def main():
@@ -350,11 +379,13 @@ def main():
     p.add_argument("issue", type=int)
     p.add_argument("--pending", action="store_true",
                    help="so age se o issue carrega `undo` (fim de rodada de etapa)")
+    p.add_argument("--chained-from", choices=sorted(BY), default=None,
+                   help="a rodada foi encadeada por essa etapa: o `undo` desfaz as duas")
     args = parser.parse_args()
     if not REPO:
         sys.exit("GH_REPO (owner/repo) e obrigatorio.")
     try:
-        print(json.dumps(run(args.issue, args.pending), ensure_ascii=False))
+        print(json.dumps(run(args.issue, args.pending, args.chained_from), ensure_ascii=False))
     except ApiError as err:
         print(str(err), file=sys.stderr)
         sys.exit(2)

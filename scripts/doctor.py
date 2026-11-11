@@ -66,7 +66,7 @@ BRANCH_PREFIX = "ai-workflows/"
 DOCTOR_BRANCH = BRANCH_PREFIX + "doctor"
 CONFIG_KEYS = ("setup_commands", "quality_checks", "evidence_tools",
                "evidence_bucket", "evidence_public_url", "evidence_endpoint",
-               "default_responsible", "web_domains")
+               "default_responsible", "web_domains", "auto_advance")
 VAR_NAMES = ("EVIDENCE_BUCKET", "EVIDENCE_PUBLIC_URL", "EVIDENCE_ENDPOINT")
 SECRET_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
 SECRET_BUCKET = ("EVIDENCE_ACCESS_KEY_ID", "EVIDENCE_SECRET_ACCESS_KEY")
@@ -250,7 +250,9 @@ def extract_with_block(ai_yml):
 def render_config_yaml(values):
     """Texto de .github/ai-workflows.yml a partir de um dict."""
     out = ["# Comandos deste repositorio para o fluxo de IA (samuel-morrissey/ai-workflows).",
-           "# Chaves: setup_commands, quality_checks, evidence_tools, um comando por linha."]
+           "# Chaves: setup_commands, quality_checks, evidence_tools, um comando por linha.",
+           "# auto_advance: false desliga o encadeamento: triagem e refinamento voltam a",
+           "# esperar `go` para a etapa seguinte. Sem a chave, elas seguem sozinhas."]
     for key in CONFIG_KEYS:
         if key not in values:
             continue

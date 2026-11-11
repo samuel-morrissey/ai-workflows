@@ -384,6 +384,15 @@ class AgentEnvConfig(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertNotIn("Chave desconhecida", proc.stdout)
 
+    def test_auto_advance_false_nao_falha_nem_avisa(self):
+        # Booleano no YAML: e chave da triagem e do refinamento (advance.py),
+        # e a implementacao nao pode parar nela.
+        for text in ("quality_checks: make test\nauto_advance: false\n", "auto_advance: true\n"):
+            proc, _ = self.execute(text)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertNotIn("Chave desconhecida", proc.stdout)
+            self.assertNotIn("::error", proc.stdout)
+
     def test_default_responsible_que_nao_e_texto_falha(self):
         proc, _ = self.execute("default_responsible:\n  - fulano\n")
         self.assertNotEqual(proc.returncode, 0)
@@ -1041,7 +1050,10 @@ class WebDomainsShape(unittest.TestCase):
         for f in WEB_STAGES:
             agent = dict(self.steps(f))[AGENT]
             self.assertIn(f"WebFetch(domain:platform.claude.com){WEBD_ALLOW},Skill", agent, f)
-            self.assertIn(f'--append-system-prompt "{RESP_OUT}{WEBD_SENTENCE}"', agent, f)
+            # Triagem e refinamento levam depois a frase do encadeamento
+            # (test_advance.py); a quebra nao encadeia.
+            chain = "" if f == "issue-break-down.yml" else "${{ steps.chain.outputs.sentence }}"
+            self.assertIn(f'--append-system-prompt "{RESP_OUT}{WEBD_SENTENCE}{chain}"', agent, f)
 
     def test_implementacao_nao_le(self):
         for f in NO_WEB_STAGES:
