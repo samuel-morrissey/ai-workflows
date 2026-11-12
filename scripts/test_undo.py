@@ -40,6 +40,18 @@ TRIAGEM = "## Triagem\n\n**Tipo:** `[SPEC]`\n**Proximo passo** (@ana): aplique `
 RODADA = "## Refinamento — rodada 1\n\n### Perguntas\n**Q1 — x:** ?"
 REFINAMENTO = "## Refinamento\n\nO recorte.\n\n**Proximo passo** (@ana): aplique o label `go`."
 QUEBRA = "## Quebra\n\n| Ordem | Sub-task | Bloqueada por |\n|---|---|---|\n| 1 | #101 a | — |"
+TRIAGEM_PONTUAL = ("## Triagem\n\n**Tipo:** `[BUG]`\n**Estado:** `ready-for-agent`\n**Por que:** x\n"
+                   "**Proximo passo** (@ana): aplique o label `go`.")
+TRIAGEM_SUGERIDO = ("## Triagem\n\n**Tipo:** `[SPEC]` (sugerido: `[FEAT]`)\n**Estado:** `needs-refinement`\n"
+                    "**Por que:** amplo\n**Proximo passo** (@ana): aplique o label `go`.")
+TRIAGEM_IGUAL = ("## Triagem\n\n**Tipo:** `[SPEC]` (sugerido: `[SPEC]`)\n**Estado:** `needs-refinement`\n"
+                 "**Por que:** amplo\n**Proximo passo** (@ana): aplique o label `go`.")
+TRIAGEM_ANTIGA = ("## Triagem\n\n**Tipo:** `[SPEC]`\n**Estado:** `needs-refinement`\n**Por que:** amplo\n"
+                  "**Proximo passo** (@ana): aplique o label `go`.")
+ORIGINAL_TITLE = "[FEAT] triagem quebrada com @ana"
+ORIGINAL_BODY = "O comando quebra\n\nquando o issue nao existe.\n> citado pelo humano"
+BRIEF = ("> **[FEAT] triagem quebrada com @ana**\n>\n> O comando quebra\n>\n> quando o issue nao existe.\n"
+         "> > citado pelo humano\n\n**Categoria:** bug\n**Executor:** agente\n\n## Contexto\nx\n")
 DEVOLUCAO = ("O PR #80 foi fechado sem merge. O issue voltou de `awaiting-pr-review` para "
              "`ready-for-agent`: aplique `go` para retomar a implementacao.")
 
@@ -333,11 +345,17 @@ class BreakDown(Base):
         self.assertEqual(out["action"], "revert", out)
         self.assertEqual(out["stage"], "refinamento", "o primeiro undo nao conta como etapa")
         self.assertEqual(gh.issues[PARENT]["labels"], ["needs-refinement"])
-        # Terceiro: so sobrou a triagem, ainda nao suportada.
+        # Terceiro: so sobrou a triagem, que volta a needs-triage.
+        gh.issues[PARENT]["labels"].append("undo")
+        out = self.execute(gh)
+        self.assertEqual(out["action"], "revert", out)
+        self.assertEqual(out["stage"], "triagem")
+        self.assertEqual(gh.issues[PARENT]["labels"], ["needs-triage"])
+        # Quarto: nada sobrou.
         gh.issues[PARENT]["labels"].append("undo")
         out = self.execute(gh)
         self.assertEqual(out["action"], "refuse")
-        self.assertIn("ainda nao e suportado", self.last_comment(gh))
+        self.assertIn("nao ha o que desfazer", self.last_comment(gh))
 
     def test_go_depois_do_undo_passa_na_conferencia_da_quebra(self):
         # O passo 1 da issue-break-down exige needs-break-down e nenhuma
@@ -350,6 +368,153 @@ class BreakDown(Base):
         gh.issues[PARENT]["comments"].append(comment(QUEBRA, i=99))
         out = self.execute(gh)
         self.assertEqual(out["stage"], "quebra", "a quebra refeita e a nova ultima etapa")
+
+
+class Triage(Base):
+    """O `undo` cuja ultima etapa e a triagem: volta a needs-triage com o
+    titulo e o corpo de antes dela."""
+
+    def pontual(self, labels=("ready-for-agent", "undo"), body=BRIEF, bodies=(TRIAGEM_PONTUAL,)):
+        gh = FakeGitHub(list(labels), list(bodies), title="[FEAT] Titulo claro reescrito")
+        gh.issues[PARENT]["body"] = body
+        return gh
+
+    def assertReverted(self, gh, out, before):
+        self.assertEqual(out["action"], "revert", out)
+        self.assertEqual(out["stage"], "triagem")
+        self.assertEqual(out["state"], "needs-triage")
+        self.assertIn("needs-triage", gh.issues[PARENT]["labels"])
+        self.assertNotIn(before, gh.issues[PARENT]["labels"])
+        body = self.last_comment(gh)
+        self.assertTrue(body.startswith("## Undo\n"), body)
+        self.assertIn("triagem", body)
+        self.assertIn(f"`{before}` para `needs-triage`", body)
+        self.assertIn("`go`", body)
+        self.assertIn("#issuecomment-0", body, "aponta o ## Triagem desfeito")
+        self.assertNotIn("@", body)
+        self.assertIn("<!-- ai:undo etapa=triagem -->", body)
+        return body
+
+    def test_pontual_volta_ao_titulo_e_ao_texto_da_citacao(self):
+        gh = self.pontual()
+        out = self.execute(gh)
+        body = self.assertReverted(gh, out, "ready-for-agent")
+        self.assertEqual(gh.issues[PARENT]["title"], ORIGINAL_TITLE)
+        self.assertEqual(gh.issues[PARENT]["body"], ORIGINAL_BODY)
+        self.assertEqual(gh.issues[PARENT]["labels"], ["needs-triage"])
+        # O brief editado por humano se perde, e o comentario diz isso.
+        self.assertIn("edicao", body)
+        self.assertEqual(len(gh.issues[PARENT]["comments"]), 2, "o ## Triagem fica")
+
+    def test_pontual_ready_for_human_com_priority_e_awaiting_reply(self):
+        gh = self.pontual(labels=("ready-for-human", "priority", "awaiting-reply", "undo"))
+        gh.issues[PARENT]["comments"][0]["body"] = TRIAGEM_PONTUAL.replace("ready-for-agent", "ready-for-human")
+        out = self.execute(gh)
+        self.assertReverted(gh, out, "ready-for-human")
+        self.assertEqual(sorted(gh.issues[PARENT]["labels"]), ["needs-triage", "priority"])
+
+    def test_cria_needs_triage_se_faltar_e_troca_numa_operacao(self):
+        gh = self.pontual()
+        self.execute(gh)
+        self.assertEqual(gh.repo_labels["needs-triage"], undo.LABELS["needs-triage"])
+        self.assertEqual(undo.LABELS["needs-triage"], doctor.FLOW_LABELS["needs-triage"])
+        self.assertEqual(len([c for c in gh.calls if c[0] == "PUT"]), 1)
+        patches = [c for c in gh.calls if c[0] == "PATCH"]
+        self.assertEqual(patches, [("PATCH", f"{R}/issues/{PARENT}", {"title": ORIGINAL_TITLE, "body": ORIGINAL_BODY})])
+
+    def test_citacao_sem_texto_volta_com_corpo_vazio(self):
+        gh = self.pontual(body="> **so o titulo**\n>\n> \n\n**Categoria:** bug\n")
+        self.execute(gh)
+        self.assertEqual(gh.issues[PARENT]["title"], "so o titulo")
+        self.assertEqual(gh.issues[PARENT]["body"], "")
+
+    def test_pontual_sem_citacao_e_recusado(self):
+        for body in ("**Categoria:** bug\n\n## Contexto\nreescrito a mao", "", "> sem titulo em negrito\n\nx"):
+            gh = self.pontual(body=body)
+            out = self.execute(gh)
+            text = self.assertRefused(gh, out, ["ready-for-agent"], "texto original nao foi encontrado no corpo")
+            self.assertEqual(gh.issues[PARENT]["title"], "[FEAT] Titulo claro reescrito")
+            self.assertEqual(gh.issues[PARENT]["body"], body)
+            self.assertEqual(out["stage"], "triagem")
+            self.assertIn("na mao", text)
+
+    def test_spec_com_sugerido_volta_ao_prefixo_sugerido(self):
+        gh = FakeGitHub(["needs-refinement", "undo"], [TRIAGEM_SUGERIDO], title="[SPEC] foo")
+        out = self.execute(gh)
+        self.assertReverted(gh, out, "needs-refinement")
+        self.assertEqual(gh.issues[PARENT]["title"], "[FEAT] foo")
+        self.assertEqual(gh.issues[PARENT]["body"], "corpo")
+        self.assertEqual(gh.issues[PARENT]["labels"], ["needs-triage"])
+        self.assertEqual([c[2] for c in gh.calls if c[0] == "PATCH"], [{"title": "[FEAT] foo"}])
+
+    def test_spec_com_sugerido_igual_volta_com_o_mesmo_prefixo(self):
+        gh = FakeGitHub(["needs-refinement", "undo"], [TRIAGEM_IGUAL], title="[SPEC] foo")
+        out = self.execute(gh)
+        self.assertReverted(gh, out, "needs-refinement")
+        self.assertEqual(gh.issues[PARENT]["title"], "[SPEC] foo")
+        self.assertEqual(gh.issues[PARENT]["body"], "corpo")
+
+    def test_triagem_antiga_sem_sugerido_volta_sem_prefixo(self):
+        for triagem in (TRIAGEM_ANTIGA, TRIAGEM):
+            gh = FakeGitHub(["needs-refinement", "undo"], [triagem], title="[SPEC] foo")
+            out = self.execute(gh)
+            self.assertReverted(gh, out, "needs-refinement")
+            self.assertEqual(gh.issues[PARENT]["title"], "foo")
+            self.assertEqual(gh.issues[PARENT]["body"], "corpo")
+            self.assertEqual(gh.issues[PARENT]["labels"], ["needs-triage"])
+
+    def test_map_e_pontual_grande_tambem_so_mexem_no_titulo(self):
+        for state, title, tipo in (("needs-discovery", "[MAP] ideia", "`[MAP]` (sugerido: `[SPEC]`)"),
+                                   ("needs-break-down", "[FEAT] grande", "`[FEAT]` (sugerido: `[BUG]`)")):
+            triagem = f"## Triagem\n\n**Tipo:** {tipo}\n**Estado:** `{state}`\n**Por que:** x"
+            gh = FakeGitHub([state, "undo"], [triagem], title=title)
+            gh.issues[PARENT]["body"] = BRIEF  # mesmo parecendo brief, o corpo fica
+            out = self.execute(gh)
+            self.assertReverted(gh, out, state)
+            self.assertEqual(gh.issues[PARENT]["body"], BRIEF, state)
+            expected = "[SPEC] ideia" if state == "needs-discovery" else "[BUG] grande"
+            self.assertEqual(gh.issues[PARENT]["title"], expected, state)
+
+    def test_estado_mexido_depois_da_triagem_e_recusado(self):
+        gh = FakeGitHub(["ready-for-agent", "undo"], [TRIAGEM_SUGERIDO], title="[SPEC] foo")
+        out = self.execute(gh)
+        self.assertRefused(gh, out, ["ready-for-agent"], "mudou depois dela")
+        self.assertEqual(gh.issues[PARENT]["title"], "[SPEC] foo")
+
+    def test_triagem_que_fechou_continua_recusada(self):
+        fechou = "## Triagem\n\n**Resultado:** `wontfix` — ja rejeitado em #3\n**Por que:** x"
+        gh = FakeGitHub(["wontfix", "undo"], [fechou], state="closed")
+        out = self.execute(gh)
+        self.assertRefused(gh, out, ["wontfix"], "fechado")
+
+    def test_triagem_em_handoff_nao_conta(self):
+        handoff = "## Status\n\n**Preciso de voce** (@ana): qual natureza?"
+        gh = FakeGitHub(["needs-triage", "awaiting-reply", "undo"], [handoff])
+        out = self.execute(gh)
+        self.assertRefused(gh, out, ["needs-triage", "awaiting-reply"], "nao ha o que desfazer")
+
+    def test_undo_durante_a_rodada_de_triagem(self):
+        gh = self.pontual(labels=("ready-for-agent", "work-in-progress", "undo"))
+        out = self.execute(gh, pending=True)
+        self.assertEqual(out["action"], "revert", out)
+        self.assertEqual(sorted(gh.issues[PARENT]["labels"]), ["needs-triage", "work-in-progress"])
+
+    def test_go_depois_do_undo_roda_a_triagem_de_novo(self):
+        gh = self.pontual()
+        self.execute(gh)
+        # O router manda o `go` em needs-triage para a triagem, nao para a implementacao.
+        jobs = {name: router_if(job) for name, job in router_jobs().items() if "    if: >" in job}
+        event = labeled("go", labels=gh.issues[PARENT]["labels"], title=gh.issues[PARENT]["title"])
+        self.assertEqual(sorted(n for n, c in jobs.items() if evaluate(c, "issues", event)),
+                         ["check-caller", "issue-triage"])
+        # A triagem refeita e a nova ultima etapa: o `undo` seguinte a desfaz.
+        gh.issues[PARENT]["comments"].append(comment("humano: na verdade e um bug", kind="User", i=50))
+        gh.issues[PARENT]["comments"].append(comment(TRIAGEM_PONTUAL, i=51))
+        gh.issues[PARENT]["labels"] = ["ready-for-agent", "undo"]
+        gh.issues[PARENT]["body"] = BRIEF
+        out = self.execute(gh)
+        self.assertEqual(out["action"], "revert", out)
+        self.assertIn("#issuecomment-51", self.last_comment(gh))
 
 
 class Refusals(Base):
@@ -390,12 +555,6 @@ class Refusals(Base):
         out = self.execute(gh)
         body = self.assertRefused(gh, out, ["ready-for-agent"], "PR fechado sem merge")
         self.assertIn("feche o PR", body)
-
-    def test_ultima_etapa_e_a_triagem(self):
-        for labels in (["needs-refinement", "undo"], ["ready-for-agent", "undo"]):
-            gh = FakeGitHub(labels, [TRIAGEM])
-            out = self.execute(gh)
-            self.assertRefused(gh, out, labels[:1], "desfazer a triagem ainda nao e suportado")
 
     def test_sub_task_rodando_agora(self):
         gh = broken_down(subs=(101, (102, "open", ["work-in-progress"])), blocked={})
@@ -528,8 +687,10 @@ class Docs(unittest.TestCase):
     def test_issue_labeling(self):
         text = (SKILLS / "issue-labeling" / "SKILL.md").read_text()
         section = self.flat(text.split("\n## Label de volta\n", 1)[1].split("\n## ", 1)[0])
+        self.assertNotIn("ainda nao suportado", section)
         for s in ("ultima mudanca de label de estado feita por uma etapa", "not planned",
-                  "ainda nao suportado", "`blocked_by`", "aplicar `undo` de novo desfaz a etapa anterior",
+                  "**triagem**: o issue volta a `needs-triage`", "citacao do comeco do brief",
+                  "texto original nao foi encontrado", "`(sugerido: ...)`", "`blocked_by`", "aplicar `undo` de novo desfaz a etapa anterior",
                   "`awaiting-pr-review`", "`[SUB-TASK]`", "`needs-triage`", "fechado",
                   "Nenhuma run e cancelada", "tire o `work-in-progress` do pai"):
             self.assertIn(s, section, s)
@@ -548,6 +709,20 @@ class Docs(unittest.TestCase):
         self.assertIn("Rodando de novo depois de um `undo`.", breakdown)
         self.assertIn("Crie sub-tasks novas", breakdown)
         self.assertIn("nao contam como \"ja quebrado\"", breakdown)
+        triage = self.flat((SKILLS / "issue-triage" / "SKILL.md").read_text())
+        self.assertIn("Rodando de novo depois de um `undo`.", triage)
+        self.assertIn("substituido", triage)
+        self.assertIn("nao conta como \"ja triado\"", triage)
+        self.assertIn("comentario humano posterior ao `undo`", triage)
+
+    def test_triagem_registra_o_sugerido_sempre_que_havia_prefixo(self):
+        text = (SKILLS / "issue-triage" / "SKILL.md").read_text()
+        flat = self.flat(text)
+        self.assertNotIn("so quando trocou o prefixo", flat)
+        self.assertIn("sempre que o titulo original tinha um prefixo de tipo, mesmo igual ao tipo decidido", flat)
+        self.assertIn("`` `[SPEC]` (sugerido: `[SPEC]`) ``", flat)
+        # Os dois formatos de ## Triagem que deixam o titulo com prefixo.
+        self.assertEqual(text.count("o \"(sugerido: ...)\" sempre que o titulo original tinha prefixo"), 2)
 
     def test_readme_e_router(self):
         readme = (ROOT / "README.md").read_text()
@@ -555,6 +730,13 @@ class Docs(unittest.TestCase):
         self.assertIn("`undo`", etapas)
         self.assertIn("`issue-undo.yml`", etapas)
         self.assertIn("### O label `undo`", readme)
+        self.assertNotIn("ainda não suportado", readme)
+        self.assertIn("a triagem (volta a `needs-triage`", etapas)
+        section = readme.split("### O label `undo`", 1)[1].split("\n### ", 1)[0]
+        row = [l for l in section.splitlines() if l.startswith("| Triagem |")][0]
+        for s in ("`needs-triage`", "citação", "`(sugerido: ...)`", "texto original não foi encontrado"):
+            self.assertIn(s, row, s)
+        self.assertIn("a triagem trata o `## Triagem` desfeito como substituído", section)
         table = readme.split("| Labels no issue | Quer dizer |", 1)[1].split("\n\n", 1)[0]
         self.assertIn("`undo`", table)
         router = (WORKFLOWS / "router.yml").read_text()

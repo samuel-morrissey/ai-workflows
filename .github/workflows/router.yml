@@ -287,11 +287,12 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # Undo: um humano aplica `undo` num issue sem work-in-progress. Desfaz a
-  # ultima mudanca de estado feita por uma etapa (refinamento ou quebra) ou
-  # recusa com comentario (implementacao comecada, [SUB-TASK], needs-triage,
-  # issue fechado, triagem ainda nao suportada). Sem guarda de estado nem de
-  # aberto: a recusa tambem e resposta. Com work-in-progress o evento e
-  # pulado, mas o `undo` fica no issue: a etapa que esta rodando (triagem,
+  # ultima mudanca de estado feita por uma etapa (triagem, refinamento ou
+  # quebra) ou recusa com comentario (implementacao comecada, [SUB-TASK],
+  # needs-triage, issue fechado, pontual triado sem a citacao do brief no
+  # corpo). Sem guarda de estado nem de aberto: a recusa tambem e resposta.
+  # Com work-in-progress o evento e pulado, mas o `undo` fica no issue: a
+  # etapa que esta rodando (triagem,
   # refinamento ou quebra) o processa ao terminar. Num pai com a cadeia de
   # sub-tasks viva, ele nao roda: tire o work-in-progress do pai para
   # abandonar a cadeia e aplique `undo` de novo. Nao inicia nada: o `go`

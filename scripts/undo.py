@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reversao do label `undo`: desfaz a ultima mudanca de estado feita por uma
-etapa (refinamento ou quebra), ou recusa dizendo o motivo e o caminho.
+etapa (triagem, refinamento ou quebra), ou recusa dizendo o motivo e o
+caminho.
 
 Usado pela composite action .github/actions/undo, chamada por dois lugares:
 
@@ -27,6 +28,16 @@ ordem:
   e cancela a etapa mais recente ainda valida. Por isso as mudancas do
   proprio `undo` nao contam: aplicar de novo desfaz a etapa anterior.
 
+A triagem tambem mexe no titulo e, no pontual, no corpo; o `undo` dela os
+devolve:
+
+- pontual (`ready-for-*`): titulo e corpo saem da citacao do comeco do
+  brief (`> **<titulo original>**`, `>`, `> <texto original>`). Sem a
+  citacao, recusa: o original nao se inventa;
+- `[MAP]`/`[SPEC]` e pontual grande (`needs-*`): o corpo fica; o titulo
+  perde o prefixo da triagem e volta com o `(sugerido: [X])` da linha
+  **Tipo:** do `## Triagem`, ou sem prefixo quando ela nao o traz.
+
     undo.py run <issue> [--pending]
 
 Saida: JSON com `action` (`revert`, `refuse` ou `none`), `stage`, `state` e
@@ -48,6 +59,7 @@ UNDO = "undo"
 # Cor e descricao canonicas: tabela da issue-labeling e FLOW_LABELS do doctor.
 LABELS = {
     "undo": ("E4E669", "Desfaz a ultima etapa: volta o issue ao estado anterior"),
+    "needs-triage": ("FBCA04", "Issue crua aguardando triagem"),
     "needs-refinement": ("FBCA04", "Falta lapidar requisitos ou esclarecer a solicitacao"),
     "needs-break-down": ("FBCA04", "Escopo entendido, falta quebrar em sub-tasks"),
 }
@@ -57,10 +69,23 @@ UNDO_RE = re.compile(r"<!-- ai:undo etapa=(triagem|refinamento|quebra) -->")
 RETURN_RE = re.compile(r"foi fechado sem merge\. O issue voltou de `awaiting-pr-review`")
 PARENT_RE = re.compile(r"Parte de #(\d+)")
 # Estado que a etapa deixa e estado de antes dela.
-AFTER = {"refinamento": ("needs-break-down",), "quebra": ("ready-for-agent", "ready-for-human")}
-BEFORE = {"refinamento": "needs-refinement", "quebra": "needs-break-down"}
+READY = ("ready-for-agent", "ready-for-human")
+AFTER = {"triagem": ("needs-discovery", "needs-refinement", "needs-break-down") + READY,
+         "refinamento": ("needs-break-down",), "quebra": READY}
+BEFORE = {"triagem": "needs-triage", "refinamento": "needs-refinement", "quebra": "needs-break-down"}
 NAMES = {"triagem": "triagem", "refinamento": "refinamento", "quebra": "quebra em sub-tasks"}
-AGAIN = {"refinamento": "o refinamento", "quebra": "a quebra"}
+ARTICLE = {"triagem": "a", "refinamento": "o", "quebra": "a"}
+AGAIN = {"triagem": "a triagem", "refinamento": "o refinamento", "quebra": "a quebra"}
+# Linhas do `## Triagem` e da citacao do brief (AGENT-BRIEF.md da issue-triage).
+TIPO_RE = re.compile(r"^\*\*Tipo:\*\*(.*)$", re.M)
+ESTADO_RE = re.compile(r"^\*\*Estado:\*\*\s*`([a-z-]+)`", re.M)
+SUGERIDO_RE = re.compile(r"\(sugerido:\s*`?(\[[A-Z][A-Z-]*\])`?\s*\)")
+PREFIX_RE = re.compile(r"^\[[A-Z][A-Z-]*\]\s*")
+QUOTED_TITLE_RE = re.compile(r"^> \*\*(.+)\*\*\s*$")
+NO_ORIGINAL = ("o texto original nao foi encontrado no corpo: ele nao comeca pela citacao do titulo "
+               "e do texto originais (`> **<titulo>**`) que o brief da triagem traz.",
+               "o `undo` nao inventa o original: restaure titulo e corpo na mao e troque o label de "
+               "estado por `needs-triage`, se precisar.")
 STATE_RE = re.compile(r"^(needs-|ready-for-|awaiting-pr-review$)")
 CLOSE_PR = ("feche o PR sem merge: o `pr-closed.yml` devolve o issue ao estado de antes do PR. "
             "Na stack de um pai, feche os PRs das sub-tasks.")
@@ -98,7 +123,7 @@ def labels_of(issue):
 
 def history(comments):
     """Mudancas de estado ainda validas, da mais antiga a mais recente:
-    [{"kind": "triagem|refinamento|quebra|devolucao", "url": ...}]."""
+    [{"kind": "triagem|refinamento|quebra|devolucao", "url": ..., "body": ...}]."""
     events = []
     for c in comments:
         if (c.get("user") or {}).get("type") != "Bot":
@@ -114,10 +139,40 @@ def history(comments):
                     del events[i]
                     break
         elif first in HEADINGS:
-            events.append({"kind": HEADINGS[first], "url": c.get("html_url") or ""})
+            events.append({"kind": HEADINGS[first], "url": c.get("html_url") or "", "body": body})
         elif RETURN_RE.search(body):
-            events.append({"kind": "devolucao", "url": c.get("html_url") or ""})
+            events.append({"kind": "devolucao", "url": c.get("html_url") or "", "body": body})
     return events
+
+
+def original(body):
+    """(titulo, texto) da citacao do comeco do brief, ou None quando o corpo
+    nao comeca por ela. O texto e o citado sem o `> ` de cada linha e sem a
+    linha `>` que separa o titulo do texto."""
+    lines = (body or "").replace("\r\n", "\n").lstrip("\n").split("\n")
+    m = QUOTED_TITLE_RE.match(lines[0])
+    if not m:
+        return None
+    quoted = []
+    for line in lines[1:]:
+        if not line.startswith(">"):
+            break
+        quoted.append(line[2:] if line.startswith("> ") else line[1:])
+    if quoted and not quoted[0].strip():
+        quoted = quoted[1:]
+    return m.group(1), "\n".join(quoted).strip()
+
+
+def triage_title(title, triagem):
+    """Titulo de antes da triagem num `[MAP]`/`[SPEC]` ou pontual grande: o
+    prefixo da triagem sai e entra o sugerido registrado na linha **Tipo:**,
+    se houver. (titulo, prefixo sugerido ou None)."""
+    tipo = TIPO_RE.search(triagem or "")
+    sugerido = SUGERIDO_RE.search(tipo.group(1)) if tipo else None
+    rest = PREFIX_RE.sub("", title or "", count=1)
+    if sugerido:
+        return f"{sugerido.group(1)} {rest}", sugerido.group(1)
+    return rest, None
 
 
 def ensure_label(name):
@@ -175,11 +230,14 @@ def decide(issue, events, subs=None):
     if last["kind"] == "devolucao":
         return ("a ultima mudanca de estado foi a devolucao de um PR fechado sem merge, "
                 "nao uma etapa antes da implementacao: a implementacao ja comecou.", CLOSE_PR)
+    after = AFTER[last["kind"]]
     if last["kind"] == "triagem":
-        return ("desfazer a triagem ainda nao e suportado.",
-                "ajuste o label de estado e o titulo na mao, se precisar.")
-    if state not in AFTER[last["kind"]]:
-        esperado = " ou ".join(f"`{s}`" for s in AFTER[last["kind"]])
+        # O `## Triagem` diz o estado que deixou; sem a linha, qualquer um dela.
+        estado = ESTADO_RE.search(last.get("body") or "")
+        if estado and estado.group(1) in after:
+            after = (estado.group(1),)
+    if state not in after:
+        esperado = " ou ".join(f"`{s}`" for s in after)
         return (f"o label de estado atual ({f'`{state}`' if state else 'nenhum'}) nao e o que a "
                 f"{NAMES[last['kind']]} deixou ({esperado}): ele mudou depois dela.",
                 "ajuste o label de estado na mao.")
@@ -193,7 +251,27 @@ def decide(issue, events, subs=None):
             return ("sub-task em execucao agora (`work-in-progress`): "
                     + ", ".join(f"#{n}" for n in wip) + ".",
                     "espere a rodada dela terminar e aplique `undo` de novo.")
+    if last["kind"] == "triagem" and state in READY and original(issue.get("body")) is None:
+        return NO_ORIGINAL
     return None
+
+
+def revert_triage(issue, state, triagem):
+    """Devolve titulo (e corpo, no pontual) de antes da triagem. Linhas do
+    comentario de reversao, sem citar titulo nem corpo (podem ter `@`)."""
+    number = issue["number"]
+    if state in READY:
+        title, body = original(issue.get("body"))
+        api(f"repos/{REPO}/issues/{number}", "PATCH", {"title": title, "body": body})
+        return ["**Titulo e corpo:** voltaram ao titulo e ao texto originais, citados no comeco do brief. "
+                "O brief saiu do corpo, com qualquer edicao feita nele depois da triagem: essa edicao se "
+                "perdeu e so fica no historico de edicoes do issue."]
+    title, sugerido = triage_title(issue.get("title"), triagem)
+    if title != issue.get("title"):
+        api(f"repos/{REPO}/issues/{number}", "PATCH", {"title": title})
+    prefixo = (f"com o prefixo sugerido `{sugerido}`, registrado no `## Triagem`" if sugerido else
+               "sem prefixo: o `## Triagem` nao registra prefixo sugerido, e a triagem refeita decide o tipo")
+    return [f"**Titulo:** voltou ao de antes da triagem, {prefixo}.", "**Corpo:** ficou como estava."]
 
 
 def revert_break_down(number, subs):
@@ -239,14 +317,16 @@ def run(number, pending=False):
     last = events[-1]
     stage, before = last["kind"], BEFORE[last["kind"]]
     closed = revert_break_down(number, subs) if stage == "quebra" else []
+    restored = revert_triage(issue, state, last.get("body")) if stage == "triagem" else []
     ensure_label(before)
     # Troca o estado numa operacao so; o awaiting-reply sai junto (o issue
     # volta a um estado anterior e fica esperando `go`).
     keep = [l for l in labels if l not in (state, "awaiting-reply")]
     api(f"repos/{REPO}/issues/{number}/labels", "PUT", {"labels": keep + [before]})
 
-    lines = [f"## Undo\n\n**Desfeito:** {'a' if stage == 'quebra' else 'o'} {NAMES[stage]}"
+    lines = [f"## Undo\n\n**Desfeito:** {ARTICLE[stage]} {NAMES[stage]}"
              + (f" ([comentario `## {stage.capitalize()}`]({last['url']}))." if last["url"] else ".")]
+    lines += restored
     if stage == "quebra":
         if closed:
             lines.append("**Sub-tasks fechadas** como \"not planned\", tiradas da lista de sub-issues e sem "
@@ -256,7 +336,8 @@ def run(number, pending=False):
     lines.append(f"**Estado:** o issue voltou de `{state}` para `{before}`. Aplique `go` para rodar "
                  f"{AGAIN[stage]} de novo.")
     lines.append("Os comentarios anteriores ficam como historico; o comentario desfeito nao vale mais. "
-                 "Aplicar `undo` de novo desfaz a etapa anterior a esta.")
+                 + ("A triagem e a primeira etapa: nao ha etapa anterior para outro `undo` desfazer."
+                    if stage == "triagem" else "Aplicar `undo` de novo desfaz a etapa anterior a esta."))
     comment(number, "\n".join(lines) + f"\n\n<!-- ai:undo etapa={stage} -->")
     return {"action": "revert", "issue": number, "stage": stage, "state": before, "from": state,
             "closed": closed}

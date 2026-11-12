@@ -106,10 +106,25 @@ issue.
    Ao aplicar o titulo (passos 5 e 6), **substitua** o prefixo entre
    colchetes no comeco do titulo, se houver, pelo tipo decidido: nunca
    empilhe dois prefixos (`[FEAT] [BUG] ...`). Tipo decidido igual ao
-   sugerido: o prefixo fica como esta. Tipo decidido diferente do sugerido:
-   o comentario de triagem registra a troca na linha **Tipo:**, como
-   `` `[SPEC]` (sugerido: `[FEAT]`) ``, e o **Por que:** diz o motivo. Em
-   handoff (`awaiting-reply`), o titulo nao muda, como em qualquer handoff.
+   sugerido: o prefixo fica como esta. O comentario de triagem registra o
+   tipo sugerido na linha **Tipo:** sempre que o titulo original tinha um
+   prefixo de tipo, mesmo igual ao tipo decidido: `` `[SPEC]` (sugerido:
+   `[FEAT]`) `` quando trocou, com o **Por que:** dizendo o motivo, e
+   `` `[SPEC]` (sugerido: `[SPEC]`) `` quando ficou. E por essa linha que o
+   `undo` da triagem devolve o titulo de antes dela. Titulo original sem
+   prefixo de tipo: nada de `(sugerido: ...)`. Em handoff (`awaiting-reply`),
+   o titulo nao muda, como em qualquer handoff.
+
+   **Rodando de novo depois de um `undo`.** Um comentario `## Undo` que
+   desfez a triagem (ver "Label de volta" da `issue-labeling`) devolve o
+   issue a `needs-triage`, com o titulo e o corpo de antes dela, e marca o
+   `## Triagem` anterior a ele como **substituido**: ele nao conta como "ja
+   triado" nem e o resultado vigente, e esta rodada classifica o issue de
+   novo, do zero, e escreve um `## Triagem` novo. O titulo e o corpo de
+   agora sao os originais; o `## Triagem` desfeito e a leitura de codigo
+   dele sao contexto, nao decisao. Todo comentario humano posterior ao
+   `undo` (o motivo de refazer a triagem) entra como insumo da
+   classificacao.
 
    `needs-triage` e o label de entrada: quem o aplica e um humano, e e esta
    skill quem o remove ao concluir. Em todo `--add-label` abaixo, inclua
@@ -186,7 +201,7 @@ issue.
    ```markdown
    ## Triagem
 
-   **Tipo:** `[MAP]` ou `[SPEC]` (sugerido: `[X]`) — o "(sugerido: ...)" so quando trocou o prefixo
+   **Tipo:** `[MAP]` ou `[SPEC]` (sugerido: `[X]`) — o "(sugerido: ...)" sempre que o titulo original tinha prefixo
    **Estado:** `needs-discovery` ou `needs-refinement`
    **Por que:** <uma ou duas frases>
    **Proximo passo** (@responsavel): `/issue-discovery`, ou aplique o label `go` para `/issue-refinement`
@@ -242,7 +257,9 @@ issue.
    5. Nao sobrou: escreva o brief no corpo do issue, no formato e principios
       do AGENT-BRIEF.md, preservando **titulo e texto originais** do issue
       como citacao logo no comeco do corpo. O titulo citado e o titulo como
-      estava, com o prefixo sugerido, se havia:
+      estava, com o prefixo sugerido, se havia. Mantenha a citacao no
+      formato do AGENT-BRIEF.md: e dela que o `undo` da triagem tira o
+      titulo e o corpo de volta:
 
       ```bash
       gh issue edit $issue --body-file - <<'EOF'
@@ -265,7 +282,7 @@ issue.
       ```markdown
       ## Triagem
 
-      **Tipo:** `[TIPO]` (sugerido: `[X]`) — o tipo pontual aplicado; o "(sugerido: ...)" so quando trocou o prefixo
+      **Tipo:** `[TIPO]` (sugerido: `[X]`) — o tipo pontual aplicado; o "(sugerido: ...)" sempre que o titulo original tinha prefixo
       **Estado:** `ready-for-agent` ou `ready-for-human`
       **Por que:** <uma ou duas frases, incluindo a escolha do executor>
       **Seams:** <as fronteiras dos criterios de aceite, em uma linha>

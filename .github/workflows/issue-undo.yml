@@ -9,12 +9,16 @@ name: Issue Undo
 # - quebra: o pai volta de ready-for-* a needs-break-down, e cada sub-task
 #   criada pela quebra sai da lista de sub-issues, perde os blocked_by e e
 #   fechada como "not planned";
-# - triagem: ainda nao suportado (recusa com comentario).
+# - triagem: o issue volta a needs-triage, com o titulo e o corpo de antes
+#   dela. No pontual (ready-for-*), os dois saem da citacao do comeco do
+#   brief; em [MAP]/[SPEC] e no pontual grande, o corpo fica e o titulo volta
+#   com o prefixo do "(sugerido: ...)" do `## Triagem`, ou sem prefixo.
 #
 # Recusa, com comentario do motivo e do caminho e sem mudar labels de estado:
 # implementacao comecada (awaiting-pr-review, sub-task com PR aberto ou
 # mergeado, devolucao do pr-closed.yml como ultima mudanca), [SUB-TASK],
-# needs-triage e issue fechado. A regra mora em scripts/undo.py, pela action
+# needs-triage, issue fechado e pontual triado cujo corpo nao comeca pela
+# citacao do brief. A regra mora em scripts/undo.py, pela action
 # undo. O `undo` sai ao comecar, como o `go`; nada e disparado depois: o `go`
 # roda a etapa do estado de novo. Os comentarios nao marcam ninguem. Sem
 # agente: so gh.
