@@ -1,6 +1,6 @@
 # ai-workflows
 
-Workflows reutilizáveis do GitHub Actions que levam o fluxo de issues da Caravela para o Claude: triagem, refinamento, quebra em sub-tasks e implementação. As skills que cada etapa roda moram aqui também, em `skills/`, publicadas como o plugin `samuel-morrissey-skills` do marketplace `samuel-morrissey-ai-workflows` (este repositório é o marketplace). Workflow e skill mudam juntos, num só PR. O marketplace tem um segundo plugin, `life-os`, em `plugins/life-os/`: o servidor MCP do Life OS e as skills do app, documentado no [README dele](plugins/life-os/README.md).
+Workflows reutilizáveis do GitHub Actions que levam o fluxo de issues da Caravela para o Claude: triagem, refinamento, quebra em sub-tasks e implementação. As skills que cada etapa roda moram aqui também, em `skills/`, publicadas como o plugin `samuel-morrissey-skills` do marketplace `samuel-morrissey-ai-workflows` (este repositório é o marketplace). Workflow e skill mudam juntos, num só PR.
 
 Cada repositório da organização tem um único arquivo, `.github/workflows/ai.yml`. Ele chama o `router.yml` daqui, e o router escolhe a etapa que o evento aciona.
 
@@ -188,13 +188,9 @@ Responsável: @usuario
 
 ## Skills
 
-O marketplace `samuel-morrissey-ai-workflows` tem dois plugins:
+O marketplace `samuel-morrissey-ai-workflows` tem um plugin:
 
 - **`samuel-morrissey-skills`**, com raiz neste repositório e as skills em `skills/`: as skills do fluxo, descritas abaixo.
-- **`life-os`**, em `plugins/life-os/`: o servidor MCP do Life OS e as skills dos contextos de Conhecimento e Aprendizado. Instalação, token e conferência no [README do plugin](plugins/life-os/README.md).
-  - **second-brain** — a porta de entrada do Conhecimento (notas, tarefas, lacunas, Glossário e Documentos, sob Escopos): confere a conexão, chama `guide` e `get_method` e segue o método que o servidor devolve. Carrega sozinha quando o pedido envolve o acervo, e também à mão (`/life-os:second-brain`).
-  - **teach-me** — o Professor do Aprendizado: ensina um tópico escrevendo Aulas num Curso e guarda o scratch de ensino pelo MCP, sem arquivo local. Confere a conexão, chama `guide` e `get_method` com `aprendizado` e segue o método que o servidor devolve. Só manual, com o Curso como primeiro argumento (`/life-os:teach-me <curso> <o que aprender ou criar>`).
-  - **teacher-helper** — o Desenvolvedor do Aprendizado (antes `professor-developer`, no life-os): a pedido do Professor, constrói um Esboço como componente React no life-os, registra, valida e devolve só como usá-lo. Só manual (`/life-os:teacher-helper <spec do Professor>`) e só com o checkout do life-os como diretório atual; fora dele, recusa e diz como rodar lá.
 
 As skills do fluxo. Cada etapa dos workflows invoca a sua com o número do issue como argumento (`/samuel-morrissey-skills:issue-triage 42`).
 
@@ -238,10 +234,11 @@ As mesmas skills servem no Claude Code da sua máquina. O marketplace é este re
 /plugin install samuel-morrissey-skills@samuel-morrissey-ai-workflows
 ```
 
-Para o Life OS, instale também o `life-os` e exporte o token, como diz o [README do plugin](plugins/life-os/README.md):
+O plugin `life-os` (o servidor MCP do Life OS e as skills `second-brain`, `teach-me` e `teacher-helper`) saiu deste marketplace e mora no repositório do Life OS, que é o marketplace dele. Quem o instalou daqui o desinstala (`/plugin uninstall life-os@samuel-morrissey-ai-workflows`) e reinstala de lá, como diz o [README do plugin](https://github.com/samuel-morrissey/life-os/blob/main/plugins/life-os/README.md):
 
 ```
-/plugin install life-os@samuel-morrissey-ai-workflows
+/plugin marketplace add samuel-morrissey/life-os
+/plugin install life-os@samuel-morrissey-life-os
 ```
 
 Quem tinha o marketplace antigo (`samuel-morrissey/claude-marketplace`) troca pelo novo: remova o antigo (`/plugin marketplace remove samuel-morrissey-claude-marketplace`) e rode os dois comandos acima. Em `settings.json`, a chave de `enabledPlugins` passa a ser `samuel-morrissey-skills@samuel-morrissey-ai-workflows`, e a entrada de `extraKnownMarketplaces` aponta para `samuel-morrissey/ai-workflows`.
@@ -255,15 +252,12 @@ O que cada parte deste repositório alcança depois do merge em `main`:
 | `.github/workflows/*.yml` | os `ai.yml` dos consumidores, por `@main` | na próxima run, sem fazer nada |
 | `scripts/doctor.py` | você, pelo checkout ou pelo `curl` de `main`; a skill `setup-repo`; o job `check-caller` | na próxima execução, sem fazer nada |
 | `skills/*` e `.claude-plugin/` | o Claude Code da sua máquina, pelo plugin `samuel-morrissey-skills` | só depois de subir a versão e atualizar o plugin |
-| `plugins/life-os/` | o Claude Code da sua máquina, pelo plugin `life-os` | só depois de subir a versão dele e atualizar o plugin |
 
 O plugin é instalado por versão: o Claude Code guarda uma cópia do repositório no commit da versão em `.claude-plugin/plugin.json` e só troca essa cópia quando a versão muda. Por isso, todo PR que altera uma skill sobe a versão no `plugin.json` (patch para correção de texto, minor para skill nova ou comportamento novo). Sem isso, o `/plugin` update não traz nada.
 
-Cada plugin tem a própria versão, no próprio `plugin.json`: a do `samuel-morrissey-skills` em `.claude-plugin/plugin.json`, a do `life-os` em `plugins/life-os/.claude-plugin/plugin.json`. Um PR sobe só a do plugin que mudou; no `life-os`, mudar uma skill ou o `.mcp.json` sobe a versão. A cópia do `samuel-morrissey-skills` é o repositório inteiro e leva `plugins/life-os/` junto, mas isso não muda as skills dele, porque o `plugin.json` da raiz só aponta `./skills/`.
-
 Depois do merge de um PR que subiu a versão:
 
-1. Rode `/plugin`, atualize o marketplace `samuel-morrissey-ai-workflows` e depois o plugin que subiu de versão (`samuel-morrissey-skills` ou `life-os`).
+1. Rode `/plugin`, atualize o marketplace `samuel-morrissey-ai-workflows` e depois o plugin `samuel-morrissey-skills`.
 2. Abra uma sessão nova. As skills são carregadas no início da sessão.
 3. Confira a versão instalada com `/plugin`, ou em `~/.claude/plugins/installed_plugins.json`.
 
@@ -582,8 +576,7 @@ Problemas comuns:
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, o link da run e a menção ao responsável, resolvido por `scripts/responsible.py` (que vem junto com a action, na mesma ref); a run continua marcada como falha.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, o `issue-sub-task.yml` troca o checkout para a base da sub-task (a branch do topo da stack), para o setup instalar o que a sub-task herda; os dois leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas (action `agent-env`); depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR (action `publish-evidence`).
 - `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence`, `responsible` (o responsável do issue, resolvido antes do agente e entregue a ele no system prompt), `metrics` (o tempo da rodada por grupo de passos; veja [Métricas](#métricas)), `round-failure` e `undo` (a reversão do label `undo`, por `scripts/undo.py`). Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
-- `.claude-plugin/` e `skills/`: o marketplace e o plugin do fluxo. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com dois plugins: `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`), e `life-os`. As etapas instalam só o `samuel-morrissey-skills`, pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
-- `plugins/life-os/`: o plugin `life-os`, com o próprio `.claude-plugin/plugin.json`, o `.mcp.json` que registra o servidor MCP do Life OS e as skills em `skills/`. Nenhum workflow o usa; ele é instalado à mão, no Claude Code de cada máquina.
+- `.claude-plugin/` e `skills/`: o marketplace e o plugin do fluxo. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas o instalam pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
 - `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 
 Os `uses` apontam para `samuel-morrissey/ai-workflows/...@main`, e não para `./.github/workflows/...` ou `./.github/actions/...`. Em chamadas aninhadas, um caminho local é procurado no repositório do chamador, e não aqui.
