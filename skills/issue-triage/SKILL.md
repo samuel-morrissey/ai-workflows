@@ -51,6 +51,23 @@ linha do **Proximo passo**, no mesmo comentario: `**Proximo passo**
 que nao ha responsavel identificavel. O fechamento em `wontfix` ou
 `deferred` nao marca ninguem.
 
+**Encadeamento.** A triagem que termina em `needs-refinement` ou
+`needs-break-down` chama a etapa seguinte sozinha, sem `go`. Quem diz se
+isso vale nesta rodada e o workflow, no system prompt, numa frase que
+comeca por "Encadeamento:":
+
+- **ligado**: o `## Triagem` desses dois estados nao espera ninguem. Ele
+  nao pede `go` e nao marca ninguem: no lugar do **Proximo passo**, leva a
+  linha **Em seguida:**, que diz qual etapa roda agora e que aplicar o
+  label `undo` desfaz esta triagem (passos 5 e 6.3). A mencao fica para a
+  etapa seguinte, quando ela parar numa pergunta ou num `ready-for-*`;
+- **desligado**, ou sem a frase: o comentario pede `go` e marca o
+  responsavel, como sempre.
+
+`needs-discovery`, `ready-for-*`, o handoff (`awaiting-reply`) e o
+fechamento nunca encadeiam: seguem as regras de sempre, qualquer que seja a
+frase.
+
 ## Argumento
 
 `$issue` — o numero do issue a triar.
@@ -210,8 +227,19 @@ issue.
    <formato do AGENT-BRIEF.md>
    ```
 
+   Com o encadeamento ligado e o issue em `needs-refinement`, a linha do
+   **Proximo passo** da lugar a esta, sem `@` nem pedido de `go`:
+
+   ```markdown
+   **Em seguida:** o `/issue-refinement` roda sozinho, sem `go`, a partir desta triagem. Aplique o label `undo` para desfazer esta triagem.
+   ```
+
+   `needs-discovery` continua com o **Proximo passo** e a mencao: a
+   `/issue-discovery` nao roda sozinha.
+
    A leitura e superficial de proposito: um mapa para a proxima etapa, nao um
-   requisito fechado.
+   requisito fechado. Com o encadeamento, o refinamento comeca logo depois
+   deste comentario: o que estiver errado aqui se corrige com o `undo`.
 
 6. **Caminho pontual** — o issue sai executavel:
 
@@ -234,7 +262,13 @@ issue.
 
       Comente como no passo 5 (incluindo a leitura de codigo), com
       **Estado:** `needs-break-down` e **Proximo passo** (@responsavel):
-      aplique o label `go` para `/issue-break-down`.
+      aplique o label `go` para `/issue-break-down`. Com o encadeamento
+      ligado, no lugar do **Proximo passo**, sem `@` nem pedido de `go`:
+
+      ```markdown
+      **Em seguida:** o `/issue-break-down` roda sozinho, sem `go`, a partir desta triagem. Aplique o label `undo` para desfazer esta triagem.
+      ```
+
       Fim da triagem — o brief e trabalho do `/issue-break-down`, nao desta skill.
 
    4. Sobrou lacuna que so o humano responde (escolha de produto, prioridade,
@@ -291,9 +325,12 @@ issue.
       Edite o brief no corpo — o implement le o corpo na hora de rodar.
       ```
 
-      Em todo `## Triagem` que deixa o issue esperando `go` (este e os do
-      passo 5 e do passo 6.3), o `(@responsavel)` sao os logins da frase
-      "Responsavel:" do system prompt. Sem responsavel, a linha fica
+      Em todo `## Triagem` que deixa o issue esperando `go` (este, o
+      `needs-discovery` do passo 5 e, com o encadeamento desligado, os
+      `needs-refinement` e `needs-break-down` dos passos 5 e 6.3), o
+      `(@responsavel)` sao os logins da frase "Responsavel:" do system
+      prompt. O `## Triagem` que encadeia (linha **Em seguida:**) nao marca
+      ninguem. Sem responsavel, a linha fica
       `**Proximo passo:** ...` sem `@`, seguida de `**Responsavel:** nao ha
       responsavel identificavel; ninguem foi marcado.`
 

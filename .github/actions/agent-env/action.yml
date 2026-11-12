@@ -134,6 +134,10 @@ runs:
         # web-domains): aqui entra para nao gerar aviso e para o valor que nao
         # e texto falhar igual; nenhum passo abaixo o usa.
         KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint default_responsible web_domains"
+        # auto_advance e so da triagem e do refinamento (scripts/advance.py),
+        # e o valor dela e booleano (`false`): conhecida, sem aviso, mas fora
+        # da conferencia de texto e das saidas.
+        OTHER_KEYS="auto_advance"
         emit() {
           local d="EOF_$(openssl rand -hex 8)"
           { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_OUTPUT"
@@ -148,7 +152,7 @@ runs:
           exit 1
         fi
         for k in $(yq -r 'keys | .[]' "$CONFIG_FILE"); do
-          case " $KEYS " in
+          case " $KEYS $OTHER_KEYS " in
             *" $k "*) ;;
             *) echo "::warning file=${CONFIG_FILE}::Chave desconhecida ignorada: ${k}" ;;
           esac

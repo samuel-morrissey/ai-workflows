@@ -3,7 +3,9 @@ name: Issue Triage
 # Workflow reutilizavel de triagem. Chamado pelo router.yml quando um humano
 # aplica `needs-triage`, aplica `go` em issue com `needs-triage` ou sem label
 # de estado, responde a um handoff (`needs-triage` + `awaiting-reply`) ou
-# aplica `wontfix` ou `deferred` (a skill completa o fechamento). Os guardas
+# aplica `wontfix` ou `deferred` (a skill completa o fechamento). A triagem
+# que termina em needs-refinement ou needs-break-down chama a etapa seguinte
+# (repository_dispatch `ai-advance`), salvo `auto_advance: false`. Os guardas
 # estao no router; ver README.md.
 
 on:
@@ -95,6 +97,23 @@ jobs:
         if: steps.wip.outputs.skip != 'true'
         uses: samuel-morrissey/ai-workflows/.github/actions/web-domains@main
 
+      # Encadeamento (scripts/advance.py): a triagem que termina em
+      # needs-refinement ou needs-break-down chama a etapa seguinte sozinha,
+      # salvo `auto_advance: false` em .github/ai-workflows.yml ou um ai.yml
+      # ainda sem o tipo `ai-advance` (lidos deste checkout). A frase
+      # "Encadeamento:" diz a skill se o comentario final pede `go` e marca
+      # o responsavel. Falha aqui nao para a rodada: sem a frase, a skill
+      # pede `go` como sempre, e nada e chamado.
+      - name: Ler encadeamento
+        id: chain
+        if: steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/advance@main
+        with:
+          mode: check
+          stage: triagem
+          number: ${{ steps.target.outputs.number }}
+
       - uses: anthropics/claude-code-action@v1
         id: claude
         if: steps.wip.outputs.skip != 'true'
@@ -112,7 +131,7 @@ jobs:
             --model claude-opus-5-5
             --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Read,Grep,Glob,WebFetch(domain:docs.github.com),WebFetch(domain:code.claude.com),WebFetch(domain:platform.claude.com)${{ steps.web.outputs.allow }},Skill,TodoWrite"
             --max-turns 50
-            --append-system-prompt "${{ steps.responsavel.outputs.sentence }}${{ steps.web.outputs.sentence }}"
+            --append-system-prompt "${{ steps.responsavel.outputs.sentence }}${{ steps.web.outputs.sentence }}${{ steps.chain.outputs.sentence }}"
 
       # A skill troca needs-triage pelo label de estado ao concluir. Este passo
       # e a rede de seguranca: se o issue saiu da triagem (fechado, com outro
@@ -151,6 +170,7 @@ jobs:
       # recusa com comentario. Sem `undo` no issue, nada acontece. Falha aqui
       # nao segura o work-in-progress.
       - name: Processar undo da rodada
+        id: undo
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         continue-on-error: true
         uses: samuel-morrissey/ai-workflows/.github/actions/undo@main
@@ -175,6 +195,27 @@ jobs:
             echo "::notice::go chegou durante a rodada em #$NUMBER e foi descartado; aplique de novo para a proxima etapa."
             gh issue edit "$NUMBER" --remove-label go
           fi
+
+      # A etapa seguinte, sem `go`: needs-refinement chama o refinamento e
+      # needs-break-down chama a quebra, por um repository_dispatch do tipo
+      # `ai-advance`. Roda depois de tirar o work-in-progress, para a guarda
+      # da etapa chamada nao pula-la por causa do label desta. Nao chama nada
+      # com o encadeamento desligado, rodada em pergunta, issue fechado ou
+      # fora do fluxo, estado que nao encadeia ou `undo` na rodada; nem
+      # quando algum passo falhou (o round-failure comenta). Dispatch que
+      # falha vira comentario novo pedindo `go`, com o responsavel marcado.
+      - name: Chamar a etapa seguinte
+        if: success() && steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/advance@main
+        with:
+          mode: run
+          stage: triagem
+          number: ${{ steps.target.outputs.number }}
+          enabled: ${{ steps.chain.outputs.enabled }}
+          before: ${{ steps.chain.outputs.before }}
+          logins: ${{ steps.responsavel.outputs.logins }}
+          undo_result: ${{ steps.undo.outputs.result }}
 
       # Registro da falha para o humano. Quem escreve no issue e a skill, de
       # dentro do agente; quando um passo falha fora dela (configuracao

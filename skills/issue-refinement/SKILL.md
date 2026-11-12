@@ -38,6 +38,16 @@ Sem responsavel, nenhum `@`: a linha **Responsavel:** diz que nao ha
 responsavel identificavel. O fechamento em `wontfix` ou `deferred` nao
 marca ninguem.
 
+**Encadeamento.** O refinamento que termina em `needs-break-down` chama a
+quebra sozinho, sem `go`. Quem diz se isso vale nesta rodada e o workflow,
+no system prompt, numa frase que comeca por "Encadeamento:". Ligado, o
+`## Refinamento` final nao espera ninguem: nao pede `go`, nao marca
+ninguem e, no lugar do **Proximo passo**, leva a linha **Em seguida:**
+(formato abaixo). Desligado, ou sem a frase, ele pede `go` e marca o
+responsavel, como sempre. A rodada de perguntas nunca encadeia: ela para
+esperando a resposta. Esta rodada tambem pode ter sido chamada pela
+triagem, sem `go`: o fluxo dela e o mesmo.
+
 ## Argumento
 
 `$issue` — o numero do issue a refinar.
@@ -140,6 +150,11 @@ issue.
    Prioridade decidida pelo humano vira o label `priority` na mesma operacao
    (secao "Label de prioridade" da `issue-labeling`).
 
+   Com o encadeamento ligado, o workflow chama a quebra logo depois desta
+   rodada: o comentario diz isso e cita o `undo`, sem pedir `go` nem marcar
+   ninguem (formato da secao "Refinamento"). Com ele desligado, pede `go` e
+   marca o responsavel.
+
 7. Responda com a URL do comentario postado e o estado do issue.
 
 A rodada esta completa quando o issue tem um comentario novo desta rodada e
@@ -185,6 +200,17 @@ quebra em sub-tasks.
 
 Sem responsavel, o **Proximo passo** fica sem `@` e ganha, logo abaixo,
 `**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado.`
+
+Com o encadeamento ligado, a linha do **Proximo passo** da lugar a esta,
+sem `@` nem pedido de `go`:
+
+```markdown
+**Em seguida:** o `/issue-break-down` roda sozinho, sem `go`, a partir deste refinamento. Aplique o label `undo` para desfazer este refinamento.
+```
+
+Some o intervalo para revisar o `## Refinamento` antes da quebra: um
+recorte errado se corrige com o `undo`, que devolve o issue a
+`needs-refinement`.
 
 Agrupe por **tema**, nao por pergunta: decisoes de rodadas diferentes sobre
 o mesmo conceito ficam juntas. Toda decisao do "Decidido ate aqui" aparece em

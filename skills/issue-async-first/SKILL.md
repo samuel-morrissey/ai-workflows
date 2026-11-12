@@ -99,6 +99,12 @@ Regras da mencao:
 - Nao procure outra pessoa (assignee, autor, quem aplicou o `go`) para
   marcar: a frase do workflow e a unica fonte.
 - Encerramento terminal (`wontfix`, `deferred`) nao e espera: nao marca.
+- O comentario final de uma etapa que encadeia (a triagem ou o refinamento
+  que chamam a etapa seguinte sozinhos, conforme a frase "Encadeamento:" do
+  system prompt) nao e espera: nao marca ninguem. Ele diz qual etapa roda em
+  seguida e cita o `undo`. A mencao fica para a proxima etapa que parar
+  esperando uma pessoa (pergunta ou `ready-for-*`), e para o comentario novo
+  que o workflow posta quando nao consegue chamar a etapa seguinte.
 - No chat nao ha mencao. Em PR, a mencao segue a skill que comenta nele.
 
 O criterio de uma boa mensagem assincrona: outro agente, lendo so o canal,

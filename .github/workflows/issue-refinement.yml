@@ -2,9 +2,11 @@ name: Issue Refinement
 
 # Workflow reutilizavel de refinamento. Chamado pelo router.yml quando um
 # humano aplica `needs-refinement`, aplica `go` em issue com esse label, ou
-# responde a uma rodada de perguntas (`needs-refinement` + `awaiting-reply`). Cada rodada
+# responde a uma rodada de perguntas (`needs-refinement` + `awaiting-reply`),
+# ou quando a triagem o chama (repository_dispatch `ai-advance`). Cada rodada
 # termina em perguntas (awaiting-reply) ou no comentario de refinamento, com
-# o issue em needs-break-down. Os guardas estao no router; ver README.md.
+# o issue em needs-break-down, e entao chama a quebra (salvo `auto_advance:
+# false`). Os guardas estao no router; ver README.md.
 
 on:
   workflow_call:
@@ -25,29 +27,52 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # O issue vem do evento de issue ou, quando a triagem chamou esta etapa
+      # (repository_dispatch `ai-advance`), do payload, que tambem diz qual
+      # etapa encadeou (`from`): o `undo` da rodada a desfaz junto.
       - name: Resolver numero do issue
         id: target
         env:
           EVENT_NUMBER: ${{ github.event.issue.number }}
+          PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}
+          PAYLOAD_FROM: ${{ github.event.client_payload.from }}
         run: |
-          if [ -z "$EVENT_NUMBER" ]; then
+          NUMBER="${EVENT_NUMBER:-$PAYLOAD_NUMBER}"
+          if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
             echo "::error::Evento sem issue: dispare o workflow chamador em um evento de issue."
             exit 1
           fi
-          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          if [ -z "$EVENT_NUMBER" ] && [ "$PAYLOAD_FROM" = "triagem" ]; then
+            echo "from=$PAYLOAD_FROM" >> "$GITHUB_OUTPUT"
+          fi
 
       # Guarda de concorrencia (fluxo-de-issues.md §2.4): issue com
-      # work-in-progress ja tem um worker atuando — encerra sem falhar.
+      # work-in-progress ja tem um worker atuando — encerra sem falhar. A
+      # etapa que chamou esta ja tirou o work-in-progress dela antes do
+      # dispatch. Chamada pelo dispatch, a rodada tambem confere que o issue
+      # continua aberto e em needs-refinement: um `undo` ou um humano pode
+      # ter mudado o estado entre o dispatch e o comeco desta run.
       - name: Aplicar work-in-progress
         id: wip
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.target.outputs.number }}
+          FROM: ${{ steps.target.outputs.from }}
+          EXPECTED: needs-refinement
         run: |
           if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
             echo "::notice::Issue #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          if [ -n "$FROM" ]; then
+            INFO=$(gh issue view "$NUMBER" --json state,labels -q '.state, .labels[].name')
+            if ! grep -Fqx 'OPEN' <<<"$INFO" || ! grep -Fqx "$EXPECTED" <<<"$INFO" || grep -Fqx 'undo' <<<"$INFO"; then
+              echo "::notice::#$NUMBER nao esta mais aberto em $EXPECTED (ou tem undo); a etapa encadeada nao roda."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           gh label create work-in-progress --color D93F0B \
             --description "Worker em execucao nesta issue" 2>/dev/null || true
@@ -88,6 +113,22 @@ jobs:
         if: steps.wip.outputs.skip != 'true'
         uses: samuel-morrissey/ai-workflows/.github/actions/web-domains@main
 
+      # Encadeamento (scripts/advance.py): o refinamento que termina em
+      # needs-break-down chama a quebra sozinho, salvo `auto_advance: false`
+      # em .github/ai-workflows.yml ou um ai.yml ainda sem o tipo
+      # `ai-advance` (lidos deste checkout). A frase "Encadeamento:" diz a
+      # skill se o `## Refinamento` pede `go` e marca o responsavel. Falha
+      # aqui nao para a rodada: sem a frase, a skill pede `go` como sempre.
+      - name: Ler encadeamento
+        id: chain
+        if: steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/advance@main
+        with:
+          mode: check
+          stage: refinamento
+          number: ${{ steps.target.outputs.number }}
+
       - uses: anthropics/claude-code-action@v1
         id: claude
         if: steps.wip.outputs.skip != 'true'
@@ -105,7 +146,7 @@ jobs:
             --model claude-opus-5-5
             --allowed-tools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue close:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob,WebFetch(domain:docs.github.com),WebFetch(domain:code.claude.com),WebFetch(domain:platform.claude.com)${{ steps.web.outputs.allow }},Skill,TodoWrite"
             --max-turns 80
-            --append-system-prompt "${{ steps.responsavel.outputs.sentence }}${{ steps.web.outputs.sentence }}"
+            --append-system-prompt "${{ steps.responsavel.outputs.sentence }}${{ steps.web.outputs.sentence }}${{ steps.chain.outputs.sentence }}"
 
       # Rede de seguranca: se a rodada terminou e o issue continua em
       # `needs-refinement`, a rodada parou em pergunta. Garante o awaiting-reply, caso
@@ -130,15 +171,19 @@ jobs:
       # guarda de work-in-progress, mas o label nao e descartado. Processado
       # aqui, com o work-in-progress ainda nesta rodada: desfaz a ultima
       # mudanca de estado, que pode ser a que esta rodada acabou de fazer, ou
-      # recusa com comentario. Sem `undo` no issue, nada acontece. Falha aqui
-      # nao segura o work-in-progress.
+      # recusa com comentario. Sem `undo` no issue, nada acontece. Numa
+      # rodada encadeada pela triagem (`from`), desfaz as duas: este
+      # refinamento, se mudou o estado, e a triagem. Falha aqui nao segura o
+      # work-in-progress.
       - name: Processar undo da rodada
+        id: undo
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         continue-on-error: true
         uses: samuel-morrissey/ai-workflows/.github/actions/undo@main
         with:
           number: ${{ steps.target.outputs.number }}
           pending: "true"
+          chained_from: ${{ steps.target.outputs.from }}
 
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker
       # que o aplicou (skip vazio), para nao apagar o label de outro worker.
@@ -157,6 +202,27 @@ jobs:
             echo "::notice::go chegou durante a rodada em #$NUMBER e foi descartado; aplique de novo para a proxima etapa."
             gh issue edit "$NUMBER" --remove-label go
           fi
+
+      # A quebra, sem `go`: o refinamento que terminou em needs-break-down a
+      # chama por um repository_dispatch do tipo `ai-advance`. Roda depois de
+      # tirar o work-in-progress, para a guarda da quebra nao pula-la por
+      # causa do label desta rodada. Nao chama nada com o encadeamento
+      # desligado, rodada de perguntas, issue fechado ou fora do fluxo, ou
+      # `undo` na rodada; nem quando algum passo falhou (o round-failure
+      # comenta). Dispatch que falha vira comentario novo pedindo `go`, com o
+      # responsavel marcado.
+      - name: Chamar a etapa seguinte
+        if: success() && steps.wip.outputs.skip != 'true'
+        continue-on-error: true
+        uses: samuel-morrissey/ai-workflows/.github/actions/advance@main
+        with:
+          mode: run
+          stage: refinamento
+          number: ${{ steps.target.outputs.number }}
+          enabled: ${{ steps.chain.outputs.enabled }}
+          before: ${{ steps.chain.outputs.before }}
+          logins: ${{ steps.responsavel.outputs.logins }}
+          undo_result: ${{ steps.undo.outputs.result }}
 
       # Registro da falha para o humano. Quem escreve no issue e a skill, de
       # dentro do agente; quando um passo falha fora dela (configuracao

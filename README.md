@@ -9,8 +9,8 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 | Etapa | Dispara quando | Workflow |
 | --- | --- | --- |
 | Triagem | o label `go` entra num issue com `needs-triage` ou sem label de estado, ou uma pessoa coloca `needs-triage`. Também quando uma pessoa coloca `wontfix` ou `deferred`: a triagem fecha o issue e comenta o motivo | `issue-triage.yml` |
-| Refinamento | o label `go` entra num issue com `needs-refinement`, ou uma pessoa coloca `needs-refinement` | `issue-refinement.yml` |
-| Quebra em sub-tasks | o label `go` entra num issue com `needs-break-down`, ou uma pessoa coloca `needs-break-down` | `issue-break-down.yml` |
+| Refinamento | a triagem termina em `needs-refinement` (roda sozinho, sem `go`), o label `go` entra num issue com `needs-refinement`, ou uma pessoa coloca `needs-refinement` | `issue-refinement.yml` |
+| Quebra em sub-tasks | a triagem ou o refinamento terminam em `needs-break-down` (roda sozinha, sem `go`), o label `go` entra num issue com `needs-break-down`, ou uma pessoa coloca `needs-break-down` | `issue-break-down.yml` |
 | Implementação | o label `go` entra num issue com `ready-for-agent`. Num pontual, abre o PR dele. Num pai com sub-tasks, é o planner da cadeia: despacha uma sub-task por vez e empilha os PRs numa stack | `issue-remote-implement.yml` |
 | Sub-task | o planner do pai despacha a próxima sub-task, o label `go` entra numa `[SUB-TASK]` (roda só ela), ou uma pessoa responde a uma pergunta dela | `issue-sub-task.yml` |
 | Correção de PR | uma pessoa envia uma review com *Request changes* num PR aberto, ou uma review ou um comentário no PR que cita `@claude`, ou responde a uma pergunta da correção. Cada pedido vira commit na branch do PR e resposta no próprio PR. Veja [Correção de PR](#correção-de-pr) | `pr-fix.yml` |
@@ -26,7 +26,20 @@ Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro w
 
 `go` é o seu "pode seguir". Ele não diz em que etapa o issue está: isso é o label de estado (`needs-triage`, `needs-refinement`, `needs-break-down`, `ready-for-agent`). `go` diz que a etapa desse estado pode rodar agora. A etapa tira o `go` ao começar, e você coloca de novo quando quiser a próxima.
 
-Por que ele existe: quando uma etapa troca o label sozinha (ex.: o refinamento termina e põe `needs-break-down`), ou quando um agente cria um issue já com `needs-triage`, o GitHub não dispara nada, porque label aplicado por token não gera evento. O `go` destrava esses casos. Na implementação ele é o único gatilho: `ready-for-agent` sozinho nunca inicia nada.
+Por que ele existe: quando um agente cria um issue já com `needs-triage`, ou quando uma etapa troca o label sozinha e não chama a seguinte, o GitHub não dispara nada, porque label aplicado por token não gera evento. O `go` destrava esses casos. Na implementação ele é o único gatilho: `ready-for-agent` sozinho nunca inicia nada.
+
+### Etapas que seguem sozinhas
+
+As etapas antes da implementação não esperam `go`: a triagem que termina em `needs-refinement` chama o refinamento, e a triagem ou o refinamento que terminam em `needs-break-down` chamam a quebra. A etapa que termina despacha a seguinte com um `repository_dispatch` do tipo `ai-advance` (o único jeito de um workflow chamar outro), que o `ai.yml` declara e o router leva ao destino da etapa. O comentário final dela (`## Triagem` ou `## Refinamento`) não pede `go` e não marca ninguém: a linha **Em seguida** diz qual etapa roda agora e que colocar `undo` desfaz esta.
+
+Continuam esperando `go`: todo `ready-for-*` (da triagem pontual ou da quebra), `needs-discovery` (a `issue-discovery` ainda não existe), a retomada de uma cadeia parada num pai e o `ready-for-agent` devolvido pelo `pr-closed.yml`. Rodada que termina numa pergunta (`awaiting-reply`) espera a resposta, e issue fechado, `wontfix` ou `deferred` não chama nada. Um passo que falha fora do agente também não: o comentário **Rodada com falha** sai como sempre.
+
+- **Desligar:** `auto_advance: false` em [`.github/ai-workflows.yml`](#o-arquivo-githubai-workflowsyml) volta ao comportamento antigo: nenhuma etapa chama a seguinte, e todo comentário final pede `go` marcando o responsável. Quem lê a chave é a etapa que está terminando, no checkout do repositório.
+- **`ai.yml` antigo:** um repositório cujo `ai.yml` ainda não declara `ai-advance` também continua pedindo `go`, até o merge do PR de atualização que o `check-caller` abre.
+- **Dispatch que falha:** o issue ganha um comentário novo, **Etapa seguinte não chamada**, com o motivo, pedindo `go` e marcando o responsável.
+- **`undo` durante uma etapa encadeada:** a etapa que está rodando confere o `undo` antes de terminar, não chama a seguinte, e o `undo` desfaz as duas: a mudança de estado desta rodada (se houve) e a da etapa que a encadeou. Um refinamento encadeado pela triagem volta o issue a `needs-triage`, com o título e o corpo de antes da triagem. Nenhuma run é cancelada.
+
+Um `go` colocado durante uma etapa que encadeia é descartado no fim da rodada; a etapa seguinte roda pelo dispatch. O `go` manual continua valendo em todo estado. Issues que já estavam parados esperando `go` continuam assim: o encadeamento vale para as etapas que terminam depois da atualização. Sem a parada antes da próxima etapa, não há o momento de revisar o `## Refinamento` ou a leitura de código: um erro se corrige com `undo`. O último intervalo de revisão é o `go` da implementação.
 
 Um `go` colocado enquanto a etapa roda é descartado no fim dela, porque um label que já está no issue não pode ser colocado de novo. Coloque outro quando a rodada terminar. `go` num issue com `awaiting-pr-review`, fechado ou sem etapa para o estado dele não dispara nada; o próximo workflow que rodar nesse issue tira o label.
 
@@ -85,7 +98,8 @@ Comentário só dispara etapa em issue com `awaiting-reply`. Fora disso, comente
 | `[SUB-TASK]` + `awaiting-pr-review` | PR da sub-task aberto, na stack do pai |
 | `[SUB-TASK]` + `awaiting-reply` | a sub-task parou numa pergunta; responda nela e a cadeia segue |
 | `needs-refinement` + `awaiting-reply` | perguntas do refinamento esperando você |
-| `needs-break-down` sozinho | esperando `go` para quebrar em sub-tasks (também logo depois de um `undo` que desfez a quebra) |
+| `needs-refinement` ou `needs-break-down` sozinho, com **Em seguida** no último comentário de etapa | a etapa seguinte foi encadeada e vai começar sozinha |
+| `needs-break-down` sozinho | esperando `go` para quebrar em sub-tasks: com `auto_advance: false`, `ai.yml` antigo, depois de **Etapa seguinte não chamada**, ou logo depois de um `undo` que desfez a quebra |
 | `undo` + `work-in-progress` | o `undo` chegou durante a rodada; ela o processa quando terminar |
 | `awaiting-pr-review` | PR aberto, esperando revisão e merge |
 | `wontfix` | fechado: não será feito. Um pedido igual é fechado como `wontfix` de novo |
@@ -126,16 +140,17 @@ Quando o fluxo para e só anda com uma pessoa, o comentário que pede a ação m
 | --- | --- | --- |
 | Pergunta impeditiva (handoff) na triagem, na quebra, na implementação e na sub-task | `## Status`, com `awaiting-reply` | na linha **Preciso de você** |
 | Rodada de perguntas do refinamento | `## Refinamento — rodada N`, com `awaiting-reply` | na linha **Ao responder** |
-| Fim da triagem, esperando `go` (`needs-refinement`, `needs-break-down` ou `ready-for-*`) | `## Triagem` | na linha **Próximo passo** |
-| Fim do refinamento, esperando `go` (`needs-break-down`) | `## Refinamento` final | na linha **Próximo passo** |
-| Fim da quebra, esperando `go` (`ready-for-*`) | `## Quebra` | na linha **Próximo passo** |
+| Fim da triagem, esperando `go` (`ready-for-*` e `needs-discovery`; `needs-refinement` e `needs-break-down` só com `auto_advance: false` ou `ai.yml` antigo) | `## Triagem` | na linha **Próximo passo** |
+| Fim do refinamento, esperando `go` (`needs-break-down`, só com `auto_advance: false` ou `ai.yml` antigo) | `## Refinamento` final | na linha **Próximo passo** |
+| Fim da quebra, esperando `go` (`ready-for-*`), mesmo quando a quebra rodou encadeada | `## Quebra` | na linha **Próximo passo** |
+| Etapa seguinte que não pôde ser chamada (dispatch que falha, `undo` recusado na rodada) | **Etapa seguinte não chamada**, novo no issue, pedindo `go` | na linha **Próximo passo** |
 | Passo que falha fora do agente | **Rodada com falha** (veja [Testar](#testar)) | na linha **Responsável** |
 | PR aberto pela implementação ou pela sub-task (`awaiting-pr-review`) | nenhum: é um pedido de review | em `reviewRequests` do PR; `@` num comentário no PR só se o pedido falhar |
 | Handoff da correção de PR (`awaiting-reply` no PR) | `## Status`, no PR | na linha **Preciso de você**, para quem disparou a rodada |
 | Cadeia de um pai parada (falha ao empilhar, rodada sem PR e sem pergunta, sub-task humana ou bloqueio externo) | `## Cadeia parada`, novo no pai, com o motivo e o `go` para retomar | na linha **Responsável**, o responsável do pai |
 | Stack de um pai completa (`awaiting-pr-review` no pai) | `## Stack completa`, novo no pai, pedindo a revisão de baixo para cima | na linha **Responsável**, o responsável do pai |
 
-A menção vai no próprio comentário que pede a ação, nunca num segundo comentário só para avisar, e só em comentário novo: nenhuma etapa edita um comentário existente para acrescentar `@`. Encerramento em `wontfix` ou `deferred` não é espera e não marca ninguém. Handoff no chat continua sem menção.
+A menção vai no próprio comentário que pede a ação, nunca num segundo comentário só para avisar, e só em comentário novo: nenhuma etapa edita um comentário existente para acrescentar `@`. Encerramento em `wontfix` ou `deferred` não é espera e não marca ninguém. A etapa que encadeia (a triagem ou o refinamento que chamam a seguinte sozinhos, veja [Etapas que seguem sozinhas](#etapas-que-seguem-sozinhas)) também não é espera: o comentário final dela não marca ninguém, e a menção fica para a próxima etapa que parar esperando uma pessoa. Handoff no chat continua sem menção.
 
 **Na cadeia de um pai**, o comentário de status do planner é editado a cada rodada e não leva `@`. O aviso é outro comentário, sempre novo: o planner (`issue-remote-implement.yml`) resolve o responsável do pai no passo **Resolver responsavel do pai** e posta **Cadeia parada** em toda parada, mesmo repetindo o motivo de uma anterior, e **Stack completa** quando o pai ganha `awaiting-pr-review`. Despachar a próxima sub-task, esperar a resposta numa sub-task ou esperar um worker não gera aviso: na espera por resposta, quem avisa é o handoff da sub-task. Pai fora da cadeia (o worker de um `go` direto numa sub-task voltando) só tem o status atualizado. Sem responsável, o aviso sai do mesmo jeito e diz que não há responsável identificável. Se a resolução ou o aviso falharem, a rodada segue, e o status e os labels ficam como ficariam sem o aviso.
 
@@ -304,6 +319,7 @@ evidence_tools: |
   curl
 web_domains: |
   https://docs.asaas.com/reference
+# auto_advance: false  # descomente para as etapas voltarem a esperar `go`
 ```
 
 - `setup_commands`: prepara o ambiente do projeto. O **workflow** roda esses comandos, na ordem declarada, antes de chamar o Claude. Sem eles, `quality_checks` roda num checkout sem dependências instaladas. Se um comando falhar, o job para ali e o Claude não é chamado. Precisa de uma versão específica de runtime? Resolva dentro desses comandos, porque o fluxo não escolhe versão. Uma mudança de `PATH` só chega ao Claude se for gravada em `$GITHUB_PATH`.
@@ -318,8 +334,9 @@ web_domains: |
   Cada domínio é liberado uma vez só, mesmo repetido ou já na lista fixa; duas URLs no mesmo domínio liberam um domínio e as duas vão ao agente. O domínio casa só com ele mesmo: `api.asaas.com` é outra linha. O passo **Ler dominios da web** (action `web-domains`) lê a chave do checkout. Linha vazia ou só comentário (`#`) é ignorada. Linha inválida é ignorada com um aviso no log da run, e as outras valem: esquema que não é `https://`, curinga `*`, espaço no meio, aspas, crase, cifrão, barra invertida, host vazio ou domínio sem ponto. Lista ou mapa YAML falha a rodada antes do agente. Sem a chave vale só a lista fixa, sem aviso. O `doctor` acusa a linha inválida no item `config` (`diverge`) e, com o arquivo válido e sem a chave, dá `info` no mesmo item, apontando a skill `setup-repo`.
 
   Quem propõe a chave é a skill `setup-repo`, também num repositório que já está todo `ok`: ela levanta os fornecedores externos do projeto (dependências, APIs e gateways no código, ADRs, `CONTEXT.md`), deixa de fora o que a lista fixa já cobre, escolhe para cada um a documentação oficial (o `llms.txt` primeiro, quando existe), confere com `curl` que a URL não redireciona para outro host e, no mesmo host, usa o destino final. A lista entra na pergunta única, com o motivo de cada entrada, e o setup só acrescenta as entradas que faltam, sem reescrever as outras chaves nem remover as do humano. Repositório sem fornecedor externo fica sem a chave: o `info` volta nas próximas rodadas do `doctor`, e isso é repetição, não erro.
+- `auto_advance`: `auto_advance: false` desliga o encadeamento das etapas antes da implementação (veja [Etapas que seguem sozinhas](#etapas-que-seguem-sozinhas)): a triagem e o refinamento não chamam mais a etapa seguinte, e todo comentário final volta a pedir `go` marcando o responsável. Sem a chave, ou com qualquer outro valor, as etapas encadeiam. Quem lê é a etapa que está terminando (passo **Ler encadeamento**, action `advance`), no checkout; o `if` do router não lê arquivo. É a única chave booleana do arquivo: a implementação a ignora, sem aviso, e o `doctor` a reconhece.
 
-Chave do arquivo vence o input de mesmo nome do `ai.yml`; chave ausente deixa o input valer; chave desconhecida gera aviso e é ignorada; valor que não é texto (lista, mapa, número) falha o job antes do agente, com o nome do arquivo no erro. Os inputs no `ai.yml` continuam aceitos para os repositórios já configurados, mas o caminho novo é o arquivo.
+Chave do arquivo vence o input de mesmo nome do `ai.yml`; chave ausente deixa o input valer; chave desconhecida gera aviso e é ignorada; valor que não é texto (lista, mapa, número) falha o job antes do agente, com o nome do arquivo no erro, menos em `auto_advance`, que é booleana. Os inputs no `ai.yml` continuam aceitos para os repositórios já configurados, mas o caminho novo é o arquivo.
 
 ### O secret `PROJECT_ENV`
 
@@ -532,7 +549,7 @@ Para cada etapa com métricas, a saída traz quantas runs entraram e uma linha p
 
 ## Testar
 
-Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py`, `scripts/test_undo.py` (o destino `issue-undo` do router, a reversão da triagem, do refinamento e da quebra e as recusas do `undo`, com um GitHub falso) e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível, com subagentes concluídos, cortados, em paralelo, aninhados e sem `timestamp`; e o `scripts/metrics.py` da [comparação entre runs](#comparar-runs), com um `gh` falso servindo runs e artifacts: mediana e p90 por grupo e por métrica da sessão, células só com estados, runs sem artifact, com `schema_version` desconhecido ou ilegíveis, re-runs, a flag `--runs`, sem métricas e com o `gh` falhando).
+Os testes dos scripts e dos passos dos workflows rodam sem rede e sem `gh` com `python3 scripts/test_doctor.py`, que importa as outras suítes: `scripts/test_workflows.py`, `scripts/test_sub_tasks.py`, `scripts/test_responsible.py`, `scripts/test_undo.py` (o destino `issue-undo` do router, a reversão da triagem, do refinamento e da quebra e as recusas do `undo`, com um GitHub falso), `scripts/test_advance.py` (o encadeamento: os destinos do router para o `ai-advance`, o tipo novo no `ai.yml` e o `doctor` apontando a cópia antiga, a leitura de `auto_advance`, o dispatch da etapa seguinte e o comentário que pede `go` quando ele falha, e o `undo` durante uma etapa encadeada, com um GitHub falso) e `scripts/test_metrics.py` (o passo de métricas nas 7 etapas: posição e condição, todo passo com grupo no mapeamento, o `id:` da action e o `execution_file` e o `--max-turns` repassados, e o `run` da action num bash com uma API de jobs falsa, inclusive fora do ar, e com sessões de exemplo: `success`, `error_max_turns`, sem `result`, ausente ou ilegível, com subagentes concluídos, cortados, em paralelo, aninhados e sem `timestamp`; e o `scripts/metrics.py` da [comparação entre runs](#comparar-runs), com um `gh` falso servindo runs e artifacts: mediana e p90 por grupo e por métrica da sessão, células só com estados, runs sem artifact, com `schema_version` desconhecido ou ilegíveis, re-runs, a flag `--runs`, sem métricas e com o `gh` falhando).
 
 Para testar o fluxo de ponta a ponta:
 

@@ -117,11 +117,17 @@ guia da execucao humana.
 
 **O brief e editavel.** O `/issue-remote-implement` e disparado manualmente e le o corpo
 na hora de rodar. Se o humano discorda de uma fronteira, de um criterio ou
-do escopo, o gesto normal e editar o brief antes de aplicar o label `go` —
-nao abrir rodada de perguntas. E tambem assim que o humano resolve cada
-item de **Trade-offs pendentes de aceite**: edita o brief antes do `go`,
-escolhe a alternativa e move o item para os decididos. Enquanto o grupo
-tiver item, o `/issue-remote-implement` nao implementa: faz handoff.
+do escopo, o gesto normal e editar o brief antes de aplicar o label `go` da
+implementacao — nao abrir rodada de perguntas. E tambem assim que o humano
+resolve cada item de **Trade-offs pendentes de aceite**: edita o brief
+antes do `go` da implementacao, escolhe a alternativa e move o item para os
+decididos. Enquanto o grupo tiver item, o `/issue-remote-implement` nao
+implementa: faz handoff. O intervalo para editar so existe antes desse
+`go`: as etapas antes da implementacao seguem sozinhas (a triagem chama o
+refinamento ou a quebra, e o refinamento chama a quebra), sem parar para
+revisao, e um erro nelas
+(uma leitura de codigo ou um `## Refinamento` errado) se corrige com o
+label `undo`, nao editando antes de um `go` que nao vem.
 
 A citacao no comeco preserva o **titulo e o texto originais** do issue, na
 integra: o titulo citado e o titulo como estava, com o prefixo sugerido, se

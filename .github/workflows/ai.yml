@@ -32,12 +32,15 @@ on:
   # comentario no PR chega pelo issue_comment acima.
   pull_request_review:
     types: [submitted]
-  # Elos da cadeia de sub-tasks: o planner do pai chama o worker da proxima
-  # sub-task (`ai-sub-task`) e o worker devolve o controle ao pai
-  # (`ai-implement`). Evento criado pelos proprios workflows, com o
-  # GITHUB_TOKEN. Sem estes dois tipos, um pai com sub-tasks para na primeira.
+  # Sinais internos, criados pelos proprios workflows com o GITHUB_TOKEN:
+  # - elos da cadeia de sub-tasks: o planner do pai chama o worker da proxima
+  #   sub-task (`ai-sub-task`) e o worker devolve o controle ao pai
+  #   (`ai-implement`). Sem eles, um pai com sub-tasks para na primeira;
+  # - `ai-advance`: a triagem e o refinamento chamam a etapa seguinte
+  #   (refinamento ou quebra) sem esperar `go`. Sem ele, cada etapa continua
+  #   pedindo `go`. `auto_advance: false` em .github/ai-workflows.yml desliga.
   repository_dispatch:
-    types: [ai-implement, ai-sub-task]
+    types: [ai-implement, ai-sub-task, ai-advance]
 
 # Uniao das permissoes pedidas pelas etapas. Um reutilizavel nunca recebe mais
 # do que o chamador concede, por isso todas ficam aqui.

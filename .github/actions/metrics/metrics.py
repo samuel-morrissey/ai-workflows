@@ -56,6 +56,8 @@ WEB = "Ler dominios da web"
 ENV = "Preparar ambiente do agente"
 EVIDENCE = "Publicar evidencias"
 UNDO = "Processar undo da rodada"
+CHAIN = "Ler encadeamento"
+ADVANCE = "Chamar a etapa seguinte"
 
 # Mapeamento passo -> grupo, por etapa. Todo passo do job da etapa entra aqui
 # (ou em IGNORED): passo novo ou renomeado num workflow sem entrada aqui faz
@@ -64,15 +66,16 @@ UNDO = "Processar undo da rodada"
 STAGES = {
     "issue-triage": {"job": "Triage Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
-        WEB: "preparo",
+        WEB: "preparo", CHAIN: "preparo",
         AGENT: "agente",
-        "Remover needs-triage se a triagem concluiu": "pos-agente", UNDO: "pos-agente", UNWIP: "pos-agente"}},
+        "Remover needs-triage se a triagem concluiu": "pos-agente", UNDO: "pos-agente", UNWIP: "pos-agente",
+        ADVANCE: "pos-agente"}},
     "issue-refinement": {"job": "Refine Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
-        WEB: "preparo",
+        WEB: "preparo", CHAIN: "preparo",
         AGENT: "agente",
         "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNDO: "pos-agente",
-        UNWIP: "pos-agente"}},
+        UNWIP: "pos-agente", ADVANCE: "pos-agente"}},
     "issue-break-down": {"job": "Break Down Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
         WEB: "preparo",

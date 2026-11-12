@@ -30,6 +30,10 @@ responsavel identificavel. As sub-tasks criadas aqui nao precisam do campo
 `Responsavel:`: herdam o responsavel do pai. O fechamento em `wontfix` ou
 `deferred` nao marca ninguem.
 
+A rodada pode rodar encadeada, chamada sozinha pela triagem ou pelo
+refinamento (sem `go`): o fluxo e o mesmo, e o `## Quebra` continua pedindo
+o `go` da implementacao e marcando o responsavel.
+
 O formato de brief esta em [AGENT-BRIEF.md](../issue-triage/AGENT-BRIEF.md).
 Leia antes de escrever a primeira sub-task. Ao usar web, siga
 [Uso da web](../issue-triage/AGENT-BRIEF.md#uso-da-web).
@@ -157,12 +161,19 @@ issue.
    **Proximo passo** (@responsavel): aplique o label `go` neste issue. O
    agente implementa as sub-tasks uma por vez, nessa ordem, e empilha os PRs
    numa stack; este issue recebe um comentario de status a cada rodada.
-   **Antes do `go`:** discordou de uma fatia? Edite o corpo da
-   sub-task. O implement le o corpo na hora de rodar.
+   **Antes do `go` da implementacao:** discordou de uma fatia? Edite o
+   corpo da sub-task. O implement le o corpo na hora de rodar.
    ```
 
    Sem responsavel, o **Proximo passo** fica sem `@` e ganha, logo abaixo,
    `**Responsavel:** nao ha responsavel identificavel; ninguem foi marcado.`
+
+   O `## Quebra` sempre pede `go` e marca o responsavel, mesmo quando esta
+   rodada foi chamada sozinha pela triagem ou pelo refinamento: a quebra
+   termina em `ready-for-*`, e a implementacao nunca encadeia. O **Antes do
+   `go` da implementacao** e o ultimo intervalo para revisar antes do
+   codigo: as etapas antes dela podem rodar encadeadas, sem parar para
+   revisao, e um erro nelas se corrige com o `undo`.
 
 7. Responda com a URL do comentario e a lista de sub-tasks.
 

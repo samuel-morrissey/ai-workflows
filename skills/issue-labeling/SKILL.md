@@ -52,8 +52,8 @@ O estado e um **label** e diz o **proximo passo** da issue. **Cor** e
 |---|---|---|---|---|
 | `needs-triage` | Issue crua aguardando triagem. Aplicado por humano (ou issue template) | `/issue-triage` | `FBCA04` | Issue crua aguardando triagem |
 | `needs-discovery` | Falta descobrir os limites do que se quer construir | `/issue-discovery` | `FBCA04` | Falta descobrir os limites do que se quer construir |
-| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: `go` dispara a primeira; cada resposta humana a uma pergunta dispara a proxima | `FBCA04` | Falta lapidar requisitos ou esclarecer a solicitacao |
-| `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down` | `FBCA04` | Escopo entendido, falta quebrar em sub-tasks |
+| `needs-refinement` | Falta lapidar requisitos / esclarecer a solicitacao | `/issue-refinement`, em rodadas: a primeira roda sozinha quando a triagem aplica o estado (ou com `go`, com `auto_advance: false`); cada resposta humana a uma pergunta dispara a proxima | `FBCA04` | Falta lapidar requisitos ou esclarecer a solicitacao |
+| `needs-break-down` | Escopo entendido, falta quebrar em sub-tasks | `/issue-break-down`: roda sozinho quando a triagem ou o refinamento aplica o estado (ou com `go`, com `auto_advance: false`); cada resposta humana a uma pergunta dispara a proxima rodada | `FBCA04` | Escopo entendido, falta quebrar em sub-tasks |
 | `ready-for-agent` | Pronto para o agente executar: um pontual, ou um pai cujas sub-tasks o agente executa uma a uma, em cadeia, empilhando os PRs | Humano aplica o label `go` (skill `issue-remote-implement` no pontual; o planner do workflow num pai) | `0E8A16` | Pronto para o agente executar |
 | `ready-for-human` | Unidade executavel exclusivamente humana; o agente so orienta | Execucao humana | `1D76DB` | Unidade executavel exclusivamente humana; o agente so orienta |
 | `awaiting-pr-review` | Implementacao concluida pelo agente; PR aberto e pronto para analise | Humano revisa e faz merge do PR. Numa sub-task, o PR e uma camada da stack do pai: revisa-se a stack de baixo para cima. PR fechado sem merge devolve o issue a `ready-for-agent` (pontual e pai) ou a nenhum label (sub-task), pelo workflow (regra 2) | `5319E7` | Implementacao concluida pelo agente; PR aberto e pronto para analise |
@@ -81,11 +81,32 @@ mao.
 
 `go` tambem nao e estado: e o "pode seguir" do humano. O estado diz em que
 etapa a issue esta; o `go` diz que a etapa desse estado pode rodar agora. E o
-unico sinal que inicia a implementacao, e o que destrava um estado aplicado
-por token de workflow ou de agente (label aplicado por token nao gera
-evento). Issue sem label de estado com `go` vai para a triagem, com uma
-excecao: `[SUB-TASK]` nao tem label de estado por desenho, e o `go` nela
-roda so ela (ver "Pai e sub-tasks").
+unico sinal que inicia a implementacao. Issue sem label de estado com `go`
+vai para a triagem, com uma excecao: `[SUB-TASK]` nao tem label de estado
+por desenho, e o `go` nela roda so ela (ver "Pai e sub-tasks").
+
+As etapas antes da implementacao seguem sozinhas, sem `go`: a triagem que
+termina em `needs-refinement` chama o refinamento, e a triagem ou o
+refinamento que terminam em `needs-break-down` chamam a quebra. Label
+aplicado por token nao gera evento, entao a etapa que termina chama a
+seguinte por um `repository_dispatch` do tipo `ai-advance`. O comentario
+final dela nao pede `go` nem marca ninguem: diz qual etapa roda em seguida
+e que o `undo` desfaz esta. Continuam esperando `go`:
+
+- a implementacao: todo `ready-for-*` (da triagem pontual ou da quebra), a
+  retomada de uma cadeia parada num pai e o `ready-for-agent` devolvido pelo
+  `pr-closed.yml`;
+- `needs-discovery` (a `issue-discovery` ainda nao existe);
+- com `auto_advance: false` em `.github/ai-workflows.yml`, toda etapa, como
+  antes; e tambem num repositorio cujo `ai.yml` ainda nao declara o tipo
+  `ai-advance` (ate o merge do PR de atualizacao do `check-caller`);
+- a etapa seguinte quando o dispatch falha: um comentario novo diz isso e
+  pede `go`, marcando o responsavel.
+
+A rodada que termina com `awaiting-reply` nao encadeia: espera a resposta.
+O `go` manual continua valendo em todo estado. Um `go` aplicado durante
+uma etapa que encadeia e descartado no fim da rodada; a etapa seguinte roda
+pelo dispatch.
 
 | Label | Significado | Quem aplica e remove | Cor | Descricao |
 |---|---|---|---|---|
@@ -146,7 +167,12 @@ mudar label de estado, quando:
 Com `work-in-progress`, o `undo` nao roda na hora e nao e descartado: a
 rodada de triagem, refinamento ou quebra que esta rodando o processa ao
 terminar, e ele pode desfazer a mudanca que essa rodada acabou de fazer.
-Nenhuma run e cancelada. Num pai com a cadeia de sub-tasks viva
+Nenhuma run e cancelada. Numa rodada encadeada (chamada sozinha pela etapa
+anterior), a rodada nao chama a etapa seguinte, e o `undo` desfaz as duas:
+a mudanca de estado desta rodada, se houve, e a da etapa que a encadeou
+(um refinamento encadeado pela triagem volta o issue a `needs-triage`, com
+titulo e corpo de antes da triagem). Numa rodada disparada por `go`, desfaz
+uma etapa so. Num pai com a cadeia de sub-tasks viva
 (`ready-for-agent` + `work-in-progress`) ele nao roda: para desfazer a
 quebra, tire o `work-in-progress` do pai para abandonar a cadeia (ver
 "Label de trabalho") e aplique `undo` de novo.
@@ -170,6 +196,12 @@ Lendo os labels juntos:
   logo depois de um comentario `## Undo` que desfez a triagem);
 - `needs-refinement` + `work-in-progress` + `undo` — o `undo` chegou durante
   a rodada e sera processado quando ela terminar;
+- `needs-refinement` ou `needs-break-down` sozinho, logo depois de um
+  comentario de etapa que diz **Em seguida:** — a etapa seguinte foi
+  encadeada e vai comecar (o `work-in-progress` dela aparece em instantes);
+- `needs-refinement` ou `needs-break-down` sozinho, com um comentario que
+  pede `go` (`auto_advance: false`, ai.yml antigo, ou "Etapa seguinte nao
+  chamada") — esperando `go`;
 - `needs-break-down` sozinho, logo depois de um comentario `## Undo` — a
   quebra foi desfeita; esperando `go` para quebrar de novo.
 

@@ -19,6 +19,13 @@ inputs:
       "true": so age se o issue carrega `undo` (fim de rodada de etapa).
     required: false
     default: "false"
+  chained_from:
+    description: >-
+      Etapa que encadeou esta rodada (triagem ou refinamento), vinda do
+      payload do ai-advance. Com ela, o `undo` desfaz as duas etapas. Vazio:
+      rodada sem cadeia, desfaz uma so.
+    required: false
+    default: ""
 
 outputs:
   result:
@@ -36,12 +43,14 @@ runs:
         GH_REPO: ${{ github.repository }}
         NUMBER: ${{ inputs.number }}
         PENDING: ${{ inputs.pending }}
+        CHAINED_FROM: ${{ inputs.chained_from }}
         # O script vem junto com a action, na mesma ref: a raiz do
         # repositorio fica tres niveis acima de .github/actions/undo.
         UNDO_PY: ${{ github.action_path }}/../../../scripts/undo.py
       run: |
         ARGS=(run "$NUMBER")
         if [ "$PENDING" = "true" ]; then ARGS+=(--pending); fi
+        case "$CHAINED_FROM" in triagem|refinamento) ARGS+=(--chained-from "$CHAINED_FROM") ;; esac
         OUT=$(python3 -I "$UNDO_PY" "${ARGS[@]}")
         echo "result=$OUT" >> "$GITHUB_OUTPUT"
         echo "::notice::undo #${NUMBER}: $OUT"
