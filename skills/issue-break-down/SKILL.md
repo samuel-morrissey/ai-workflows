@@ -99,6 +99,14 @@ issue.
    - **Cabe num PR revisavel.** Fatia que precisa de varias sessoes de agente
      se divide de novo.
 
+   - **Workflow fica com humano.** O agente nao publica mudanca em
+     `.github/workflows/` (o GitHub recusa o push dele; ver o criterio de
+     executor do AGENT-BRIEF.md). A parte que altera esses arquivos vira uma
+     sub-task humana propria, separada da parte que o agente consegue fazer,
+     quando der para separar sem quebrar o "vai para producao sozinha".
+     Quando nao der, a fatia inteira e humana. Em ambos os casos, a linha
+     `**Executor:** humano` da fatia traz esse motivo.
+
    Escolha o menor numero de fatias que passa em todos os testes. Bloqueio
    so onde ha dependencia real: fatias independentes ficam em paralelo.
 

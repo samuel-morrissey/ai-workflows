@@ -304,7 +304,10 @@ issue.
    6. Aplique titulo e label. Com o original preservado na citacao, o titulo
       pode ser reescrito para algo mais claro — sempre com um unico prefixo,
       o `[TIPO]` escolhido, no lugar do sugerido (passo 1). O label e `ready-for-agent`, ou `ready-for-human`
-      pelo criterio de executor do AGENT-BRIEF.md:
+      pelo criterio de executor do AGENT-BRIEF.md. Um pontual cuja execucao
+      precisa alterar arquivo em `.github/workflows/` sai com `Executor:
+      humano` (com esse motivo na linha) e `ready-for-human`: o push do
+      agente nesses arquivos e recusado pelo GitHub.
 
       ```bash
       gh issue edit $issue --title "[TIPO] titulo claro" \
