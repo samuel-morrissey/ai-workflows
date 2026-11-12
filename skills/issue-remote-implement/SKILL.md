@@ -184,6 +184,22 @@ capturas da ultima rodada dele.
    handoff vai na sub-task. Brief sem esse grupo (anterior a regra), ou com
    ele vazio ou com "nenhum", segue o fluxo normal.
 
+   **Brief que altera workflow.** O agente nao publica mudanca em
+   `.github/workflows/`: o GitHub recusa o push dele, porque o token da
+   rodada nao tem a permissao `workflows` (ver o criterio de executor do
+   `AGENT-BRIEF.md` da `issue-triage`). Antes de criar a branch, confira se
+   o brief exige alterar arquivo nesse diretorio. Se exigir e o executor for
+   agente, a unidade nao e apta, no pontual e na sub-task: faca o handoff de
+   sempre (`issue-async-first`, com a mencao ao responsavel no **Preciso de
+   voce**), explicando o limite e pedindo a decisao: marcar o brief como
+   `Executor: humano` (e fazer a mudanca a mao) ou editar o brief tirando a
+   parte de workflow. O handoff **nao** recomenda dar a permissao ao App: o
+   limite e do token da action e nao se contorna por aqui. Aplique
+   `awaiting-reply` e encerre, sem branch, commit nem PR. Numa sub-task, o
+   handoff vai na sub-task. Arquivo de `.github/` fora de `workflows/`, ou
+   workflow citado so como contexto (lido, nao alterado), nao aciona a
+   regra. Brief que ja diz `Executor: humano` continua recusado como hoje.
+
 2. **Crie a branch** conforme a `issue-git-flow`: pontual nasce da branch
    padrao; sub-task nasce da base do modo sub-task. Garanta identidade de
    commit antes do primeiro commit:
@@ -215,6 +231,12 @@ capturas da ultima rodada dele.
    Um trade-off de correcao que o brief nao decidiu e o contrario: e decisao,
    e para a rodada em handoff, sem PR (ver "Trade-off de correcao nunca se
    decide por palpite").
+
+   A necessidade de alterar `.github/workflows/` so apareceu agora (o brief
+   nao dizia)? Nao commite nada nesse diretorio e nao faca push: encerre
+   com o mesmo handoff de "Brief que altera workflow" (passo 1), sem PR,
+   descrevendo no handoff o trabalho do resto e a mudanca de workflow que
+   falta.
 
    Commits pequenos com mensagem clara. Estilo: o codigo novo le como o
    codigo ao redor. Numa sub-task, o codigo das camadas de baixo ja esta na

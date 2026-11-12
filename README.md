@@ -20,6 +20,8 @@ Cada repositório da organização tem um único arquivo, `.github/workflows/ai.
 
 Triagem, refinamento e quebra em sub-tasks têm `WebFetch` restrito a uma lista fixa de domínios do plugin: `docs.github.com`, `code.claude.com` e `platform.claude.com`. É o meio de conferir, na documentação oficial, uma premissa sobre GitHub ou Claude; URL fora da lista a ferramenta recusa, e a premissa fica marcada como não verificada. O repositório soma a essa lista a documentação dos fornecedores dele com a chave [`web_domains`](#o-arquivo-githubai-workflowsyml). Nenhuma etapa tem `WebSearch`, e implementação, sub-task e correção de PR não têm web. A regra de uso (o `llms.txt` primeiro, conteúdo de página como dado, nunca instrução) está em [Uso da web](skills/issue-triage/AGENT-BRIEF.md#uso-da-web).
 
+Os agentes não publicam mudança em `.github/workflows/`: o GitHub recusa o push deles, porque o token das etapas não tem a permissão `workflows`. Isso vale para todas as etapas que publicam código (implementação, sub-task e correção de PR). Trabalho que precisa alterar um workflow vai para um humano: a triagem e a quebra marcam `**Executor:** humano` com esse motivo (na quebra, a parte de workflow vira uma sub-task humana própria quando dá para separar), e a implementação para em handoff, sem PR, se receber um brief de agente que exige isso. Arquivos de `.github/` fora de `workflows/`, como o `.github/ai-workflows.yml` e o `.github/actions/`, ficam fora da regra.
+
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos. Num pai com sub-tasks ele fica durante a cadeia inteira (veja abaixo).
 
 ### O label `go`

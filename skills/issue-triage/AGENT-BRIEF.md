@@ -136,7 +136,19 @@ para algo mais claro.
 
 **Executor:** agente por padrao. Humano quando a execucao exige o que o
 agente nao tem: acesso externo (dashboard, credencial, servico de terceiro),
-teste manual, ou decisao de design tomada durante a execucao.
+teste manual, decisao de design tomada durante a execucao, ou alterar
+arquivo em `.github/workflows/`. Esse ultimo e um limite do token: o GitHub
+recusa o push do agente em `.github/workflows/`, porque o token dele nao tem
+a permissao `workflows`. Ele aparece na linha do executor assim:
+
+```markdown
+**Executor:** humano — altera .github/workflows/, que o token dos agentes nao consegue publicar
+```
+
+A regra vale so para `.github/workflows/`: arquivos de `.github/` fora dele
+(`.github/ai-workflows.yml`, `.github/actions/`) nao entram nela e seguem o
+criterio de sempre. Workflow citado so como contexto (lido para entender o
+fluxo, sem ser alterado) tambem nao aciona a regra.
 
 ```markdown
 > **<titulo original do issue>**
