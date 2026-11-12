@@ -14,6 +14,10 @@ name: Issue Undo
 #   brief; em [MAP]/[SPEC] e no pontual grande, o corpo fica e o titulo volta
 #   com o prefixo do "(sugerido: ...)" do `## Triagem`, ou sem prefixo.
 #
+# O `undo` que chega durante uma rodada (work-in-progress) nao passa por
+# aqui: a etapa o processa ao terminar, e numa rodada encadeada desfaz
+# tambem a etapa que a chamou.
+#
 # Recusa, com comentario do motivo e do caminho e sem mudar labels de estado:
 # implementacao comecada (awaiting-pr-review, sub-task com PR aberto ou
 # mergeado, devolucao do pr-closed.yml como ultima mudanca), [SUB-TASK],

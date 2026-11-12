@@ -2,9 +2,11 @@ name: Issue Break Down
 
 # Workflow reutilizavel de quebra em sub-tasks. Chamado pelo router.yml quando
 # um humano aplica `needs-break-down`, aplica `go` em issue com esse label, ou
-# responde a uma pergunta (`needs-break-down` + `awaiting-reply`). A rodada cria as sub-tasks ligadas ao pai e
-# o entrega em ready-for-*, ou para em pergunta (awaiting-reply). Os guardas
-# estao no router; ver README.md.
+# responde a uma pergunta (`needs-break-down` + `awaiting-reply`), ou quando a
+# triagem ou o refinamento a chamam (repository_dispatch `ai-advance`). A
+# rodada cria as sub-tasks ligadas ao pai e o entrega em ready-for-*, ou para
+# em pergunta (awaiting-reply). Nao encadeia: a implementacao espera o `go`.
+# Os guardas estao no router; ver README.md.
 
 on:
   workflow_call:
@@ -25,29 +27,53 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # O issue vem do evento de issue ou, quando a triagem ou o refinamento
+      # chamou esta etapa (repository_dispatch `ai-advance`), do payload, que
+      # tambem diz qual etapa encadeou (`from`): o `undo` da rodada a desfaz
+      # junto.
       - name: Resolver numero do issue
         id: target
         env:
           EVENT_NUMBER: ${{ github.event.issue.number }}
+          PAYLOAD_NUMBER: ${{ github.event.client_payload.issue }}
+          PAYLOAD_FROM: ${{ github.event.client_payload.from }}
         run: |
-          if [ -z "$EVENT_NUMBER" ]; then
+          NUMBER="${EVENT_NUMBER:-$PAYLOAD_NUMBER}"
+          if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
             echo "::error::Evento sem issue: dispare o workflow chamador em um evento de issue."
             exit 1
           fi
-          echo "number=$EVENT_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          if [ -z "$EVENT_NUMBER" ]; then
+            case "$PAYLOAD_FROM" in triagem|refinamento) echo "from=$PAYLOAD_FROM" >> "$GITHUB_OUTPUT" ;; esac
+          fi
 
       # Guarda de concorrencia (fluxo-de-issues.md §2.4): issue com
-      # work-in-progress ja tem um worker atuando — encerra sem falhar.
+      # work-in-progress ja tem um worker atuando — encerra sem falhar. A
+      # etapa que chamou esta ja tirou o work-in-progress dela antes do
+      # dispatch. Chamada pelo dispatch, a rodada tambem confere que o issue
+      # continua aberto e em needs-break-down: um `undo` ou um humano pode
+      # ter mudado o estado entre o dispatch e o comeco desta run.
       - name: Aplicar work-in-progress
         id: wip
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.target.outputs.number }}
+          FROM: ${{ steps.target.outputs.from }}
+          EXPECTED: needs-break-down
         run: |
           if gh issue view "$NUMBER" --json labels -q '.labels[].name' | grep -Fqx 'work-in-progress'; then
             echo "::notice::Issue #$NUMBER ja esta com work-in-progress; outro worker esta atuando. Encerrando."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          if [ -n "$FROM" ]; then
+            INFO=$(gh issue view "$NUMBER" --json state,labels -q '.state, .labels[].name')
+            if ! grep -Fqx 'OPEN' <<<"$INFO" || ! grep -Fqx "$EXPECTED" <<<"$INFO" || grep -Fqx 'undo' <<<"$INFO"; then
+              echo "::notice::#$NUMBER nao esta mais aberto em $EXPECTED (ou tem undo); a etapa encadeada nao roda."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           gh label create work-in-progress --color D93F0B \
             --description "Worker em execucao nesta issue" 2>/dev/null || true
@@ -130,15 +156,19 @@ jobs:
       # guarda de work-in-progress, mas o label nao e descartado. Processado
       # aqui, com o work-in-progress ainda nesta rodada: desfaz a ultima
       # mudanca de estado, que pode ser a que esta rodada acabou de fazer, ou
-      # recusa com comentario. Sem `undo` no issue, nada acontece. Falha aqui
-      # nao segura o work-in-progress.
+      # recusa com comentario. Sem `undo` no issue, nada acontece. Numa
+      # rodada encadeada (`from`), desfaz as duas: esta quebra, se mudou o
+      # estado, e a etapa que a chamou. Falha aqui nao segura o
+      # work-in-progress.
       - name: Processar undo da rodada
+        id: undo
         if: always() && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         continue-on-error: true
         uses: samuel-morrissey/ai-workflows/.github/actions/undo@main
         with:
           number: ${{ steps.target.outputs.number }}
           pending: "true"
+          chained_from: ${{ steps.target.outputs.from }}
 
       # Remove o WIP mesmo quando a action falha — mas so se foi este worker
       # que o aplicou (skip vazio), para nao apagar o label de outro worker.

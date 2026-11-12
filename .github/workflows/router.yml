@@ -15,8 +15,10 @@ name: AI Router
 #   needs-break-down → quebra, ready-for-agent → implementacao). Issue sem
 #   label de estado vai para a triagem. E o unico sinal que inicia a
 #   implementacao, e o que destrava um estado aplicado por token de workflow
-#   ou de agente (label aplicado por token nao gera evento). A etapa consome
-#   o `go` ao comecar, para ele poder ser aplicado de novo na seguinte.
+#   ou de agente (label aplicado por token nao gera evento) quando a etapa
+#   seguinte nao roda sozinha (`ai-advance`, abaixo). A etapa consome o `go`
+#   ao comecar, para ele poder ser aplicado de novo na seguinte. Vale em todo
+#   estado, inclusive nos que seguem sozinhos.
 # - um comentario humano, so em issue com `awaiting-reply`: e a resposta a
 #   uma pergunta, e retoma a etapa do estado atual. Sem `awaiting-reply`,
 #   comentario nao dispara nada.
@@ -32,14 +34,26 @@ name: AI Router
 # humano no PR com `awaiting-reply` (resposta a um handoff da correcao).
 # Comentario sem nenhum desses sinais nao dispara nada.
 #
-# Um terceiro sinal e interno: `repository_dispatch`. Num pai com sub-tasks a
-# implementacao e uma cadeia de runs (planner do pai -> worker da sub-task ->
-# planner do pai -> ...), e cada elo chama o seguinte com esse evento, criado
-# com o GITHUB_TOKEN (e, com workflow_dispatch, a unica excecao a regra de
-# que evento criado pelo token nao dispara workflow). Dois tipos:
-# `ai-implement` (payload: issue = o pai) chama o planner; `ai-sub-task`
-# (payload: issue = a sub-task) chama o worker. O `go` numa `[SUB-TASK]` e
-# o comentario humano respondendo ao handoff dela tambem vao para o worker.
+# Um terceiro sinal e interno: `repository_dispatch`, criado com o
+# GITHUB_TOKEN (e, com workflow_dispatch, a unica excecao a regra de que
+# evento criado pelo token nao dispara workflow). Tres tipos:
+#
+# - `ai-advance` (payload: issue, stage = `refinement` ou `break-down`, from
+#   = a etapa que chamou): as etapas antes da implementacao seguem sozinhas.
+#   A triagem que termina em `needs-refinement` chama o refinamento; a
+#   triagem ou o refinamento que terminam em `needs-break-down` chamam a
+#   quebra. Quem decide e a etapa que termina (scripts/advance.py), porque o
+#   `if` daqui nao le arquivo: ela le `auto_advance` de
+#   .github/ai-workflows.yml (`false` desliga, e toda etapa volta a pedir
+#   `go`) e nao chama nada se parou numa pergunta, se o issue fechou ou se um
+#   `undo` chegou durante a rodada. `ready-for-*`, `needs-discovery` e a
+#   implementacao continuam esperando `go`;
+# - num pai com sub-tasks a implementacao e uma cadeia de runs (planner do
+#   pai -> worker da sub-task -> planner do pai -> ...), e cada elo chama o
+#   seguinte: `ai-implement` (payload: issue = o pai) chama o planner;
+#   `ai-sub-task` (payload: issue = a sub-task) chama o worker. O `go` numa
+#   `[SUB-TASK]` e o comentario humano respondendo ao handoff dela tambem
+#   vao para o worker.
 #
 # Os destinos sao referenciados pelo caminho completo (@main), nao por
 # `./.github/workflows/...`: em chamada aninhada o caminho local resolve
@@ -242,10 +256,16 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # Refinamento: `needs-refinement` aplicado por humano, `go` em issue com
-  # `needs-refinement`, ou resposta humana a uma rodada de perguntas
-  # (`needs-refinement` + `awaiting-reply`).
+  # `needs-refinement`, resposta humana a uma rodada de perguntas
+  # (`needs-refinement` + `awaiting-reply`), ou a triagem chamando-o
+  # (`repository_dispatch` do tipo `ai-advance` com stage `refinement`). No
+  # dispatch o issue vem no payload, sem os labels: o workflow confere o
+  # estado e o work-in-progress ao comecar.
   issue-refinement:
     if: >
+      (github.event_name == 'repository_dispatch' &&
+       github.event.action == 'ai-advance' &&
+       github.event.client_payload.stage == 'refinement') ||
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress') &&
@@ -264,11 +284,16 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # Quebra em sub-tasks: `needs-break-down` aplicado por humano, `go` em issue
-  # com `needs-break-down` (o caminho normal: a etapa anterior aplicou o
-  # estado pelo token do workflow, sem evento), ou resposta humana a uma
-  # pergunta (`needs-break-down` + `awaiting-reply`).
+  # com `needs-break-down` (o caminho com `auto_advance: false`: a etapa
+  # anterior aplicou o estado pelo token do workflow, sem evento), resposta
+  # humana a uma pergunta (`needs-break-down` + `awaiting-reply`), ou a
+  # triagem ou o refinamento chamando-a (`repository_dispatch` do tipo
+  # `ai-advance` com stage `break-down`, o caminho normal).
   issue-break-down:
     if: >
+      (github.event_name == 'repository_dispatch' &&
+       github.event.action == 'ai-advance' &&
+       github.event.client_payload.stage == 'break-down') ||
       (github.event_name == 'issues' &&
        github.event.action == 'labeled' &&
        !contains(join(github.event.issue.labels.*.name, ','), 'work-in-progress') &&
@@ -292,8 +317,10 @@ jobs:
   # needs-triage, issue fechado, pontual triado sem a citacao do brief no
   # corpo). Sem guarda de estado nem de aberto: a recusa tambem e resposta.
   # Com work-in-progress o evento e pulado, mas o `undo` fica no issue: a
-  # etapa que esta rodando (triagem,
-  # refinamento ou quebra) o processa ao terminar. Num pai com a cadeia de
+  # etapa que esta rodando (triagem, refinamento ou quebra) o processa ao
+  # terminar e nao chama a etapa seguinte; numa rodada encadeada
+  # (`ai-advance`), desfaz tambem a etapa que a chamou. Nenhuma run e
+  # cancelada. Num pai com a cadeia de
   # sub-tasks viva, ele nao roda: tire o work-in-progress do pai para
   # abandonar a cadeia e aplique `undo` de novo. Nao inicia nada: o `go`
   # roda a etapa do estado de novo.
