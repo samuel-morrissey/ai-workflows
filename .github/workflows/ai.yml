@@ -12,6 +12,8 @@ name: AI
 # - Bucket de evidencias: variaveis EVIDENCE_BUCKET, EVIDENCE_PUBLIC_URL e
 #   EVIDENCE_ENDPOINT, do repositorio ou da organizacao. Sem elas, as
 #   evidencias vao como artifact da run.
+# - Runner: variavel AI_RUNS_ON, do repositorio ou da organizacao, com o
+#   label de um runner self-hosted (ex.: `vps`). Sem ela, `ubuntu-latest`.
 # - Secrets: CLAUDE_CODE_OAUTH_TOKEN (obrigatorio), EVIDENCE_ACCESS_KEY_ID e
 #   EVIDENCE_SECRET_ACCESS_KEY (com bucket) e PROJECT_ENV (opcional: um .env
 #   com o que o ambiente do QA exige), do repositorio ou da organizacao.
@@ -57,6 +59,7 @@ jobs:
     # O chamador enxerga as variaveis do proprio repositorio e da organizacao;
     # variavel ausente resolve vazio, e o fluxo segue em modo artifact.
     with:
+      runs_on: ${{ vars.AI_RUNS_ON }}
       evidence_bucket: ${{ vars.EVIDENCE_BUCKET }}
       evidence_public_url: ${{ vars.EVIDENCE_PUBLIC_URL }}
       evidence_endpoint: ${{ vars.EVIDENCE_ENDPOINT }}

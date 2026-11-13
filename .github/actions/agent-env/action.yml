@@ -295,6 +295,21 @@ runs:
     # workflow (falha com log legivel, sem gastar turno do agente nem abrir
     # prefixo novo na allowlist), e nao o agente. Nada deste input vaza para
     # --allowed-tools ou para o system prompt.
+    # O runner do GitHub traz Node e npm; uma imagem enxuta de runner
+    # self-hosted (ex.: myoung34/github-runner) nao traz npm, e setup_commands
+    # (`npm ci`) e o Playwright dependem dele. Com npm presente, nada muda.
+    - name: Detectar npm
+      id: npm
+      shell: bash
+      run: |
+        if command -v npm >/dev/null; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+    - name: Instalar Node (runner sem npm)
+      if: steps.npm.outputs.present != 'true'
+      uses: actions/setup-node@v7
+      with:
+        node-version: lts/*
+
     - name: Preparar ambiente do consumidor
       shell: bash
       env:

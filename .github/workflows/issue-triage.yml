@@ -10,6 +10,15 @@ name: Issue Triage
 
 on:
   workflow_call:
+    inputs:
+      runs_on:
+        description: >-
+          Label do runner dos jobs. Vazio: `ubuntu-latest`, do GitHub. Um
+          label de runner self-hosted (ex.: `vps`) roda o fluxo na maquina do
+          dono, sem gastar minutos de Actions.
+        type: string
+        required: false
+        default: ""
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -23,7 +32,7 @@ permissions:
 jobs:
   issue-triage:
     name: Triage Issue
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 

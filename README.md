@@ -288,6 +288,7 @@ Secrets e variáveis podem ficar na organização, com acesso a todos os reposit
 | `EVIDENCE_ENDPOINT` | variável | fora da AWS | endpoint S3 do provedor (R2, MinIO) |
 | `EVIDENCE_ACCESS_KEY_ID`, `EVIDENCE_SECRET_ACCESS_KEY` | secret | com bucket | credenciais do bucket |
 | `PROJECT_ENV` | secret | não | um `.env` com o que o ambiente do QA exige (veja abaixo) |
+| `AI_RUNS_ON` | variável | não | label do runner dos jobs; sem ela, `ubuntu-latest` (veja abaixo) |
 
 Numa organização:
 
@@ -303,6 +304,24 @@ gh secret set EVIDENCE_SECRET_ACCESS_KEY --org caravelasistemas --visibility all
 Se o secret ou a variável estiver com acesso só para alguns repositórios, inclua cada repositório novo em Settings da org → Secrets and variables → Actions → Repository access. Numa conta pessoal, troque `--org <org> --visibility all` por `-R <owner/repo>` e repita em cada repositório, inclusive neste, porque o `ai.yml` daqui roda nos issues deste repositório.
 
 O `ai.yml` lê as três variáveis com `vars.EVIDENCE_*` e as passa ao router. Variável ausente resolve vazio, e as evidências vão como artifact da run.
+
+### Runner self-hosted
+
+Sem configuração, todo job roda em `ubuntu-latest`, o runner do GitHub. Num repositório privado isso gasta minutos de Actions, e com o limite de gasto atingido os jobs nem começam. A variável `AI_RUNS_ON` troca o runner de todas as etapas pelo label de um runner self-hosted:
+
+```
+gh variable set AI_RUNS_ON --org caravelasistemas --visibility all --body vps
+gh variable set AI_RUNS_ON --repo samuel-morrissey/life-os --body vps
+```
+
+O chamador repassa a variável como o input `runs_on` do router, que a repassa a cada etapa. Apagar a variável volta para `ubuntu-latest`, sem mudar arquivo nenhum.
+
+O que muda num runner self-hosted:
+
+- **Só em repositório privado.** Num repositório público, um PR de fork rodaria código de terceiros na sua máquina. Este repositório é público e fica em `ubuntu-latest`, onde os minutos são gratuitos.
+- **Um job por runner.** Uma rodada longa do agente segura o runner, e o CI do mesmo repositório (ou da mesma organização) espera na fila. Mais runners com o mesmo label resolvem.
+- **A imagem traz menos ferramentas.** O fluxo usa `gh`, `git`, `jq`, `python3`, `curl`, `openssl`, `sudo` e, com bucket, `aws`. O Node é instalado pelo próprio fluxo quando o runner não tem `npm`. O que `setup_commands`, `quality_checks` e `evidence_tools` do projeto usam além disso precisa existir na imagem ou ser instalado em `setup_commands`.
+- **Conta pessoal não tem runner de conta.** Cada repositório pessoal precisa do próprio runner registrado; numa organização, um runner serve a todos os repositórios.
 
 ### O arquivo `.github/ai-workflows.yml`
 

@@ -22,6 +22,15 @@ name: PR Closed
 
 on:
   workflow_call:
+    inputs:
+      runs_on:
+        description: >-
+          Label do runner dos jobs. Vazio: `ubuntu-latest`, do GitHub. Um
+          label de runner self-hosted (ex.: `vps`) roda o fluxo na maquina do
+          dono, sem gastar minutos de Actions.
+        type: string
+        required: false
+        default: ""
 
 permissions:
   issues: write
@@ -30,7 +39,7 @@ permissions:
 jobs:
   restore-issues:
     name: Restore Issues From Closed PR
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
     steps:
       - name: Devolver o estado dos issues do Closes
         env:

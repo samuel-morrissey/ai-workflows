@@ -20,6 +20,14 @@ name: PR Fix
 on:
   workflow_call:
     inputs:
+      runs_on:
+        description: >-
+          Label do runner dos jobs. Vazio: `ubuntu-latest`, do GitHub. Um
+          label de runner self-hosted (ex.: `vps`) roda o fluxo na maquina do
+          dono, sem gastar minutos de Actions.
+        type: string
+        required: false
+        default: ""
       setup_commands:
         description: >-
           Comandos de preparacao do ambiente do repositorio consumidor, um por
@@ -90,7 +98,7 @@ permissions:
 jobs:
   pr-fix:
     name: Fix PR
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
     steps:
       # Alvo: o PR do evento. A review traz o PR no payload; o comentario so
       # traz o numero (issue_comment roda no contexto da branch padrao, sem a
