@@ -29,6 +29,15 @@ name: Issue Undo
 
 on:
   workflow_call:
+    inputs:
+      runs_on:
+        description: >-
+          Label do runner dos jobs. Vazio: `ubuntu-latest`, do GitHub. Um
+          label de runner self-hosted (ex.: `vps`) roda o fluxo na maquina do
+          dono, sem gastar minutos de Actions.
+        type: string
+        required: false
+        default: ""
 
 permissions:
   issues: write
@@ -37,7 +46,7 @@ permissions:
 jobs:
   issue-undo:
     name: Undo Issue
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
     steps:
       - name: Resolver numero do issue
         id: target
