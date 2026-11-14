@@ -133,6 +133,11 @@ jobs:
           plugin_marketplaces: "https://github.com/samuel-morrissey/ai-workflows.git"
           plugins: "samuel-morrissey-skills@samuel-morrissey-ai-workflows"
           prompt: "/samuel-morrissey-skills:issue-break-down ${{ steps.target.outputs.number }}"
+          # A rodada que a triagem ou o refinamento encadeia chega com o ator
+          # github-actions[bot] (repository_dispatch `ai-advance` criado com o
+          # GITHUB_TOKEN), e a action recusa ator nao humano por padrao. So esse
+          # bot e liberado.
+          allowed_bots: "github-actions[bot],github-actions"
           # A allowlist espelha o frontmatter da skill issue-break-down; Skill libera a
           # invocacao de labeling, async-first e grilling no meio da execucao.
           # WebFetch so na lista fixa de dominios, mais os de web_domains (Uso da web, no AGENT-BRIEF.md da issue-triage).
