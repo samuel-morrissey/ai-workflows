@@ -65,16 +65,17 @@ Dois ramos, pelo que quem chama passa:
    `closingIssuesReferences`, como a `issue-git-flow` manda — sempre,
    qualquer que seja a base.
 
-4. **Sem "mostrar e perguntar".** O passo de imprimir o rascunho e esperar
-   resposta vira: abra o PR direto, com o rascunho final.
+4. **Abra o PR direto**, com o rascunho final, como o passo final do ramo
+   *create* da `to-pr` ja faz.
 
    ```bash
    git push -u origin <head>
    gh pr create --base <base> --head <head> --title "<titulo>" --body-file <arquivo-temporario>
    ```
 
-   O humano revisa o PR, nao o rascunho. Ponto em que a `to-pr` perguntaria
-   (referencia ambigua, idioma da casa diferente)? Decida pelo melhor
+   O humano revisa o PR, nao o rascunho. A unica pergunta que a `to-pr`
+   ainda faz antes de abrir (referencia ambigua) e o aviso de idioma da casa
+   diferente nao tem quem responda aqui: decida pelo melhor
    palpite e registre a decisao numa linha do comentario que quem chamou
    posta no issue.
 
