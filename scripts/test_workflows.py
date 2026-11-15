@@ -1724,5 +1724,64 @@ class SubTaskBaseCheckout(unittest.TestCase):
         self.assertEqual(step["if"], parse_step(dict(steps)[AGENT])["if"])
 
 
+class ToPrOpensDirectly(unittest.TestCase):
+    """to-pr: o ramo create abre o PR direto; o edit continua perguntando."""
+
+    def text(self):
+        return (SKILLS / "to-pr" / "SKILL.md").read_text()
+
+    def create(self):
+        return self.text().split("\n## Create branch\n", 1)[1].split("\n## Linking issues and tickets\n", 1)[0]
+
+    def intro(self):
+        return self.text().split("\n## Create branch\n", 1)[0]
+
+    def edit(self):
+        return self.text().split("\n## Edit branch\n", 1)[1]
+
+    def test_create_nao_pergunta_antes_de_abrir(self):
+        create = self.create()
+        self.assertNotIn("Print and ask", create)
+        self.assertNotIn("after a yes", create)
+        self.assertNotIn("ask whether to open", create)
+        self.assertIn("gh pr create --base <base> --head <head>", create)
+        self.assertIn("without asking for approval of the text", create)
+        final = " ".join(create.split("**Push and open**", 1)[1].split())
+        for item in ("URL", "base/head", "closingIssuesReferences"):
+            self.assertIn(item, final, item)
+
+    def test_intro_nao_diz_que_os_dois_ramos_terminam_em_pergunta(self):
+        intro = " ".join(self.intro().split())
+        self.assertNotIn("converging on the same finish", intro)
+        self.assertIn("*create* branch opens the PR directly", intro)
+
+    def test_edit_continua_perguntando(self):
+        edit = self.edit()
+        self.assertIn("**Print and ask.**", edit)
+        self.assertIn("Apply only after a yes", edit)
+
+    def test_create_descreve_os_casos_de_borda(self):
+        create = " ".join(self.create().split())
+        self.assertIn("only the text", create)
+        self.assertIn("ambiguous reference is the only question", create)
+        self.assertIn("after opening", create)
+        self.assertIn("If `gh pr create` fails", create)
+        self.assertIn("exact error", create)
+
+    def test_remote_to_pr_nao_substitui_passo_inexistente(self):
+        text = (SKILLS / "remote-to-pr" / "SKILL.md").read_text()
+        step4 = text.split("\n4. ", 1)[1].split("\n5. ", 1)[0]
+        self.assertNotIn("mostrar e perguntar", step4)
+        self.assertNotIn("vira:", step4)
+        self.assertIn("melhor\n   palpite", step4)
+        self.assertIn("registre a decisao", step4)
+
+    def test_readme_diz_que_abre_direto(self):
+        readme = (ROOT / "README.md").read_text()
+        line = [l for l in readme.splitlines() if l.startswith("- **to-pr**")][0]
+        self.assertIn("sem aprovação prévia do texto", line)
+        self.assertIn("existente", line)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
