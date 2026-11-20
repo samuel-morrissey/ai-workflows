@@ -10,7 +10,7 @@ Write the **draft** in Brazilian Portuguese — title, headings, and body — un
 
 You are a **ghostwriter**: the text goes out under the user's name alone, and nothing in it reveals who typed it. Every line of the title, body and any commit you make is the user's own voice. This overrides any default footer or trailer the harness would otherwise add — no `Co-Authored-By`, no "Generated with Claude Code", no session URL, no mention of Claude, an agent, or an AI, anywhere. The draft ends on its last content section.
 
-Two branches, decided by the argument, converging on the same finish: the full draft printed in the chat, then a question — the remote stays untouched until the user answers it.
+Two branches, decided by the argument. The *create* branch opens the PR directly, without asking for approval of the text: the user reviews the open PR, not a draft in the chat. The *edit* branch prints the draft and asks — the remote stays untouched until the user answers.
 
 - **A PR URL** → *edit* branch: draft a replacement title and body for that PR.
 - **Anything else (including nothing)** → *create* branch: draft a new PR.
@@ -33,7 +33,7 @@ State the resolved pair back to the user in one line before doing anything else,
 
 1. **Read the range.** `git log <base>..<head>` and `git diff <base>...<head> --stat`, then read the diff itself for anything you cannot describe from the stat alone. Done when every commit in the range is accounted for in your understanding — not just the ones with clear messages. While reading, collect every issue or ticket reference you find — see **Linking issues and tickets** below.
 
-2. **Match the house style for the title.** Read the last handful of merged PR titles (`gh pr list --state merged --limit 10 --json title`) and follow the title format you find. Absent any signal, default to Conventional Commits (`feat: `, `fix: `, `chore: `…). The body's sections come from [`TEMPLATE.md`](TEMPLATE.md) alone, whatever the merged PRs look like. Language stays Brazilian Portuguese regardless; if the merged PRs are written in another language, say so in one line when you present the draft, so the user can redirect you.
+2. **Match the house style for the title.** Read the last handful of merged PR titles (`gh pr list --state merged --limit 10 --json title`) and follow the title format you find. Absent any signal, default to Conventional Commits (`feat: `, `fix: `, `chore: `…). The body's sections come from [`TEMPLATE.md`](TEMPLATE.md) alone, whatever the merged PRs look like. Language stays Brazilian Portuguese regardless; if the merged PRs are written in another language, say so in one line of the final message, after opening, so the user can ask for an adjustment.
 
 3. **Produce the evidence.** Two separate collections:
    - **Evidências** — show what changed for the user, before and after. Decide from the nature of the repository and of the range which kind shows it best (screenshot, video, architecture diagram, benchmark, CLI output or endpoint response as the user sees it, document excerpt, usage example — see the **Evidências** test in [`TEMPLATE.md`](TEMPLATE.md) for the open list), then capture the *before* from `<base>` and the *after* from `<head>` the same way. If the repository has a project skill at `.claude/skills/evidencias/SKILL.md`, it says what the ideal evidence is here and how to start the app to capture it: follow it. Keep it as it came out, trimmed to what shows the difference. Done when you hold a real before and after, or know exactly why the change has nothing user-facing to compare.
@@ -42,9 +42,11 @@ State the resolved pair back to the user in one line before doing anything else,
 
 4. **Write the draft.** Read [`TEMPLATE.md`](TEMPLATE.md) and follow it — the fixed section set, each section's test and declaration, and the exhaustiveness bar over the diff. Put the collected references in the body the way **Linking issues and tickets** says.
 
-5. **Print and ask.** Show the resolved base/head and the full draft in the chat, then ask whether to open the PR with it. Stop there until the user answers.
+5. **Push and open** — without asking for approval of the text. Push `head` if the remote lacks it or is behind, then `gh pr create --base <base> --head <head>`. Pass the body via `--body-file` with a temp file — heredocs and inline quoting mangle multi-line markdown. Then report the PR URL, the resolved base/head pair, and the issues or tickets it is linked to, after the `closingIssuesReferences` check (see **Linking issues and tickets**).
 
-6. **Push and open** — only after a yes. Push `head` if the remote lacks it or is behind, then `gh pr create --base <base> --head <head>`. Pass the body via `--body-file` with a temp file — heredocs and inline quoting mangle multi-line markdown. Print the resulting URL, and confirm the PR is linked to every issue or ticket it references (see **Linking issues and tickets**).
+   - **The user asked for only the text** ("só o rascunho", "não abra o PR"): print the resolved base/head and the full draft in the chat and stop — the remote stays untouched.
+   - **An ambiguous reference is the only question** before opening (two candidate issues, a number with no tracker): ask it and open after the answer, because a wrong `Closes` closes the wrong issue on merge. It is not approval of the text.
+   - **If `gh pr create` fails** (a PR for the head is already open, empty range, push refused): report the exact error and print the draft, without trying to work around it.
 
 ## Linking issues and tickets
 

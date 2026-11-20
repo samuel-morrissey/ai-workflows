@@ -217,7 +217,7 @@ Skills de apoio que as etapas acima seguem.
 
 ### Pull requests
 
-- **to-pr** — abre um pull request, ou redige o texto recomendado para um existente.
+- **to-pr** — abre o pull request direto, sem aprovação prévia do texto, ou redige o texto recomendado para um existente.
 - **remote-to-pr** — abre um PR, ou atualiza o corpo de um PR existente, em fluxo remoto e assíncrono, sem ninguém para responder: segue a `to-pr` inteira, monta Evidências e Critérios de aceite a partir do relatório da `issue-qa` e aplica direto, sem perguntar.
 - **pr-fix** — corrige um PR aberto a partir de uma review ou de um comentário: um commit por pedido na branch do PR, bateria de qualidade, QA quando a tela ou o comportamento muda, resposta a cada pedido no PR. Veja [Correção de PR](#correção-de-pr).
 
