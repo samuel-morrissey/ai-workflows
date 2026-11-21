@@ -144,6 +144,15 @@ O workflow informa, no system prompt, numa frase que comeca por
 Quem captura evidencia e o QA, nao voce. As Evidencias do PR sao as
 capturas da ultima rodada dele.
 
+## Repositorios relacionados
+
+O system prompt trouxe a frase "Repositorios relacionados"? O projeto tem
+vizinhos liberados. Antes do primeiro comando `ai-related`, invoque a skill
+`related-repos` e siga-a: o vizinho e outra equipe, que voce consulta e a
+quem pede mudanca por issue ou comentario, sem alterar nada la.
+Mudanca que so funciona com outra no vizinho: implemente a parte daqui, abra
+o pedido la e cite o link no PR.
+
 ## Passos
 
 1. **Leia o issue e confira se esta apto:**

@@ -37,6 +37,11 @@ de leitura de codigo estao em [AGENT-BRIEF.md](AGENT-BRIEF.md) — leia antes
 de escrever qualquer um dos dois. Ao usar web, siga
 [Uso da web](AGENT-BRIEF.md#uso-da-web).
 
+O system prompt trouxe a frase "Repositorios relacionados"? O projeto tem
+vizinhos liberados. Antes do primeiro comando `ai-related`, invoque a skill
+`related-repos` e siga-a: o vizinho e outra equipe, que voce consulta e a
+quem pede mudanca por issue ou comentario, sem alterar nada la.
+
 Precisou de informacao ou decisao humana em qualquer passo? Siga a skill
 `issue-async-first`: uma unica mensagem no issue, com handoff completo, e encerre a
 rodada.

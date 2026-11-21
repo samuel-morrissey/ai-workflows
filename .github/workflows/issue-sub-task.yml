@@ -87,6 +87,14 @@ on:
         type: string
         required: false
         default: main
+      app_client_id:
+        description: >-
+          Client ID do GitHub App que da acesso aos repositorios de
+          `related_repos` (variavel AI_APP_CLIENT_ID). Vazio: a rodada segue
+          sem repositorios relacionados.
+        type: string
+        required: false
+        default: ""
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -97,6 +105,10 @@ on:
       # Variaveis do projeto para o ambiente do QA, no formato de um .env.
       # Opcional: sem ele, nenhuma variavel e carregada.
       PROJECT_ENV:
+        required: false
+      # Chave privada do GitHub App dos repositorios relacionados
+      # (`related_repos`). Opcional: sem ela, a rodada segue sem eles.
+      AI_APP_PRIVATE_KEY:
         required: false
 
 permissions:
@@ -234,6 +246,20 @@ jobs:
         with:
           number: ${{ steps.target.outputs.number }}
 
+      # Repositorios relacionados (related_repos de .github/ai-workflows.yml,
+      # lido deste checkout): um token de GitHub App so para eles e o comando
+      # ai-related, com que o agente consulta o vizinho e pede mudanca la por
+      # issue ou comentario. Sem a chave, sem o App ou sem token, a rodada
+      # segue sem vizinhos; valor que nao e texto falha aqui, antes do agente.
+      - name: Ler repositorios relacionados
+        id: relacionados
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        uses: samuel-morrissey/ai-workflows/.github/actions/related-repos@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+          client_id: ${{ inputs.app_client_id }}
+          private_key: ${{ secrets.AI_APP_PRIVATE_KEY }}
+
       # Config do repositorio, allowlist e system prompt de qualidade e
       # evidencias, PROJECT_ENV, setup_commands e ferramentas de evidencia:
       # tudo na action agent-env, comum aos workflows que rodam o agente.
@@ -244,6 +270,7 @@ jobs:
         with:
           number: ${{ steps.target.outputs.number }}
           prompt_prefix: "Modo sub-task: #${{ steps.target.outputs.number }} e sub-task do pai #${{ steps.target.outputs.parent }}. A branch sub-task-${{ steps.target.outputs.number }} nasce de origin/${{ steps.target.outputs.base }} e o PR tem base ${{ steps.target.outputs.base }}; o workflow ja calculou isso pela ordem da stack, nao recalcule. ${{ steps.responsavel.outputs.sentence }}"
+          prompt_suffix: "${{ steps.relacionados.outputs.sentence }}"
           setup_commands: ${{ inputs.setup_commands }}
           quality_checks: ${{ inputs.quality_checks }}
           evidence_tools: ${{ inputs.evidence_tools }}
@@ -272,7 +299,7 @@ jobs:
           # prefixos derivados de quality_checks e de evidence_tools.
           claude_args: |
             --model claude-opus-5-5
-            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Bash(git worktree:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite,Agent${{ steps.ambiente.outputs.allow }}"
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh issue close:*),Bash(gh label create:*),Bash(gh api:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr view:*),Bash(git status:*),Bash(git branch:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git pull:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git config:*),Bash(git worktree:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite,Agent${{ steps.ambiente.outputs.allow }}${{ steps.relacionados.outputs.allow }}"
             --max-turns 250
             ${{ steps.ambiente.outputs.sysprompt }}
 

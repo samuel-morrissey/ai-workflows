@@ -1,0 +1,103 @@
+name: Repositorios relacionados
+description: >-
+  Le related_repos de .github/ai-workflows.yml (scripts/related.py), cria um
+  token de GitHub App so para esses repositorios e entrega ao agente o comando
+  ai-related. Devolve o sufixo do --allowed-tools e a frase do system prompt.
+  Sem a chave, sem as credenciais do App ou sem token, os dois saem vazios e
+  a rodada segue sem vizinhos.
+
+# O token da rodada (github.token) so alcanca o repositorio dela. Para o
+# agente consultar um vizinho e pedir mudanca la, esta action cria um segundo
+# token, de GitHub App, restrito aos repositorios da chave e a tres
+# permissoes: codigo em leitura, issues e PRs em escrita. O token fica num
+# arquivo fora do workspace, nunca em variavel de ambiente: assim nao chega a
+# setup_commands, a quality_checks nem ao que o QA captura. O agente so o usa
+# pelo comando ai-related, que recusa o que a regra do vizinho nao deixa
+# (editar, fechar, label, review, merge). A action do token revoga o token no
+# fim do job.
+#
+# O arquivo e lido do diretorio de trabalho, que e o checkout do consumidor.
+# Linha invalida so avisa; valor que nao e texto (lista, mapa) falha o passo,
+# e a rodada para antes do agente. Token que nao sai (App nao instalado num
+# dos repositorios, chave errada) so avisa.
+
+inputs:
+  number:
+    description: >-
+      Issue ou PR da rodada: vira a linha de origem dos issues e comentarios
+      que o agente criar no vizinho.
+    required: true
+  client_id:
+    description: Client ID do GitHub App (variavel AI_APP_CLIENT_ID).
+    required: false
+    default: ""
+  private_key:
+    description: Chave privada do GitHub App (secret AI_APP_PRIVATE_KEY).
+    required: false
+    default: ""
+
+outputs:
+  allow:
+    description: >-
+      `,Bash(ai-related:*)` quando ha vizinho com token, para colar no
+      --allowed-tools. Vazio sem acesso.
+    value: ${{ steps.install.outputs.allow }}
+  sentence:
+    description: >-
+      Frase do system prompt, comecando por espaco, com os repositorios
+      liberados e a regra de uso; sem aspas duplas, crase nem cifrao. Vazia
+      sem acesso.
+    value: ${{ steps.install.outputs.sentence }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ler related_repos
+      id: read
+      shell: bash
+      env:
+        CONFIG_FILE: .github/ai-workflows.yml
+        OWNER: ${{ github.repository_owner }}
+        CURRENT: ${{ github.repository }}
+        # O leitor vem junto com a action, na mesma ref: a raiz do
+        # repositorio fica tres niveis acima de .github/actions/related-repos.
+        RELATED_PY: ${{ github.action_path }}/../../../scripts/related.py
+      run: |
+        set +o pipefail
+        python3 -I "$RELATED_PY" read --config "$CONFIG_FILE" --owner "$OWNER" --current "$CURRENT" --github-output "$GITHUB_OUTPUT"
+
+    # So os repositorios da chave e so as tres permissoes, mesmo que o App
+    # tenha mais. Falha aqui nao para a rodada: o passo seguinte avisa.
+    - name: Criar token do GitHub App
+      id: token
+      if: steps.read.outputs.names != '' && inputs.client_id != '' && inputs.private_key != ''
+      continue-on-error: true
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ inputs.client_id }}
+        private-key: ${{ inputs.private_key }}
+        owner: ${{ github.repository_owner }}
+        repositories: ${{ steps.read.outputs.names }}
+        permission-contents: read
+        permission-issues: write
+        permission-pull-requests: write
+
+    - name: Entregar o comando ai-related
+      id: install
+      if: steps.read.outputs.repos != ''
+      shell: bash
+      env:
+        RELATED_PY: ${{ github.action_path }}/../../../scripts/related.py
+        RELATED_TOKEN: ${{ steps.token.outputs.token }}
+        REPOS: ${{ steps.read.outputs.repos }}
+        ORIGIN: ${{ github.repository }}#${{ inputs.number }}
+        HAS_APP: ${{ inputs.client_id != '' && inputs.private_key != '' }}
+      run: |
+        set +o pipefail
+        if [ "$HAS_APP" != "true" ]; then
+          REASON="faltam a variavel AI_APP_CLIENT_ID e o secret AI_APP_PRIVATE_KEY, ou o ai.yml do repositorio ainda nao os repassa"
+        else
+          REASON="o token do GitHub App nao saiu: confira se o App esta instalado em todos os repositorios da chave"
+        fi
+        python3 -I "$RELATED_PY" install --repos "$REPOS" --dir "$RUNNER_TEMP/ai-related" --origin "$ORIGIN" \
+          --reason "$REASON" --github-output "$GITHUB_OUTPUT" --github-path "$GITHUB_PATH"

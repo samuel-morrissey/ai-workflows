@@ -38,6 +38,11 @@ O formato de brief esta em [AGENT-BRIEF.md](../issue-triage/AGENT-BRIEF.md).
 Leia antes de escrever a primeira sub-task. Ao usar web, siga
 [Uso da web](../issue-triage/AGENT-BRIEF.md#uso-da-web).
 
+O system prompt trouxe a frase "Repositorios relacionados"? O projeto tem
+vizinhos liberados. Antes do primeiro comando `ai-related`, invoque a skill
+`related-repos` e siga-a: o vizinho e outra equipe, que voce consulta e a
+quem pede mudanca por issue ou comentario, sem alterar nada la.
+
 ## Argumento
 
 `$issue` — o numero do issue a quebrar.

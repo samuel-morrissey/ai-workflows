@@ -44,6 +44,11 @@ O system prompt traz quatro frases. Use os fatos delas como estao:
   commitada), a publicacao (URL base do bucket, ou artifact da run) e as
   ferramentas liberadas para captura. Sem ferramentas, o QA nao roda.
 
+Uma quinta frase, "Repositorios relacionados", vem quando o projeto tem
+vizinhos liberados. Antes do primeiro comando `ai-related`, invoque a skill
+`related-repos` e siga-a: o vizinho e outra equipe, que voce consulta e a
+quem pede mudanca por issue ou comentario, sem alterar nada la.
+
 ## Passos
 
 1. **Leia o gatilho, o PR e o contrato.**
