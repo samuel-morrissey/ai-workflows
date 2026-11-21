@@ -1025,6 +1025,8 @@ WEBD_USES = "samuel-morrissey/ai-workflows/.github/actions/web-domains@main"
 WEBD_STEP = "Ler dominios da web"
 WEBD_ALLOW = "${{ steps.web.outputs.allow }}"
 WEBD_SENTENCE = "${{ steps.web.outputs.sentence }}"
+# A frase dos repositorios relacionados (test_related.py) fecha o system prompt.
+REL_SENTENCE = "${{ steps.relacionados.outputs.sentence }}"
 
 
 class WebDomainsShape(unittest.TestCase):
@@ -1053,7 +1055,9 @@ class WebDomainsShape(unittest.TestCase):
             # Triagem e refinamento levam depois a frase do encadeamento
             # (test_advance.py); a quebra nao encadeia.
             chain = "" if f == "issue-break-down.yml" else "${{ steps.chain.outputs.sentence }}"
-            self.assertIn(f'--append-system-prompt "{RESP_OUT}{WEBD_SENTENCE}{chain}"', agent, f)
+            # A frase dos repositorios relacionados fecha o system prompt
+            # (RelatedReposShape).
+            self.assertIn(f'--append-system-prompt "{RESP_OUT}{WEBD_SENTENCE}{chain}{REL_SENTENCE}"', agent, f)
 
     def test_implementacao_nao_le(self):
         for f in NO_WEB_STAGES:

@@ -26,6 +26,13 @@ inputs:
       entre aspas em claude_args.
     required: false
     default: ""
+  prompt_suffix:
+    description: >-
+      Texto que fecha o system prompt, depois das frases de qualidade e de
+      evidencias, ja comecando por espaco (ex.: a frase dos repositorios
+      relacionados, da action related-repos). Sem aspas duplas.
+    required: false
+    default: ""
   setup_commands:
     description: Input do ai.yml; a chave de .github/ai-workflows.yml vence.
     required: false
@@ -132,8 +139,9 @@ runs:
         set +o pipefail
         # web_domains e so da triagem, do refinamento e do break-down (action
         # web-domains): aqui entra para nao gerar aviso e para o valor que nao
-        # e texto falhar igual; nenhum passo abaixo o usa.
-        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint default_responsible web_domains"
+        # e texto falhar igual; nenhum passo abaixo o usa. related_repos e da
+        # action related-repos, que roda antes desta: entra pelo mesmo motivo.
+        KEYS="setup_commands quality_checks evidence_tools evidence_bucket evidence_public_url evidence_endpoint default_responsible web_domains related_repos"
         # auto_advance e so da triagem e do refinamento (scripts/advance.py),
         # e o valor dela e booleano (`false`): conhecida, sem aviso, mas fora
         # da conferencia de texto e das saidas.
@@ -187,6 +195,7 @@ runs:
         GH_REPO: ${{ github.repository }}
         NUMBER: ${{ inputs.number }}
         PROMPT_PREFIX: ${{ inputs.prompt_prefix }}
+        PROMPT_SUFFIX: ${{ inputs.prompt_suffix }}
       run: |
         set +o pipefail
         ALLOW=""
@@ -247,7 +256,7 @@ runs:
         if [ -n "$PROMPT_PREFIX" ]; then
           echo "::notice::${PROMPT_PREFIX}"
         fi
-        echo "sysprompt=--append-system-prompt \"${PROMPT_PREFIX:+${PROMPT_PREFIX} }${QUALITY} ${EVIDENCE}\"" >> "$GITHUB_OUTPUT"
+        echo "sysprompt=--append-system-prompt \"${PROMPT_PREFIX:+${PROMPT_PREFIX} }${QUALITY} ${EVIDENCE}${PROMPT_SUFFIX}\"" >> "$GITHUB_OUTPUT"
 
     # Secrets do projeto que o ambiente do QA exige (ex.: chave de teste de
     # um servico de autenticacao sem emulador). Vem num unico secret,

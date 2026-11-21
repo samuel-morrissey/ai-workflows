@@ -486,7 +486,8 @@ class Shape(unittest.TestCase):
             self.assertEqual(step["continue_on_error"], "true", f)
             self.assertRegex(dict(steps)[CHECK_STEP], r"(?m)^        id: chain$", f)
             agent = dict(steps)["anthropics/claude-code-action@v1"]
-            self.assertIn("${{ steps.web.outputs.sentence }}${{ steps.chain.outputs.sentence }}\"", agent, f)
+            self.assertIn("${{ steps.web.outputs.sentence }}${{ steps.chain.outputs.sentence }}"
+                          "${{ steps.relacionados.outputs.sentence }}\"", agent, f)
 
     def test_triagem_e_refinamento_chamam_a_seguinte_depois_do_wip(self):
         for f, stage in (("issue-triage.yml", "triagem"), ("issue-refinement.yml", "refinamento")):

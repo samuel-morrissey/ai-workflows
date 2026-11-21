@@ -53,6 +53,7 @@ WIP = "Aplicar work-in-progress"
 UNWIP = "Remover work-in-progress"
 RESP = "Resolver responsavel"
 WEB = "Ler dominios da web"
+RELATED = "Ler repositorios relacionados"
 ENV = "Preparar ambiente do agente"
 EVIDENCE = "Publicar evidencias"
 UNDO = "Processar undo da rodada"
@@ -66,26 +67,26 @@ ADVANCE = "Chamar a etapa seguinte"
 STAGES = {
     "issue-triage": {"job": "Triage Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
-        WEB: "preparo", CHAIN: "preparo",
+        WEB: "preparo", RELATED: "preparo", CHAIN: "preparo",
         AGENT: "agente",
         "Remover needs-triage se a triagem concluiu": "pos-agente", UNDO: "pos-agente", UNWIP: "pos-agente",
         ADVANCE: "pos-agente"}},
     "issue-refinement": {"job": "Refine Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
-        WEB: "preparo", CHAIN: "preparo",
+        WEB: "preparo", RELATED: "preparo", CHAIN: "preparo",
         AGENT: "agente",
         "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNDO: "pos-agente",
         UNWIP: "pos-agente", ADVANCE: "pos-agente"}},
     "issue-break-down": {"job": "Break Down Issue", "steps": {
         CHECKOUT: "preparo", "Resolver numero do issue": "preparo", WIP: "preparo", RESP: "preparo",
-        WEB: "preparo",
+        WEB: "preparo", RELATED: "preparo",
         AGENT: "agente",
         "Garantir awaiting-reply se a rodada parou em pergunta": "pos-agente", UNDO: "pos-agente",
         UNWIP: "pos-agente"}},
     "issue-remote-implement": {"job": "Implement Issue", "steps": {
         CHECKOUT: "preparo", "Resolver alvo": "preparo", WIP: "preparo", RESP: "preparo",
         "Baixar o planner": "preparo",
-        ENV: "ambiente",
+        RELATED: "preparo", ENV: "ambiente",
         AGENT: "agente",
         EVIDENCE: "pos-agente", "Garantir awaiting-pr-review se ha PR aberto": "pos-agente",
         UNWIP: "pos-agente", "Entrar na cadeia": "pos-agente", "Planejar e empilhar": "pos-agente",
@@ -93,12 +94,12 @@ STAGES = {
     "issue-sub-task": {"job": "Implement Sub-task", "steps": {
         CHECKOUT: "preparo", "Baixar o planner": "preparo", "Resolver alvo": "preparo", WIP: "preparo",
         "Checkout da base da sub-task": "preparo", RESP: "preparo",
-        ENV: "ambiente",
+        RELATED: "preparo", ENV: "ambiente",
         AGENT: "agente",
         EVIDENCE: "pos-agente", "Devolver o controle ao pai": "pos-agente"}},
     "pr-fix": {"job": "Fix PR", "steps": {
         "Resolver alvo": "preparo", WIP: "preparo", CHECKOUT: "preparo",
-        ENV: "ambiente",
+        RELATED: "preparo", ENV: "ambiente",
         AGENT: "agente",
         EVIDENCE: "pos-agente", UNWIP: "pos-agente"}},
     "pr-merged": {"job": "Close Issues From Merged PR", "steps": {
