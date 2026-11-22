@@ -1,10 +1,10 @@
 ---
 name: setup-repo
-description: Configura um repositorio consumidor do fluxo de issues a partir do relatorio do doctor - infere os comandos do projeto, redige a skill evidencias, levanta colisoes de labels e os fornecedores para web_domains, pergunta tudo de uma vez e abre o PR no repositorio alvo. Use para ligar um repositorio novo ao fluxo, para completar um parcialmente configurado ou para propor web_domains num ja configurado.
+description: Configura um repositorio consumidor do fluxo de issues a partir do relatorio do doctor - infere os comandos do projeto, redige a skill evidencias, levanta colisoes de labels, os fornecedores para web_domains e os vizinhos para related_repos, pergunta tudo de uma vez e abre o PR no repositorio alvo. Use para ligar um repositorio novo ao fluxo, para completar um parcialmente configurado ou para propor web_domains ou related_repos num ja configurado.
 argument-hint: "[owner/repo]"
 arguments: repo
 disable-model-invocation: true
-allowed-tools: Bash(python3:*) Bash(gh api:*) Bash(gh repo view:*) Bash(gh repo clone:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(gh pr list:*) Bash(gh label list:*) Bash(curl:*) Bash(git:*) Read Grep Glob Write Edit
+allowed-tools: Bash(python3:*) Bash(gh api:*) Bash(gh repo view:*) Bash(gh repo list:*) Bash(gh repo clone:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(gh pr list:*) Bash(gh label list:*) Bash(curl:*) Bash(git:*) Read Grep Glob Write Edit
 ---
 
 # Setup repo
@@ -19,12 +19,12 @@ Divisao de trabalho, para nao duplicar nada:
 | Quem | Faz |
 |---|---|
 | `doctor check` | diz o que falta, diverge ou exige humano |
-| esta skill | infere comandos, redige a skill `evidencias`, propoe mapeamento de labels e os `web_domains` dos fornecedores, pergunta, abre o PR com os arquivos |
+| esta skill | infere comandos, redige a skill `evidencias`, propoe mapeamento de labels, os `web_domains` dos fornecedores e os `related_repos` vizinhos, pergunta, abre o PR com os arquivos |
 | `doctor fix --only secrets,vars,labels,topic` | secrets, variaveis, os labels do fluxo (cria e corrige) e topic, antes do PR; o `ai.yml` fica fora porque o PR desta skill ja o traz |
 
 Nao escreva arquivo que o `doctor` reporta `ok` (a unica excecao e
-acrescentar `web_domains` ao `.github/ai-workflows.yml`, passo 6.2). Nao decida sozinho o que e
-pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
+acrescentar `web_domains` e `related_repos` ao `.github/ai-workflows.yml`,
+passo 6.2). Nao decida sozinho o que e pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 
 ## Argumento
 
@@ -52,10 +52,18 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
    ou `manual`, mais o `info` de `web_domains` ausente no item `config`
    ("sem web_domains"): sao o unico escopo desta rodada. Esse `info` nao
    encerra o setup, mesmo com saida 0: o `doctor` nao consegue propor
-   fornecedores, e esta skill sim. Os outros `info` seguem fora do escopo. Saida 0 sem esse
-   `info`: diga que o repositorio ja esta configurado e termine. Saida 0
+   fornecedores, e esta skill sim. Os outros `info` seguem fora do escopo. Saida 0
    com ele: o escopo e so `web_domains` (passo 2, levantamento de
    fornecedores), e o `ai.yml` ou outro arquivo `ok` fica como esta.
+
+   A chave `related_repos` tambem nao encerra o setup, e para ela o
+   `doctor` nao da `info`: repositorio sem vizinho e o caso comum, e o aviso
+   seria ruido. Guarde do relatorio se o `.github/ai-workflows.yml` ja tem a
+   chave. Sem ela, o levantamento de vizinhos do passo 2 entra no escopo em
+   toda rodada, mesmo com saida 0. O setup so termina aqui, dizendo que o
+   repositorio ja esta configurado, com saida 0, sem o `info` de
+   `web_domains` e com a chave `related_repos` presente; sem a chave, ele
+   termina depois do levantamento, quando nenhum vizinho aparece.
 
 2. **Leia o projeto.** Pela API (`gh api repos/{owner}/{repo}/contents/...`),
    sem clonar ainda. O que procurar e o que cada achado diz:
@@ -131,6 +139,42 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
    entrada, o motivo: o arquivo ou ADR que mostra a dependencia (ex.: "o
    reembolso depende do Asaas, ADR 0008").
 
+   Quando o `.github/ai-workflows.yml` nao tem `related_repos` (ou o
+   `diverge` aponta linha ignorada nela), levante os **vizinhos**: os
+   outros repositorios do mesmo dono que fazem parte do mesmo projeto, e que
+   os agentes vao precisar ler ou acionar (regra na skill `related-repos`).
+   Liste os candidatos:
+
+   ```bash
+   gh repo list <owner> --no-archived --limit 200 --json name,description,isFork
+   ```
+
+   Um candidato so entra na proposta com um **sinal** de que o trabalho
+   daqui cruza com o de la:
+
+   - nome com o mesmo prefixo de projeto (`lumeeiro-www` e `lumeeiro-app`);
+   - citado no `README`, `AGENTS.md`, `CLAUDE.md`, `CONTEXT.md` ou nos ADRs
+     daqui, pelo nome ou por `github.com/<owner>/<repo>`;
+   - dependencia daqui que aponta para ele (pacote publicado por ele, URL
+     git, submodulo) ou contrato compartilhado (cliente da API dele, tipos,
+     eventos);
+   - issues ou PRs daqui que citam `<owner>/<repo>#<n>`
+     (`gh api "search/issues?q=repo:<owner/repo>+<repo-vizinho>"` ajuda).
+
+   Ficam de fora: o proprio repositorio, repositorio de outro dono (o token
+   do App so alcanca o dono da rodada), arquivado, fork, o `.github` do
+   dono, o `ai-workflows` e o que a chave ja tem. Mesmo dono sem sinal nao e
+   vizinho: nunca proponha a lista inteira. Guarde, para cada vizinho, o
+   sinal que o trouxe (ex.: "o app consome a API publicada pelo
+   `lumeeiro-www`, `src/api/client.ts`").
+
+   Guarde tambem se o dono ja tem o GitHub App: a variavel
+   `AI_APP_CLIENT_ID` e o secret `AI_APP_PRIVATE_KEY` aparecem nos itens
+   `vars` e `secrets` do relatorio quando a chave existe; sem a chave,
+   confira com `gh api repos/<owner/repo>/actions/variables/AI_APP_CLIENT_ID`
+   (ou a rota de `orgs/<owner>`). Sem o App, a chave aceita fica sem efeito
+   ate ele existir, e isso entra na pergunta.
+
 3. **Redija a skill `evidencias`** quando o `doctor` a reportou `manual` ou
    `diverge`. Modelo em `skills/issue-qa/EVIDENCIAS-PROJETO.md` deste plugin
    (ou pela mesma URL raw do passo 1). Preencha as cinco secoes com o que o
@@ -157,6 +201,14 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
      fora, com o porque (sem URL oficial, so redireciona para outro host);
      a correcao de cada linha invalida que o `doctor` apontou; e, sem
      nenhum fornecedor, a recomendacao de ficar sem a chave;
+   - a lista de `related_repos` proposta, um vizinho por linha, cada um com
+     a recomendacao e o sinal que o trouxe; o que a chave libera, em uma
+     frase (em todas as etapas, o agente le o codigo, os issues e os PRs do
+     vizinho e pede mudanca la por issue ou comentario, sem alterar nada); e,
+     sem o GitHub App do dono, que a chave so passa a valer depois dele
+     (README, Repositorios relacionados). Liberar outro repositorio e
+     decisao do humano: so entra o vizinho aceito. Sem candidato, nao ha
+     pergunta sobre a chave;
    - QA ligado agora ou depois, e `PROJECT_ENV` ou nao, com o custo em uma
      frase (o agente mais ate dois QAs, cada um subindo o app);
    - bucket: usar o do dono (variaveis ja existem) ou nenhum (artifact);
@@ -182,7 +234,9 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
       vai no fim, em bloco `|`, uma entrada por linha). Se a chave ja
       existe, entram so as entradas que faltam, no fim do bloco; as do
       humano ficam como estao. Linha invalida e corrigida so se o humano
-      aceitou a correcao.
+      aceitou a correcao. O `related_repos` aceito segue a mesma excecao e
+      as mesmas regras: no fim do arquivo, em bloco `|`, um vizinho por
+      linha, so o nome do repositorio.
    3. Rode `doctor fix <owner/repo> --only secrets,vars,labels,topic`,
       antes de abrir o PR. O `--only` deixa o item `ai-yml` de fora: sem
       ele, o `doctor` abriria o proprio PR com o `ai.yml`, porque o PR
@@ -204,7 +258,12 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
         `needs-triage` e conferir a aba Actions;
       - `web_domains`: as entradas acrescentadas, com o motivo de cada uma;
         sem fornecedor externo (ou com todos recusados), o PR diz que a
-        ausencia da chave foi decidida.
+        ausencia da chave foi decidida;
+      - `related_repos`: os vizinhos acrescentados, com o sinal de cada um.
+        Sem o GitHub App do dono, criar e instalar o App e gravar
+        `AI_APP_CLIENT_ID` e `AI_APP_PRIVATE_KEY` entra em *Antes*, com os
+        passos do README; com o App, entra em *Antes* conferir que ele esta
+        instalado em cada vizinho. Vizinho recusado nao aparece.
    5. Rode `doctor check <owner/repo>` de novo, com o PR aberto. O esperado:
       `ai-yml` em `manual` apontando para o PR ("PR aberto com o modelo,
       falta o merge"), `config` e `evidencias` como estavam (so mudam no
@@ -216,7 +275,9 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
 7. **Responda** com: a URL do PR, o relatorio do `doctor check` do passo
    6.5, o que ficou `manual` e por que, e o proximo passo (mergear o PR e
    abrir o primeiro issue de teste). Nao repita como pendencia o que o
-   `fix` ja fez.
+   `fix` ja fez. Com `related_repos` aceito, diga tambem que a chave vale
+   num sentido so: para o vizinho consultar este repositorio, o setup roda
+   la. Esta skill nao altera o vizinho.
 
 ## Casos
 
@@ -244,7 +305,17 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
   decidida. Com PR, o texto dele diz o mesmo. O `info` volta nas proximas
   rodadas do `doctor`: e repeticao, nao erro.
 - **Sem `.github/ai-workflows.yml`**: o `config` sai `falta` ou `manual`
-  como sempre; o arquivo novo ja nasce com o `web_domains` aceito.
+  como sempre; o arquivo novo ja nasce com o `web_domains` e o
+  `related_repos` aceitos.
+- **Ja configurado, so sem `related_repos`** (tudo `ok`, sem `info`): o
+  setup roda so o levantamento de vizinhos. Com candidato, pergunta, e o PR
+  traz so a chave acrescentada. Sem candidato, ou com todos recusados, nao
+  ha PR nem pergunta repetida na mesma rodada: a resposta diz que o
+  repositorio esta configurado e sem vizinhos. A proposta volta na proxima
+  rodada do setup: e repeticao, nao erro.
+- **Ja tem `related_repos`**: a chave e do humano. O setup nao propoe
+  vizinho novo, nao remove nem reescreve linha; so propoe a correcao da
+  linha que o `doctor` deu como ignorada (`diverge`).
 - **Outra toolchain** (Python, Go, Rust, PHP): mesma logica, com os
   comandos daquela toolchain; a CI existente e a melhor fonte.
 
@@ -254,5 +325,7 @@ pergunta (passo 5). Nao rode o fluxo no repositorio alvo para validar.
   os demais sao do repositorio.
 - Criar o bucket, a regra de ciclo de vida ou qualquer credencial.
 - Rodar triagem, implementacao ou QA no repositorio alvo.
+- Criar ou instalar o GitHub App dos repositorios relacionados, e alterar
+  o repositorio vizinho: o setup so propoe a chave no repositorio alvo.
 - Alterar o `doctor`; se ele reporta errado, abra um issue em
   `samuel-morrissey/ai-workflows`.

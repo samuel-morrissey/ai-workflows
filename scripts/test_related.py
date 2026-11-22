@@ -587,6 +587,59 @@ class Docs(unittest.TestCase):
             self.assertIn(texto, item, texto)
         etapas = readme.split("\n## Etapas\n", 1)[1].split("\n### ", 1)[0]
         self.assertIn("(#repositórios-relacionados)", etapas)
+        for texto in ("`setup-repo`", "mesmo prefixo", "só entra o que você aceitar", "não dá `info`",
+                      "num sentido só"):
+            self.assertIn(texto, item, texto)
+
+
+class SetupRepo(unittest.TestCase):
+    """A skill setup-repo propoe related_repos, sem decidir pelo humano."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = (SKILLS / "setup-repo" / "SKILL.md").read_text()
+
+    def step(self, n):
+        body = self.skill.split("\n%d. " % n, 1)[1].split("\n%d. " % (n + 1), 1)[0]
+        return " ".join(body.replace("**", "").split())
+
+    def test_pode_listar_os_repositorios_do_dono(self):
+        self.assertRegex(self.skill, r"(?m)^allowed-tools: .*Bash\(gh repo list:\*\)")
+        self.assertRegex(self.skill, r"(?m)^description: .*related_repos")
+
+    def test_sem_a_chave_o_levantamento_entra_mesmo_com_saida_0(self):
+        s = self.step(1)
+        self.assertIn("`related_repos` tambem nao encerra o setup", s)
+        self.assertIn("o `doctor` nao da `info`", s)
+        self.assertIn("mesmo com saida 0", s)
+        self.assertIn("quando nenhum vizinho aparece", s)
+
+    def test_vizinho_so_entra_com_sinal(self):
+        s = self.step(2)
+        for texto in ("gh repo list <owner> --no-archived", "mesmo prefixo de projeto", "`CONTEXT.md`",
+                      "dependencia daqui que aponta para ele", "repositorio de outro dono", "arquivado, fork",
+                      "nunca proponha a lista inteira", "o sinal que o trouxe", "`AI_APP_CLIENT_ID`",
+                      "skill `related-repos`"):
+            self.assertIn(texto, s, texto)
+
+    def test_pergunta_traz_o_sinal_e_o_app_e_so_entra_o_aceito(self):
+        s = self.step(5)
+        for texto in ("lista de `related_repos` proposta", "o sinal que o trouxe", "sem alterar nada",
+                      "sem o GitHub App do dono", "so entra o vizinho aceito", "Sem candidato, nao ha pergunta"):
+            self.assertIn(texto, s, texto)
+
+    def test_aplicar_acrescenta_no_fim_e_o_pr_cobra_o_app(self):
+        s = self.step(6)
+        for texto in ("O `related_repos` aceito segue a mesma excecao", "um vizinho por linha",
+                      "`AI_APP_CLIENT_ID` e `AI_APP_PRIVATE_KEY` entra em *Antes*", "instalado em cada vizinho"):
+            self.assertIn(texto, s, texto)
+
+    def test_resposta_e_casos_nao_tocam_o_vizinho_nem_a_chave_do_humano(self):
+        rest = " ".join(self.skill.split("\n7. ", 1)[1].replace("**", "").split())
+        for texto in ("num sentido so", "Esta skill nao altera o vizinho", "Ja configurado, so sem `related_repos`",
+                      "Ja tem `related_repos`: a chave e do humano", "nao propoe vizinho novo",
+                      "Criar ou instalar o GitHub App"):
+            self.assertIn(texto, rest, texto)
 
 
 if __name__ == "__main__":
