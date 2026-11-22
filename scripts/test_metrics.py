@@ -729,7 +729,182 @@ class Subagents(Harness, unittest.TestCase):
         self.assertIn("QA \\| rodada", self.table(summary)[0])
 
 
+def action_steps():
+    """Os passos da composite action, na ordem: (nome ou uses, bloco do passo)."""
+    body = ACTION.read_text().split("\n  steps:\n", 1)[1]
+    blocks = re.split(r"\n(?=    - )", "\n" + body)
+    out = []
+    for block in blocks:
+        if not block.strip().startswith("- "):
+            continue
+        m = re.search(r"^    - (?:name|uses): (.+)$", block, re.M)
+        out.append((m.group(1).strip(), block))
+    return out
+
+
+def step_run(block):
+    """Texto do `run: |` de um passo da action, sem a indentacao."""
+    run = block.split("      run: |\n", 1)[1]
+    lines = []
+    for line in run.splitlines():
+        if line.strip() == "":
+            lines.append("")
+        elif line.startswith("        "):
+            lines.append(line[8:])
+        else:
+            break
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+TRANSCRIPT_DECIDE = "Decidir a publicacao da transcricao"
+TRANSCRIPT_SUMMARY = "Registrar a transcricao no summary"
+
+
+class Transcript(Harness, unittest.TestCase):
+    """A transcricao da sessao (o execution_file) como artifact proprio: so em
+    repositorio privado, separada do `metrics`, sem nunca derrubar o passo."""
+
+    def steps(self):
+        return dict(action_steps())
+
+    def run_step(self, name, env):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="transcript-"))
+        (tmp / "step.sh").write_text(step_run(self.steps()[name]))
+        e = {"PATH": os.environ["PATH"], "TRANSCRIPT_PY": str(ACTION_DIR / "transcript.py")}
+        e.update(env)
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(tmp / "step.sh")],
+                              env=e, capture_output=True, text=True)
+
+    def round(self, private="true", upload="success", **kw):
+        """Simula a action inteira: mede, decide, `sobe` (ou falha o upload) e registra.
+        Devolve (codigos de saida, metrics.json, summary, outputs da decisao)."""
+        proc, data, summary_text, _ = self.execute(**kw)
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="transcript-round-"))
+        summary_file = tmp / "summary.md"
+        summary_file.write_text(summary_text)
+        output = tmp / "output"
+        execution = kw.get("EXECUTION_FILE")
+        if execution is None:
+            execution = ""
+            if kw.get("session_raw") is not None or kw.get("session", SESSION) is not None:
+                execution = str(tmp / "claude-execution-output.json")
+                raw = kw.get("session_raw")
+                pathlib.Path(execution).write_text(
+                    raw if raw is not None else json.dumps(kw.get("session", SESSION)))
+        decide = self.run_step(TRANSCRIPT_DECIDE, {"EXECUTION_FILE": execution, "REPO_PRIVATE": private,
+                                                   "GITHUB_OUTPUT": str(output)})
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line) \
+            if output.exists() else {}
+        # O upload so roda quando a decisao manda publicar; sem ele, o outcome e `skipped`.
+        outcome = upload if outputs.get("publicar") == "true" else "skipped"
+        record = self.run_step(TRANSCRIPT_SUMMARY, {
+            "PUBLICAR": outputs.get("publicar", ""), "MOTIVO": outputs.get("motivo", ""),
+            "UPLOAD_OUTCOME": outcome, "GITHUB_STEP_SUMMARY": str(summary_file)})
+        return ([proc.returncode, decide.returncode, record.returncode], data,
+                summary_file.read_text(), outputs, record)
+
+    # --- a forma na action ---
+
+    def test_upload_da_transcricao_separado_com_nome_fixo_retencao_e_sem_derrubar(self):
+        steps = action_steps()
+        names = [n for n, _ in steps]
+        uploads = [b for n, b in steps if n == "actions/upload-artifact@v4"]
+        self.assertEqual(len(uploads), 2, names)
+        metrics_up, transcript_up = uploads
+        self.assertIn("name: metrics\n", metrics_up)
+        self.assertIn("name: transcript\n", transcript_up)
+        self.assertIn("overwrite: true", transcript_up)
+        self.assertIn("retention-days: 7\n", transcript_up)
+        self.assertIn("continue-on-error: true", transcript_up)
+        self.assertIn("path: ${{ inputs.execution_file }}", transcript_up)
+        self.assertIn("if: steps.transcript.outputs.publicar == 'true'", transcript_up)
+        self.assertIn("id: transcript-upload", transcript_up)
+        # O `metrics` sobe antes: falha da transcricao nunca o impede.
+        self.assertLess(names.index(TRANSCRIPT_DECIDE), len(names))
+        self.assertLess([b for _, b in steps].index(metrics_up), [b for _, b in steps].index(transcript_up))
+        # A decisao le se o repositorio e privado; o registro roda sempre, depois do upload.
+        decide = self.steps()[TRANSCRIPT_DECIDE]
+        self.assertIn("id: transcript", decide)
+        self.assertIn("REPO_PRIVATE: ${{ github.event.repository.private }}", decide)
+        self.assertIn("EXECUTION_FILE: ${{ inputs.execution_file }}", decide)
+        record = self.steps()[TRANSCRIPT_SUMMARY]
+        self.assertIn("if: always()", record)
+        self.assertIn("UPLOAD_OUTCOME: ${{ steps.transcript-upload.outcome }}", record)
+        self.assertEqual(names[-1], TRANSCRIPT_SUMMARY)
+
+    # --- criterio 1: publica em repositorio privado e registra no summary ---
+
+    def test_repositorio_privado_publica_e_registra_com_a_retencao(self):
+        codes, data, summary_text, outputs, _ = self.round()
+        self.assertEqual(codes, [0, 0, 0])
+        self.assertEqual(outputs["publicar"], "true")
+        self.assertIsNotNone(data)
+        self.assertIn("**Transcrição da sessão:** publicada no artifact `transcript`, "
+                      "com retenção de 7 dias.", summary_text)
+
+    def test_arquivo_ilegivel_ou_truncado_sobe_assim_mesmo(self):
+        for raw in ('[{"type": "system"}, {"type": "res', "nao e json", ""):
+            codes, data, summary_text, outputs, _ = self.round(session_raw=raw)
+            self.assertEqual(codes, [0, 0, 0], raw)
+            self.assertEqual(outputs["publicar"], "true", raw)
+            self.assertEqual(data["agente"]["estado"], "n/d", raw)
+            self.assertIn("publicada no artifact `transcript`", summary_text, raw)
+
+    def test_repositorio_publico_nao_publica_e_diz_por_que(self):
+        for private in ("false", ""):
+            codes, data, summary_text, outputs, _ = self.round(private=private)
+            self.assertEqual(codes, [0, 0, 0], private)
+            self.assertEqual(outputs["publicar"], "false", private)
+            self.assertIsNotNone(data)
+            self.assertIn("**Transcrição da sessão:** não publicada: repositório público", summary_text)
+
+    # --- criterio 2: sem execution_file ---
+
+    def test_sem_execution_file_nada_publicado_e_metrics_igual(self):
+        base_proc, base, _, _ = self.execute(session=None)
+        for kw in (dict(session=None), dict(EXECUTION_FILE="/nao/existe/output.json")):
+            codes, data, summary_text, outputs, _ = self.round(**kw)
+            self.assertEqual(codes, [0, 0, 0], kw)
+            self.assertEqual(outputs["publicar"], "false", kw)
+            self.assertIn("**Transcrição da sessão:** não publicada: sem `execution_file`", summary_text, kw)
+            self.assertEqual(data["agente"], base["agente"], kw)
+            self.assertEqual(data["schema_version"], 1)
+
+    def test_pr_merged_sem_agente_nao_publica(self):
+        codes, data, summary_text, outputs, _ = self.round(
+            jobs=MERGED, session=None, ETAPA="pr-merged", MAX_TURNS="", private="true")
+        self.assertEqual(codes, [0, 0, 0])
+        self.assertEqual(outputs["publicar"], "false")
+        self.assertIn("não publicada: sem `execution_file`", summary_text)
+
+    # --- criterio 3: falha simulada no upload ---
+
+    def test_falha_no_upload_mantem_o_metrics_e_nao_falha_o_passo(self):
+        codes, data, summary_text, outputs, record = self.round(upload="failure")
+        self.assertEqual(codes, [0, 0, 0], record.stderr)
+        self.assertEqual(outputs["publicar"], "true")
+        self.assertIsNotNone(data)
+        self.assertEqual(data["schema_version"], 1)
+        self.assertIn("**Transcrição da sessão:** não publicada: o upload do artifact falhou", summary_text)
+        self.assertIn("::warning::", record.stdout)
+
+    def test_script_da_transcricao_quebrado_nao_falha_o_passo(self):
+        for name, env in ((TRANSCRIPT_DECIDE, {"EXECUTION_FILE": "x", "REPO_PRIVATE": "true",
+                                               "GITHUB_OUTPUT": "/nao/existe/dir/out"}),
+                          (TRANSCRIPT_SUMMARY, {"PUBLICAR": "true", "UPLOAD_OUTCOME": "success",
+                                                "GITHUB_STEP_SUMMARY": "/nao/existe/dir/summary"})):
+            proc = self.run_step(name, env)
+            self.assertEqual(proc.returncode, 0, (name, proc.stderr))
+
+
 class Readme(unittest.TestCase):
+    def test_readme_descreve_a_transcricao(self):
+        readme = (ROOT / "README.md").read_text()
+        section = readme.split("## Métricas", 1)[1].split("\n## ", 1)[0]
+        for word in ("`transcript`", "7 dias", "privado", "público", "retention-days",
+                     "Transcrição da sessão", "overwrite"):
+            self.assertIn(word, section, word)
+
     def test_readme_descreve_summary_grupos_e_artifact(self):
         readme = (ROOT / "README.md").read_text()
         section = readme.split("## Métricas", 1)[1].split("\n## ", 1)[0]

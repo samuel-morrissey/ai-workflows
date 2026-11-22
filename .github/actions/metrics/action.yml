@@ -3,7 +3,8 @@ description: >-
   Mede o tempo da rodada por grupo fixo de passos (preparo, ambiente, agente,
   pos-agente), lido da run pela API de jobs, e os totais da sessao do agente,
   lidos do execution_file da claude-code-action, e publica no summary do job
-  e no artifact `metrics` (metrics.json).
+  e no artifact `metrics` (metrics.json). Em repositorio privado, sobe tambem
+  a transcricao da sessao (o execution_file) no artifact `transcript`.
 
 # O chamador usa esta action como penultimo passo do job (o round-failure,
 # quando existe, continua o ultimo), com `if: always()` e
@@ -67,3 +68,45 @@ runs:
         path: ${{ runner.temp }}/metrics/metrics.json
         if-no-files-found: ignore
         overwrite: true
+
+    # A transcricao da sessao (o execution_file) sobe num artifact proprio,
+    # so em repositorio privado: ela traz prompts e saidas de ferramentas, e
+    # num publico qualquer leitor da run a baixaria. Vem depois do `metrics`
+    # e com continue-on-error, para nunca impedir o artifact `metrics`.
+    - name: Decidir a publicacao da transcricao
+      id: transcript
+      shell: bash
+      env:
+        EXECUTION_FILE: ${{ inputs.execution_file }}
+        REPO_PRIVATE: ${{ github.event.repository.private }}
+        TRANSCRIPT_PY: ${{ github.action_path }}/transcript.py
+      run: |
+        if ! python3 -I "$TRANSCRIPT_PY" decidir; then
+          echo "::warning::Nao consegui decidir a publicacao da transcricao; ela nao sobe nesta run."
+        fi
+
+    # Nome fixo para achar entre runs; num re-run, a transcricao da tentativa
+    # anterior e substituida, como o `metrics`.
+    - uses: actions/upload-artifact@v4
+      id: transcript-upload
+      if: steps.transcript.outputs.publicar == 'true'
+      continue-on-error: true
+      with:
+        name: transcript
+        path: ${{ inputs.execution_file }}
+        if-no-files-found: error
+        overwrite: true
+        retention-days: 7
+
+    - name: Registrar a transcricao no summary
+      if: always()
+      shell: bash
+      env:
+        PUBLICAR: ${{ steps.transcript.outputs.publicar }}
+        MOTIVO: ${{ steps.transcript.outputs.motivo }}
+        UPLOAD_OUTCOME: ${{ steps.transcript-upload.outcome }}
+        TRANSCRIPT_PY: ${{ github.action_path }}/transcript.py
+      run: |
+        if ! python3 -I "$TRANSCRIPT_PY" registrar; then
+          echo "::warning::Nao consegui registrar a transcricao no summary."
+        fi
