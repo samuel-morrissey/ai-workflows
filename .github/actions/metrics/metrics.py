@@ -89,7 +89,8 @@ STAGES = {
         RELATED: "preparo", ENV: "ambiente",
         AGENT: "agente",
         EVIDENCE: "pos-agente", "Garantir awaiting-pr-review se ha PR aberto": "pos-agente",
-        UNWIP: "pos-agente", "Entrar na cadeia": "pos-agente", "Planejar e empilhar": "pos-agente",
+        UNWIP: "pos-agente", "Falhar a rodada que deixou branch sem PR": "pos-agente",
+        "Entrar na cadeia": "pos-agente", "Planejar e empilhar": "pos-agente",
         "Resolver responsavel do pai": "pos-agente", "Decidir e agir": "pos-agente"}},
     "issue-sub-task": {"job": "Implement Sub-task", "steps": {
         CHECKOUT: "preparo", "Baixar o planner": "preparo", "Resolver alvo": "preparo", WIP: "preparo",
