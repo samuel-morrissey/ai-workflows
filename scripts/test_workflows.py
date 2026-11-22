@@ -1787,5 +1787,51 @@ class ToPrOpensDirectly(unittest.TestCase):
         self.assertIn("existente", line)
 
 
+class QaForeground(unittest.TestCase):
+    """O QA roda em primeiro plano, e a sessao so encerra depois de agir sobre o relatorio."""
+
+    FOREGROUND = "`run_in_background: false`"
+
+    def skill(self, name):
+        return (SKILLS / name / "SKILL.md").read_text()
+
+    def flat(self, text):
+        return " ".join(text.replace("**", "").split())
+
+    def implement_qa(self):
+        return self.skill("issue-remote-implement").split("\n5. **QA independente.**", 1)[1].split("\n6. ", 1)[0]
+
+    def final(self, name):
+        return self.flat(self.skill(name).split("\nA rodada esta completa quando", 1)[1].split("\n## ", 1)[0])
+
+    def test_implement_chama_o_qa_em_primeiro_plano(self):
+        step5 = self.implement_qa()
+        self.assertIn(self.FOREGROUND, step5)
+        flat = self.flat(step5)
+        self.assertIn("em primeiro plano", flat)
+        self.assertIn("nunca em segundo plano", flat)
+        self.assertIn("nao encerra o turno esperando notificacao", flat)
+        # A rodada 2 herda a instrucao: mesmo prompt e mesma chamada.
+        self.assertIn("mesma chamada em primeiro plano", flat)
+
+    def test_implement_sempre_segue_do_relatorio_para_o_pr_ou_handoff(self):
+        self.assertIn("sempre segue para o passo 6", self.flat(self.implement_qa()))
+        self.assertIn("Terminar a sessao entre o relatorio do QA e o PR (ou o handoff) nao e fim valido",
+                      self.final("issue-remote-implement"))
+
+    def test_implement_sem_ferramentas_segue_direto_para_o_pr(self):
+        self.assertIn("pule este passo", self.flat(self.implement_qa()))
+
+    def test_pr_fix_chama_o_qa_em_primeiro_plano(self):
+        step6 = self.skill("pr-fix").split("\n6. **QA,", 1)[1].split("\n7. ", 1)[0]
+        self.assertIn(self.FOREGROUND, step6)
+        flat = self.flat(step6)
+        self.assertIn("em primeiro plano", flat)
+        self.assertIn("nunca em segundo plano", flat)
+        self.assertIn("nao encerra o turno esperando notificacao", flat)
+        self.assertIn("Terminar a sessao entre o relatorio do QA e o comentario `## Correcao` nao e fim valido",
+                      self.final("pr-fix"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
