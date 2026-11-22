@@ -16,7 +16,8 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doctor  # noqa: E402
 from test_workflows import (  # noqa: E402,F401
-    AgentEnvConfig, ChainNoticeRun, ChainNoticeShape, PrClosedRun, PrClosedShape, PrFixTrigger, ResponsibleRun,
+    AgentEnvConfig, ChainNoticeRun, ChainNoticeShape, PrClosedRun, PrClosedShape, PrFixTrigger, QaForeground,
+    ResponsibleRun,
     ResponsibleShape, Run as WorkflowRun, SafetyNetRun, SafetyNetShape, Shape as WorkflowShape,
     SkillsMention, SkillsPremise, WebAccess, WebDomainsRun, WebDomainsShape)
 from test_sub_tasks import (  # noqa: E402,F401

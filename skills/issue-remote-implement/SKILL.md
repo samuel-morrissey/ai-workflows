@@ -278,8 +278,12 @@ o pedido la e cite o link no PR.
       secoes *Configurando o ambiente* e *Como testar* exatamente como irao
       no PR, no formato do `TEMPLATE.md` da `to-pr`. E a unica instrucao que
       o QA recebe sobre como chegar na funcionalidade.
-   3. **Rodada 1.** Use a ferramenta Agent com o prompt abaixo, preenchido,
-      sem acrescentar nada sobre a implementacao:
+   3. **Rodada 1.** Use a ferramenta Agent **em primeiro plano**
+      (`run_in_background: false`), nunca em segundo plano: a chamada
+      espera o QA terminar e devolve o resultado na mesma resposta. A
+      sessao nao encerra o turno esperando notificacao de subagente. O
+      prompt e o abaixo, preenchido, sem acrescentar nada sobre a
+      implementacao:
 
       ```
       Invoque a skill issue-qa e siga-a ate o fim com estes dados:
@@ -303,8 +307,8 @@ o pedido la e cite o link no PR.
         (test-first, no criterio reprovado), rode a bateria do passo 4 de
         novo, commit e push.
       Observacoes nao reabrem nada.
-   5. **Rodada 2**, com o mesmo prompt, mudando so `Rodada: 2` e lendo o
-      roteiro atualizado. Leia `<pasta>/qa-2.md`. Qualquer resultado encerra
+   5. **Rodada 2**, com o mesmo prompt e a mesma chamada em primeiro plano,
+      mudando so `Rodada: 2` e lendo o roteiro atualizado. Leia `<pasta>/qa-2.md`. Qualquer resultado encerra
       o QA.
    6. **Desfecho da rodada 2:**
       - todo criterio `passou` → passo 6;
@@ -319,6 +323,10 @@ o pedido la e cite o link no PR.
    Diante de um criterio reprovado voce tem duas saidas: corrige, ou declara
    no PR que nao corrigiu e por que. "O QA testou errado" nao e uma
    terceira: se ele errou, a declaracao fica no PR e o humano ve.
+
+   Lido o relatorio da ultima rodada, a sessao **sempre segue para o passo
+   6**, qualquer que seja o resultado: o PR, os passos 7 e 8 e, se o QA
+   ficou em aberto, o handoff. O relatorio nao e o fim da rodada.
 
 6. **Abra o PR com a skill `remote-to-pr`**, passando a head (a branch da
    unidade), a base da `issue-git-flow` (branch padrao no pontual; a base
@@ -370,6 +378,8 @@ declarada ausente, com motivo), cujo QA passou em ate duas rodadas (ou foi
 declarado ausente, ou ficou em aberto com os criterios nomeados no PR e
 handoff no issue), e a unidade esta com `awaiting-pr-review` e o comentario
 com o link. O outro fim valido e o handoff com `awaiting-reply` sem PR.
+Terminar a sessao entre o relatorio do QA e o PR (ou o handoff) nao e fim
+valido: com o relatorio lido, a rodada ainda nao acabou.
 
 ## Fora de escopo
 

@@ -120,8 +120,11 @@ quem pede mudanca por issue ou comentario, sem alterar nada la.
    O roteiro e o QA do PR: escreva em `<pasta>/como-testar.md` as secoes
    *Configurando o ambiente* e *Como testar* do corpo atual, atualizadas
    pelo que a rodada mudou. Faca push (passo 7) antes, para o QA chegar na
-   head por nome. Use a ferramenta Agent com este prompt, preenchido, sem
-   nada sobre a correcao:
+   head por nome. Use a ferramenta Agent **em primeiro plano**
+   (`run_in_background: false`), nunca em segundo plano: a chamada espera o
+   QA terminar e devolve o resultado na mesma resposta, e a sessao nao
+   encerra o turno esperando notificacao de subagente. Vale para as duas
+   rodadas. O prompt e este, preenchido, sem nada sobre a correcao:
 
    ```
    Invoque a skill issue-qa e siga-a ate o fim com estes dados:
@@ -220,7 +223,8 @@ quem pede mudanca por issue ou comentario, sem alterar nada la.
 A rodada esta completa quando todo pedido da lista tem resposta no PR —
 feito, com o commit, ou nao feito, com o motivo, ou em aberto no handoff —,
 os commits estao em `origin/<head>`, a bateria rodou (ou foi declarada
-ausente) e o comentario `## Correcao` esta no PR.
+ausente) e o comentario `## Correcao` esta no PR. Terminar a sessao entre o
+relatorio do QA e o comentario `## Correcao` nao e fim valido.
 
 ## Tipos de pedido
 
