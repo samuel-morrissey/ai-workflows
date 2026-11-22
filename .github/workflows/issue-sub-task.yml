@@ -284,6 +284,10 @@ jobs:
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Sem tarefa em segundo plano: a sessao espera cada subagente
+          # terminar. O QA roda como subagente, e uma sessao que acaba antes
+          # dele deixa a rodada sem veredito e sem PR.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: "https://github.com/samuel-morrissey/ai-workflows.git"

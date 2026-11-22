@@ -7,7 +7,8 @@ roda num bash com um `gh` falso.
 
 Tambem testa o passo "Garantir awaiting-pr-review se ha PR aberto" do
 issue-remote-implement.yml, com um `gh` falso que guarda o estado do issue,
-e o passo "Resolver responsavel" (action responsible) das etapas de issue: a
+a rodada pontual que deixa a branch do issue com commits e sem PR (o passo
+que a falha e o `retomar` do comentario) e o passo "Resolver responsavel" (action responsible) das etapas de issue: a
 posicao antes do agente, a frase que chega ao system prompt e os modelos de
 comentario das skills que levam a mencao. Do pr-fix.yml, testa a frase "Quem
 disparou a rodada:" que o passo "Resolver alvo" monta para o handoff no PR; da
@@ -423,7 +424,18 @@ if state.get("fail") and cmd in state["fail"]:
     print("api indisponivel", file=sys.stderr); sys.exit(1)
 issue = state["issue"]
 if cmd == "issue view":
-    print(json.dumps({"state": issue["state"], "labels": [{"name": n} for n in issue["labels"]]}))
+    print(json.dumps({"state": issue["state"], "labels": [{"name": n} for n in issue["labels"]],
+                      "title": issue.get("title", "")}))
+elif args[0] == "api" and "/compare/" in args[1]:
+    # Commits da branch a frente da base; branch que nao existe responde 404.
+    if "api" in state.get("fail", []):
+        print("gh: Service Unavailable (HTTP 503)", file=sys.stderr); sys.exit(1)
+    repo, spec = args[1].split("/compare/")
+    base, branch = spec.split("...")
+    assert repo == "repos/o/r" and base == "main" and opt("--jq") == ".ahead_by", args
+    if branch not in state.get("branches", {}):
+        print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
+    print(state["branches"][branch])
 elif cmd == "pr list":
     assert opt("--state") == "open", args
     print(json.dumps([p for p in state["prs"] if p["state"] == "OPEN"]))
@@ -492,22 +504,33 @@ class SafetyNetRun(unittest.TestCase):
         cls.script = step_run(block)
 
     def execute(self, prs, labels=("ready-for-agent", "work-in-progress"), state="OPEN",
-                repo_labels=None, fail=(), number="4"):
+                repo_labels=None, fail=(), number="4", title="[BUG] Pontual", branches=None,
+                env=None):
         tmp = tempfile.mkdtemp(prefix="wf-")
         gh = pathlib.Path(tmp, "gh")
         gh.write_text(FAKE_GH_STATE)
         gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
         st = pathlib.Path(tmp, "state.json")
         st.write_text(json.dumps({
-            "issue": {"state": state, "labels": list(labels)}, "prs": prs, "fail": list(fail),
+            "issue": {"state": state, "labels": list(labels), "title": title}, "prs": prs,
+            "fail": list(fail), "branches": branches or {},
             "repo_labels": repo_labels if repo_labels is not None else
             {"awaiting-pr-review": {"color": REVIEW_COLOR, "description": REVIEW_DESC}}}))
         script = pathlib.Path(tmp, "step.sh")
         script.write_text(self.script)
-        env = {"PATH": f"{tmp}:{os.environ['PATH']}", "FAKE_STATE": str(st),
-               "FAKE_GH_LOG": f"{tmp}/log", "GH_TOKEN": "x", "NUMBER": number}
-        proc = subprocess.run(["bash", "-eo", "pipefail", str(script)], env=env,
+        out = pathlib.Path(tmp, "output")
+        out.write_text("")
+        e = {"PATH": f"{tmp}:{os.environ['PATH']}", "FAKE_STATE": str(st),
+             "FAKE_GH_LOG": f"{tmp}/log", "GH_TOKEN": "x", "GH_REPO": "o/r", "NUMBER": number,
+             "DEFAULT_BRANCH": "main", "EVIDENCE_URL": "", "EVIDENCE_ARTIFACT": "",
+             "GITHUB_OUTPUT": str(out)}
+        e.update(env or {})
+        proc = subprocess.run(["bash", "-eo", "pipefail", str(script)], env=e,
                               capture_output=True, text=True)
+        # Outputs do passo (linhas `nome=valor` em $GITHUB_OUTPUT) e chamadas ao gh.
+        self.outputs = dict(l.split("=", 1) for l in out.read_text().splitlines())
+        log = pathlib.Path(tmp, "log")
+        self.gh_log = log.read_text() if log.exists() else ""
         return proc, json.loads(st.read_text())
 
     def assertUnchanged(self, proc, after, labels=("ready-for-agent", "work-in-progress")):
@@ -578,6 +601,171 @@ class SafetyNetRun(unittest.TestCase):
         proc, after = self.execute([pr(69, "Closes #4")], fail=["pr list"])
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(after["issue"]["labels"], ["ready-for-agent", "work-in-progress"])
+
+
+ORPHAN_STEP = "Falhar a rodada que deixou branch sem PR"
+BACKGROUND_ENV = 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"'
+
+
+class OrphanBranchShape(unittest.TestCase):
+    """O passo que falha a rodada pontual com branch e sem PR, e o que o cerca."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.steps = steps_of((WORKFLOWS / "issue-remote-implement.yml").read_text())
+        cls.names = [n for n, _ in cls.steps]
+        cls.blocks = dict(cls.steps)
+
+    def test_falha_depois_de_remover_o_wip(self):
+        self.assertEqual(self.names.count(ORPHAN_STEP), 1)
+        i = self.names.index(ORPHAN_STEP)
+        self.assertEqual(self.names[i - 1], "Remover work-in-progress")
+        self.assertLess(i, self.names.index("Registrar metricas da rodada"))
+
+    def test_so_falha_com_o_sinal_da_rede_e_derruba_o_job(self):
+        block = self.blocks[ORPHAN_STEP]
+        step = parse_step(block)
+        # Sem always(): rodada que ja falhou por outro motivo pula o passo, e
+        # o round-failure comenta uma vez so.
+        self.assertEqual(step["if"], "steps.rede.outputs.orfa == 'true'")
+        self.assertIsNone(step["continue_on_error"])
+        script = pathlib.Path(tempfile.mkdtemp(prefix="wf-"), "step.sh")
+        script.write_text(step_run(block))
+        proc = subprocess.run(["bash", "-eo", "pipefail", str(script)], capture_output=True, text=True,
+                              env={"PATH": os.environ["PATH"], "NUMBER": "268", "BRANCH": "bug-268",
+                                   "AHEAD": "3"})
+        self.assertEqual(proc.returncode, 1)
+        self.assertRegex(proc.stdout, r"::error::.*#268.*bug-268.*3 commit")
+
+    def test_rede_tem_id_e_le_as_evidencias_publicadas(self):
+        block = self.blocks[SAFETY_STEP]
+        self.assertIn("\n        id: rede\n", block)
+        self.assertIn("DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}", block)
+        self.assertIn("EVIDENCE_URL: ${{ steps.evidencias.outputs.url }}", block)
+        self.assertIn("EVIDENCE_ARTIFACT: ${{ steps.evidencias.outputs.artifact }}", block)
+        self.assertIn("\n        id: evidencias\n", self.blocks["Publicar evidencias"])
+        action = (ROOT / ".github" / "actions" / "publish-evidence" / "action.yml").read_text()
+        self.assertIn("value: ${{ steps.publish.outputs.url }}", action)
+        self.assertIn("value: ${{ steps.publish.outputs.artifact }}", action)
+        self.assertIn('echo "url=${BASE_URL}/" >> "$GITHUB_OUTPUT"', action)
+
+    def test_comentario_de_falha_recebe_o_retomar_da_rede(self):
+        step = parse_step(self.blocks[STEP_NAME])
+        # Sem o sinal da rede, vale o mesmo texto do default da action.
+        self.assertEqual(step["with"]["retomar"],
+                         "${{ steps.rede.outputs.retomar || '%s' }}" % action_input_default("retomar"))
+
+    def test_agente_espera_os_subagentes_no_pontual_e_na_sub_task(self):
+        for f in ("issue-remote-implement.yml", "issue-sub-task.yml"):
+            block = dict(steps_of((WORKFLOWS / f).read_text()))[AGENT]
+            env = block.split("        env:\n", 1)[1].split("        with:\n", 1)[0]
+            self.assertIn(BACKGROUND_ENV, env, f)
+
+    def test_metricas_e_docs_cobrem_o_passo(self):
+        metrics = (ROOT / ".github" / "actions" / "metrics" / "metrics.py").read_text()
+        self.assertIn('"%s": "pos-agente"' % ORPHAN_STEP, metrics)
+        readme = " ".join((ROOT / "README.md").read_text().split())
+        for needle in ("sem PR e sem pergunta", "`<tipo>-<número>`", "**Rodada com falha**",
+                       "`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`"):
+            self.assertIn(needle, readme, needle)
+
+
+class OrphanBranchRun(SafetyNetRun):
+    """Rodada sem PR: a rede de seguranca diz se a branch do issue ficou com commits."""
+
+    def assertSilent(self, proc, after, labels=("ready-for-agent", "work-in-progress")):
+        self.assertUnchanged(proc, after, labels)
+        self.assertEqual(self.outputs, {})
+
+    def test_branch_a_frente_sem_pr_marca_a_rodada(self):
+        proc, after = self.execute([], number="268", branches={"bug-268": 3})
+        self.assertUnchanged(proc, after)
+        self.assertEqual(self.outputs["orfa"], "true")
+        self.assertEqual(self.outputs["branch"], "bug-268")
+        self.assertEqual(self.outputs["ahead"], "3")
+        retomar = self.outputs["retomar"]
+        for needle in ("abra o PR a mao a partir da branch `bug-268`", "aplique `go` de novo",
+                       "3 commit(s) a frente de `main`", "nao mudou o label de estado"):
+            self.assertIn(needle, retomar)
+        self.assertNotIn("videncias", retomar)
+
+    def test_tipo_vem_do_prefixo_do_titulo_em_minusculas(self):
+        self.execute([], number="181", title="[FEAT] Algo novo", branches={"feat-181": 1})
+        self.assertEqual(self.outputs["branch"], "feat-181")
+        self.execute([], number="187", title="[SUB-TASK] Camada", branches={"sub-task-187": 2})
+        self.assertEqual(self.outputs["branch"], "sub-task-187")
+
+    def test_evidencias_do_bucket_entram_no_retomar(self):
+        self.execute([], branches={"bug-4": 1},
+                     env={"EVIDENCE_URL": "https://pub.r2.dev/o-r/4/run-1/"})
+        self.assertTrue(self.outputs["retomar"].endswith(
+            "Evidencias da rodada: https://pub.r2.dev/o-r/4/run-1/"))
+
+    def test_evidencias_em_artifact_entram_no_retomar(self):
+        self.execute([], branches={"bug-4": 1}, env={"EVIDENCE_ARTIFACT": "true"})
+        self.assertIn("artifact `evidencias-4` da run", self.outputs["retomar"])
+
+    def test_handoff_nao_marca_nem_confere_a_branch(self):
+        labels = ("ready-for-agent", "work-in-progress", "awaiting-reply")
+        proc, after = self.execute([], labels=labels, branches={"bug-4": 3})
+        self.assertSilent(proc, after, labels)
+        self.assertNotIn("compare", self.gh_log)
+
+    def test_sem_branch_no_remoto_nao_marca(self):
+        proc, after = self.execute([])
+        self.assertSilent(proc, after)
+        self.assertNotIn("::warning::", proc.stdout)
+
+    def test_branch_sem_commits_a_frente_nao_marca(self):
+        proc, after = self.execute([], branches={"bug-4": 0})
+        self.assertSilent(proc, after)
+        self.assertNotIn("::warning::", proc.stdout)
+
+    def test_branch_com_outro_nome_nao_e_detectada(self):
+        proc, after = self.execute([], branches={"fix-4": 3, "bug-40": 2})
+        self.assertSilent(proc, after)
+
+    def test_titulo_sem_prefixo_nao_confere(self):
+        proc, after = self.execute([], title="Sem prefixo", branches={"bug-4": 3})
+        self.assertSilent(proc, after)
+        self.assertNotIn("compare", self.gh_log)
+
+    def test_pr_aberto_troca_o_label_e_nao_marca(self):
+        proc, after = self.execute([pr(57, "Closes #4")], branches={"bug-4": 3})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("awaiting-pr-review", after["issue"]["labels"])
+        self.assertEqual(self.outputs, {})
+
+    def test_issue_fechado_ou_fora_de_ready_for_agent_nao_marca(self):
+        proc, after = self.execute([], state="CLOSED", branches={"bug-4": 3})
+        self.assertSilent(proc, after)
+        labels = ("needs-triage", "work-in-progress")
+        proc, after = self.execute([], labels=labels, branches={"bug-4": 3})
+        self.assertSilent(proc, after, labels)
+
+    def test_api_fora_so_avisa(self):
+        proc, after = self.execute([], branches={"bug-4": 3}, fail=["api"])
+        self.assertSilent(proc, after)
+        self.assertRegex(proc.stdout, r"::warning::.*bug-4.*HTTP 503")
+
+    def test_resposta_inesperada_so_avisa(self):
+        proc, after = self.execute([], branches={"bug-4": "null"})
+        self.assertSilent(proc, after)
+        self.assertIn("::warning::", proc.stdout)
+
+    def test_retomar_fecha_a_frase_do_comentario_de_falha(self):
+        self.execute([], number="268", branches={"bug-268": 3})
+        runner = Run()
+        runner.script, runner.retomar = action_run(), action_input_default("retomar")
+        jobs = {"jobs": [{"name": "ai / Implement Issue", "runner_name": "GitHub Actions 7",
+                          "steps": [{"name": ORPHAN_STEP, "conclusion": "failure"}]}]}
+        _, _, body = runner.execute(
+            env={"RETOMAR": self.outputs["retomar"], "NUMBER": "268"}, jobs=jobs,
+            resp='{"issue": 268, "logins": ["samuel"], "rule": "assignees"}')
+        self.assertIn("no passo **%s**" % ORPHAN_STEP, body)
+        self.assertIn("**Responsavel:** @samuel", body)
+        self.assertIn("Run: https://github.com/o/r/actions/runs/123", body)
+        self.assertIn("corrija a causa e abra o PR a mao a partir da branch `bug-268`", body)
 
 
 RESP_ACTION = ROOT / ".github" / "actions" / "responsible" / "action.yml"

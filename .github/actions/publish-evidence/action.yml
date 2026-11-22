@@ -53,6 +53,16 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  url:
+    description: >-
+      URL publica da pasta de evidencias, quando o upload para o bucket deu
+      certo. Vazio no resto.
+    value: ${{ steps.publish.outputs.url }}
+  artifact:
+    description: "`true` quando as evidencias foram como artifact da run."
+    value: ${{ steps.publish.outputs.artifact }}
+
 runs:
   using: composite
   steps:
@@ -94,6 +104,7 @@ runs:
             if aws s3 cp "$DIR" "${BUCKET%/}/${PREFIX}/" --recursive --no-progress "${ARGS[@]}"; then
               echo "::notice::Evidencias publicadas em ${BASE_URL}/"
               echo "artifact=false" >> "$GITHUB_OUTPUT"; echo "relink=false" >> "$GITHUB_OUTPUT"
+              echo "url=${BASE_URL}/" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "::warning::Upload para ${BUCKET} falhou; caindo para artifact da run."

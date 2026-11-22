@@ -276,6 +276,10 @@ jobs:
         if: steps.target.outputs.kind == 'pontual' && steps.wip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Sem tarefa em segundo plano: a sessao espera cada subagente
+          # terminar. O QA roda como subagente, e uma sessao que acaba antes
+          # dele deixa a rodada sem veredito e sem PR.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: "https://github.com/samuel-morrissey/ai-workflows.git"
@@ -305,6 +309,7 @@ jobs:
       # ou artifact da run com os links do PR corrigidos). Roda mesmo quando a
       # action falhou, para nao perder captura.
       - name: Publicar evidencias
+        id: evidencias
         if: always() && steps.target.outputs.kind == 'pontual' && steps.wip.outputs.skip != 'true' && steps.ambiente.outcome == 'success'
         uses: samuel-morrissey/ai-workflows/.github/actions/publish-evidence@main
         with:
@@ -329,14 +334,29 @@ jobs:
       # #4` nao fecha. Handoff sem PR mantem ready-for-agent, que e o que
       # deixa a resposta humana retomar. Roda antes de remover o WIP, e uma
       # falha da conferencia nao impede que ele saia.
+      #
+      # Sem PR e sem handoff (`awaiting-reply`), o passo ainda confere se a
+      # rodada deixou trabalho solto: a branch do issue (`<tipo>-<numero>`,
+      # pela issue-git-flow) no remoto, com commits a frente da branch
+      # padrao. Nesse caso marca `orfa=true` e monta o `retomar` do
+      # comentario de falha; quem falha a rodada e o passo "Falhar a rodada
+      # que deixou branch sem PR", depois que o WIP saiu. Branch com outro
+      # nome nao e detectada. Sem branch, ou sem commits a frente, a rodada
+      # foi vazia e termina como antes. Esta conferencia falhando (API fora)
+      # so avisa: nao comenta nem muda o resultado da run.
       - name: Garantir awaiting-pr-review se ha PR aberto
+        id: rede
         if: always() && steps.target.outputs.kind == 'pontual' && steps.wip.outcome == 'success' && steps.wip.outputs.skip != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           NUMBER: ${{ steps.target.outputs.number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVIDENCE_URL: ${{ steps.evidencias.outputs.url }}
+          EVIDENCE_ARTIFACT: ${{ steps.evidencias.outputs.artifact }}
         run: |
-          INFO=$(gh issue view "$NUMBER" --json state,labels)
+          INFO=$(gh issue view "$NUMBER" --json state,labels,title)
           STATE=$(jq -r '.state' <<<"$INFO")
           LABELS=$(jq -r '.labels[].name' <<<"$INFO")
           if [ "$STATE" != "OPEN" ]; then
@@ -354,6 +374,49 @@ jobs:
             | first | .number // empty' <<<"$PRS")
           if [ -z "$PR" ]; then
             echo "::notice::Nenhum PR aberto fecha #$NUMBER; ready-for-agent mantido."
+            if grep -Fqx 'awaiting-reply' <<<"$LABELS"; then
+              echo "::notice::#$NUMBER parou em pergunta (awaiting-reply): handoff, nada a avisar."
+              exit 0
+            fi
+            TIPO=$(jq -r '.title // ""' <<<"$INFO" | sed -nE 's/^\[([A-Za-z][A-Za-z-]*)\].*/\1/p' | tr '[:upper:]' '[:lower:]')
+            if [ -z "$TIPO" ]; then
+              echo "::notice::Titulo de #$NUMBER sem prefixo de tipo; nao ha branch <tipo>-$NUMBER para conferir."
+              exit 0
+            fi
+            BRANCH="${TIPO}-${NUMBER}"
+            if [ -z "$DEFAULT_BRANCH" ]; then
+              echo "::warning::Evento sem a branch padrao do repositorio; nao conferi se $BRANCH ficou com commits sem PR."
+              exit 0
+            fi
+            if ! AHEAD=$(gh api "repos/$GH_REPO/compare/${DEFAULT_BRANCH}...${BRANCH}" --jq '.ahead_by' 2>&1); then
+              if grep -Fq 'HTTP 404' <<<"$AHEAD"; then
+                echo "::notice::Branch $BRANCH nao existe no remoto: a rodada nao deixou trabalho sem PR."
+              else
+                echo "::warning::Nao consegui conferir se $BRANCH ficou com commits sem PR: $(tr '\n' ' ' <<<"$AHEAD")"
+              fi
+              exit 0
+            fi
+            if ! [[ "$AHEAD" =~ ^[0-9]+$ ]]; then
+              echo "::warning::Resposta inesperada ao comparar $BRANCH com $DEFAULT_BRANCH; nao conferi se ha commits sem PR."
+              exit 0
+            fi
+            if [ "$AHEAD" -eq 0 ]; then
+              echo "::notice::Branch $BRANCH sem commits a frente de $DEFAULT_BRANCH: a rodada nao deixou trabalho sem PR."
+              exit 0
+            fi
+            RETOMAR="abra o PR a mao a partir da branch \`$BRANCH\`, ou aplique \`go\` de novo. A rodada terminou sem abrir PR e sem pergunta, e a branch ficou no remoto com $AHEAD commit(s) a frente de \`$DEFAULT_BRANCH\`. Esta falha nao mudou o label de estado."
+            if [ -n "$EVIDENCE_URL" ]; then
+              RETOMAR="$RETOMAR Evidencias da rodada: $EVIDENCE_URL"
+            elif [ "$EVIDENCE_ARTIFACT" = "true" ]; then
+              RETOMAR="$RETOMAR As evidencias da rodada estao no artifact \`evidencias-$NUMBER\` da run."
+            fi
+            {
+              echo "orfa=true"
+              echo "branch=$BRANCH"
+              echo "ahead=$AHEAD"
+              echo "retomar=$RETOMAR"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice::Branch $BRANCH com $AHEAD commit(s) a frente de $DEFAULT_BRANCH e nenhum PR aberto que feche #$NUMBER."
             exit 0
           fi
           gh label create awaiting-pr-review --color 5319E7 \
@@ -378,6 +441,23 @@ jobs:
             echo "::notice::go chegou durante a rodada em #$NUMBER e foi descartado; aplique de novo para a proxima etapa."
             gh issue edit "$NUMBER" --remove-label go
           fi
+
+      # Rodada que terminou sem PR e sem pergunta, com commits na branch do
+      # issue, e uma falha: sem este passo o job fecharia em `success` e o
+      # issue ficaria em ready-for-agent sem nenhum sinal. Falhar aqui, com o
+      # WIP ja removido, faz o "Comentar falha da rodada" avisar o
+      # responsavel com o link da run e o `retomar` montado pela rede de
+      # seguranca. Numa rodada que ja falhou por outro motivo este passo e
+      # pulado, e o comentario sai uma vez so, com o mesmo `retomar`.
+      - name: Falhar a rodada que deixou branch sem PR
+        if: steps.rede.outputs.orfa == 'true'
+        env:
+          NUMBER: ${{ steps.target.outputs.number }}
+          BRANCH: ${{ steps.rede.outputs.branch }}
+          AHEAD: ${{ steps.rede.outputs.ahead }}
+        run: |
+          echo "::error::A rodada de #$NUMBER terminou sem PR e sem pergunta, e a branch $BRANCH ficou no remoto com $AHEAD commit(s) sem PR."
+          exit 1
 
       # ----------------------------------------------------------------------
       # Pai com sub-tasks: planner da cadeia. Sem agente: so gh e o script.
@@ -592,3 +672,6 @@ jobs:
         with:
           etapa: implementacao
           number: ${{ steps.target.outputs.number }}
+          # Branch com commits e sem PR: o `retomar` da rede de seguranca.
+          # No resto, o texto padrao da action.
+          retomar: ${{ steps.rede.outputs.retomar || 'aplique `go` de novo. Esta falha nao mudou o label de estado.' }}
