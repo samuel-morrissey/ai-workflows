@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -590,6 +591,40 @@ class Docs(unittest.TestCase):
         for texto in ("`setup-repo`", "mesmo prefixo", "só entra o que você aceitar", "não dá `info`",
                       "num sentido só"):
             self.assertIn(texto, item, texto)
+
+
+class DoctorAlone(unittest.TestCase):
+    """Quem baixa o doctor.py sem checkout baixa tambem os modulos que ele importa."""
+
+    @classmethod
+    def setUpClass(cls):
+        source = (ROOT / "scripts" / "doctor.py").read_text()
+        cls.modules = [name for name in re.findall(r"(?m)^import (\w+)", source)
+                       if (ROOT / "scripts" / (name + ".py")).is_file()]
+
+    def test_doctor_importa_os_dois_modulos_vizinhos(self):
+        self.assertEqual(sorted(self.modules), ["related", "web_domains"])
+
+    def test_check_caller_baixa_cada_modulo(self):
+        router = (ROOT / ".github" / "workflows" / "router.yml").read_text()
+        job = router.split("\n  check-caller:\n", 1)[1].split("\n  # Triagem:", 1)[0]
+        loop = re.search(r"for MODULO in ([^;]+); do", job).group(1).split()
+        self.assertEqual(sorted(loop), sorted(name + ".py" for name in self.modules))
+        self.assertIn('"$SRC/scripts/$MODULO?ref=$REF"', job)
+        self.assertIn('> "$RUNNER_TEMP/$MODULO"', job)
+
+    def test_setup_repo_baixa_cada_modulo(self):
+        skill = (SKILLS / "setup-repo" / "SKILL.md").read_text()
+        loop = re.search(r"for f in ([^;]+); do", skill).group(1).split()
+        self.assertEqual(sorted(loop), sorted(["doctor.py"] + [name + ".py" for name in self.modules]))
+
+    def test_doctor_sobe_so_com_os_modulos_ao_lado(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ["doctor"] + self.modules:
+                shutil.copy(ROOT / "scripts" / (name + ".py"), tmp)
+            done = subprocess.run([sys.executable, "-I", os.path.join(tmp, "doctor.py"), "--help"],
+                                  capture_output=True, text=True, stdin=subprocess.DEVNULL, cwd=tmp)
+            self.assertEqual(done.returncode, 0, done.stderr)
 
 
 class SetupRepo(unittest.TestCase):

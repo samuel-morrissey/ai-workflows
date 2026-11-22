@@ -37,9 +37,14 @@ passo 6.2). Nao decida sozinho o que e pergunta (passo 5). Nao rode o fluxo no r
    para uma pasta temporaria e rode a partir dela:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/samuel-morrissey/ai-workflows/main/scripts/doctor.py -o "$TMPDIR/doctor.py"
+   for f in doctor.py web_domains.py related.py; do
+     curl -fsSL "https://raw.githubusercontent.com/samuel-morrissey/ai-workflows/main/scripts/$f" -o "$TMPDIR/$f"
+   done
    python3 -I "$TMPDIR/doctor.py" check <owner/repo> --json
    ```
+
+   Os tres arquivos vao juntos, na mesma pasta: o `doctor.py` importa os
+   outros dois e nao sobe sozinho.
 
    Nao use o `scripts/doctor.py` que esta ao lado desta skill: e a copia
    congelada na versao instalada do plugin, e o `doctor` muda com mais

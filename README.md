@@ -266,7 +266,7 @@ Depois do merge de um PR que subiu a versão:
 2. Abra uma sessão nova. As skills são carregadas no início da sessão.
 3. Confira a versão instalada com `/plugin`, ou em `~/.claude/plugins/installed_plugins.json`.
 
-A cópia do `scripts/doctor.py` dentro do plugin fica congelada junto com ele. Rode o `doctor` sempre pelo checkout deste repositório ou pelo `curl` de `main`, como faz a skill `setup-repo`.
+A cópia do `scripts/doctor.py` dentro do plugin fica congelada junto com ele. Rode o `doctor` sempre pelo checkout deste repositório ou pelo `curl` de `main`, como faz a skill `setup-repo`. Pelo `curl`, baixe para a mesma pasta o `scripts/doctor.py` e os dois módulos que ele importa, `scripts/web_domains.py` e `scripts/related.py`: sozinho ele não sobe.
 
 ## O que um repositório precisa
 

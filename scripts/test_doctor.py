@@ -28,8 +28,8 @@ from test_web_domains import (  # noqa: E402,F401
     Cli as WebDomainsCli, Entry as WebDomainsEntry, Extract as WebDomainsExtract, Read as WebDomainsRead)
 from test_related import (  # noqa: E402,F401
     ActionShape as RelatedActionShape, Cli as RelatedCli, Command as RelatedCommand, Docs as RelatedDocs,
-    DoctorConfig as RelatedDoctorConfig, Entry as RelatedEntry, Install as RelatedInstall, Read as RelatedRead,
-    SetupRepo as RelatedSetupRepo, Shape as RelatedShape)
+    DoctorAlone as RelatedDoctorAlone, DoctorConfig as RelatedDoctorConfig, Entry as RelatedEntry,
+    Install as RelatedInstall, Read as RelatedRead, SetupRepo as RelatedSetupRepo, Shape as RelatedShape)
 from test_undo import (  # noqa: E402,F401
     BreakDown as UndoBreakDown, Cli as UndoCli, Docs as UndoDocs, DuringRound as UndoDuringRound,
     Label as UndoLabel, Refinement as UndoRefinement, Refusals as UndoRefusals, Router as UndoRouter,

@@ -207,6 +207,13 @@ jobs:
             echo "::warning::check-caller: nao foi possivel baixar o modelo ou o doctor de samuel-morrissey/ai-workflows@$REF; verificacao pulada."
             exit 0
           fi
+          # O doctor importa os modulos que ficam ao lado dele: sem eles, o
+          # arquivo baixado sozinho nao sobe. Uma ref antiga pode nao ter um
+          # deles; o doctor daquela ref tambem nao o importa.
+          for MODULO in web_domains.py related.py; do
+            gh api "$SRC/scripts/$MODULO?ref=$REF" -H "$RAW" > "$RUNNER_TEMP/$MODULO" 2>/dev/null \
+              || rm -f "$RUNNER_TEMP/$MODULO"
+          done
           gh api "repos/$GH_REPO/contents/.github/workflows/ai.yml?ref=$BRANCH" -H "$RAW" > "$RUNNER_TEMP/atual.yml" 2>/dev/null \
             || : > "$RUNNER_TEMP/atual.yml"
           DIFF="$(diff -u --label "ai.yml ($GH_REPO@$BRANCH)" --label "modelo (ai-workflows@$REF)" \
