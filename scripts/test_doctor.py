@@ -40,7 +40,7 @@ from test_advance import (  # noqa: E402,F401
     DoctorConfig as AdvanceDoctorConfig, Router as AdvanceRouter, Run as AdvanceRun, Shape as AdvanceShape)
 from test_metrics import (  # noqa: E402,F401
     Compare as MetricsCompare, Mapping as MetricsMapping, Readme as MetricsReadme, Run as MetricsRun, Session as MetricsSession,
-    Shape as MetricsShape, Subagents as MetricsSubagents)
+    Shape as MetricsShape, Subagents as MetricsSubagents, Transcript as MetricsTranscript)
 
 TEMPLATE = """name: AI
 on:
