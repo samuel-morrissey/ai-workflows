@@ -130,6 +130,15 @@ on:
         type: string
         required: false
         default: ""
+      app_client_id:
+        description: >-
+          Repassado a todas as etapas que rodam o agente: Client ID do GitHub
+          App que da acesso aos repositorios de `related_repos` (variavel
+          AI_APP_CLIENT_ID). Vazio: as etapas seguem sem repositorios
+          relacionados.
+        type: string
+        required: false
+        default: ""
       ai_workflows_ref:
         description: >-
           Repassado ao implement e ao worker de sub-task: ref deste
@@ -150,6 +159,10 @@ on:
       # Variaveis do projeto para o ambiente do QA, no formato de um .env.
       # Opcional: sem ele, nenhuma variavel e carregada.
       PROJECT_ENV:
+        required: false
+      # Chave privada do GitHub App dos repositorios relacionados
+      # (`related_repos`). Opcional: sem ela, as etapas seguem sem eles.
+      AI_APP_PRIVATE_KEY:
         required: false
 
 jobs:
@@ -194,6 +207,13 @@ jobs:
             echo "::warning::check-caller: nao foi possivel baixar o modelo ou o doctor de samuel-morrissey/ai-workflows@$REF; verificacao pulada."
             exit 0
           fi
+          # O doctor importa os modulos que ficam ao lado dele: sem eles, o
+          # arquivo baixado sozinho nao sobe. Uma ref antiga pode nao ter um
+          # deles; o doctor daquela ref tambem nao o importa.
+          for MODULO in web_domains.py related.py; do
+            gh api "$SRC/scripts/$MODULO?ref=$REF" -H "$RAW" > "$RUNNER_TEMP/$MODULO" 2>/dev/null \
+              || rm -f "$RUNNER_TEMP/$MODULO"
+          done
           gh api "repos/$GH_REPO/contents/.github/workflows/ai.yml?ref=$BRANCH" -H "$RAW" > "$RUNNER_TEMP/atual.yml" 2>/dev/null \
             || : > "$RUNNER_TEMP/atual.yml"
           DIFF="$(diff -u --label "ai.yml ($GH_REPO@$BRANCH)" --label "modelo (ai-workflows@$REF)" \
@@ -263,8 +283,10 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-triage.yml@main
     with:
       runs_on: ${{ inputs.runs_on }}
+      app_client_id: ${{ inputs.app_client_id }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      AI_APP_PRIVATE_KEY: ${{ secrets.AI_APP_PRIVATE_KEY }}
 
   # Refinamento: `needs-refinement` aplicado por humano, `go` em issue com
   # `needs-refinement`, resposta humana a uma rodada de perguntas
@@ -293,8 +315,10 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-refinement.yml@main
     with:
       runs_on: ${{ inputs.runs_on }}
+      app_client_id: ${{ inputs.app_client_id }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      AI_APP_PRIVATE_KEY: ${{ secrets.AI_APP_PRIVATE_KEY }}
 
   # Quebra em sub-tasks: `needs-break-down` aplicado por humano, `go` em issue
   # com `needs-break-down` (o caminho com `auto_advance: false`: a etapa
@@ -323,8 +347,10 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-break-down.yml@main
     with:
       runs_on: ${{ inputs.runs_on }}
+      app_client_id: ${{ inputs.app_client_id }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      AI_APP_PRIVATE_KEY: ${{ secrets.AI_APP_PRIVATE_KEY }}
 
   # Undo: um humano aplica `undo` num issue sem work-in-progress. Desfaz a
   # ultima mudanca de estado feita por uma etapa (triagem, refinamento ou
@@ -383,6 +409,7 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-remote-implement.yml@main
     with:
       runs_on: ${{ inputs.runs_on }}
+      app_client_id: ${{ inputs.app_client_id }}
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
       evidence_tools: ${{ inputs.evidence_tools }}
@@ -395,6 +422,7 @@ jobs:
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
       EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
       PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
+      AI_APP_PRIVATE_KEY: ${{ secrets.AI_APP_PRIVATE_KEY }}
 
   # Sub-task: o planner do pai despachou a proxima (`repository_dispatch` do
   # tipo `ai-sub-task`), um humano aplicou `go` numa `[SUB-TASK]` aberta (roda
@@ -423,6 +451,7 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/issue-sub-task.yml@main
     with:
       runs_on: ${{ inputs.runs_on }}
+      app_client_id: ${{ inputs.app_client_id }}
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
       evidence_tools: ${{ inputs.evidence_tools }}
@@ -435,6 +464,7 @@ jobs:
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
       EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
       PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
+      AI_APP_PRIVATE_KEY: ${{ secrets.AI_APP_PRIVATE_KEY }}
 
   # Correcao de PR: acao humana explicita num PR aberto.
   # - review enviada com *Request changes* (`review.state` chega em
@@ -469,6 +499,7 @@ jobs:
     uses: samuel-morrissey/ai-workflows/.github/workflows/pr-fix.yml@main
     with:
       runs_on: ${{ inputs.runs_on }}
+      app_client_id: ${{ inputs.app_client_id }}
       setup_commands: ${{ inputs.setup_commands }}
       quality_checks: ${{ inputs.quality_checks }}
       evidence_tools: ${{ inputs.evidence_tools }}
@@ -480,6 +511,7 @@ jobs:
       EVIDENCE_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_ACCESS_KEY_ID }}
       EVIDENCE_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_SECRET_ACCESS_KEY }}
       PROJECT_ENV: ${{ secrets.PROJECT_ENV }}
+      AI_APP_PRIVATE_KEY: ${{ secrets.AI_APP_PRIVATE_KEY }}
 
   # PR mergeado numa branch que nao e a padrao: fecha os issues do `Closes`,
   # que o GitHub ignora fora da branch padrao. Na branch padrao o proprio

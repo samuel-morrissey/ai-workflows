@@ -72,6 +72,14 @@ on:
         type: string
         required: false
         default: ""
+      app_client_id:
+        description: >-
+          Client ID do GitHub App que da acesso aos repositorios de
+          `related_repos` (variavel AI_APP_CLIENT_ID). Vazio: a rodada segue
+          sem repositorios relacionados.
+        type: string
+        required: false
+        default: ""
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -82,6 +90,10 @@ on:
       # Variaveis do projeto para o ambiente do QA, no formato de um .env.
       # Opcional: sem ele, nenhuma variavel e carregada.
       PROJECT_ENV:
+        required: false
+      # Chave privada do GitHub App dos repositorios relacionados
+      # (`related_repos`). Opcional: sem ela, a rodada segue sem eles.
+      AI_APP_PRIVATE_KEY:
         required: false
 
 # Mesmas permissoes dos outros workflows do agente: o ai.yml do consumidor ja
@@ -204,6 +216,20 @@ jobs:
           ref: ${{ steps.target.outputs.head }}
           fetch-depth: 0
 
+      # Repositorios relacionados (related_repos de .github/ai-workflows.yml,
+      # lido deste checkout): um token de GitHub App so para eles e o comando
+      # ai-related, com que o agente consulta o vizinho e pede mudanca la por
+      # issue ou comentario. Sem a chave, sem o App ou sem token, a rodada
+      # segue sem vizinhos; valor que nao e texto falha aqui, antes do agente.
+      - name: Ler repositorios relacionados
+        id: relacionados
+        if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
+        uses: samuel-morrissey/ai-workflows/.github/actions/related-repos@main
+        with:
+          number: ${{ steps.target.outputs.number }}
+          client_id: ${{ inputs.app_client_id }}
+          private_key: ${{ secrets.AI_APP_PRIVATE_KEY }}
+
       - name: Preparar ambiente do agente
         id: ambiente
         if: steps.target.outputs.skip != 'true' && steps.wip.outputs.skip != 'true'
@@ -211,6 +237,7 @@ jobs:
         with:
           number: ${{ steps.target.outputs.number }}
           prompt_prefix: "Correcao de PR: #${{ steps.target.outputs.number }}, head ${{ steps.target.outputs.head }}, base ${{ steps.target.outputs.base }}. Gatilho: ${{ steps.target.outputs.trigger }}. Issues que o PR fecha: ${{ steps.target.outputs.issues }}. O workflow ja resolveu esses fatos e fez o checkout da head; use-os como estao. ${{ steps.target.outputs.quem }}"
+          prompt_suffix: "${{ steps.relacionados.outputs.sentence }}"
           setup_commands: ${{ inputs.setup_commands }}
           quality_checks: ${{ inputs.quality_checks }}
           evidence_tools: ${{ inputs.evidence_tools }}
@@ -243,7 +270,7 @@ jobs:
           # quality_checks e evidence_tools.
           claude_args: |
             --model claude-opus-5-5
-            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh pr checks:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh label create:*),Bash(gh api:*),Bash(git status:*),Bash(git branch:*),Bash(git switch:*),Bash(git checkout:*),Bash(git fetch:*),Bash(git merge:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git config:*),Bash(git worktree:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite,Agent${{ steps.ambiente.outputs.allow }}"
+            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr edit:*),Bash(gh pr checks:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh label create:*),Bash(gh api:*),Bash(git status:*),Bash(git branch:*),Bash(git switch:*),Bash(git checkout:*),Bash(git fetch:*),Bash(git merge:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git config:*),Bash(git worktree:*),Read,Grep,Glob,Edit,Write,Skill,TodoWrite,Agent${{ steps.ambiente.outputs.allow }}${{ steps.relacionados.outputs.allow }}"
             --max-turns 250
             ${{ steps.ambiente.outputs.sysprompt }}
 

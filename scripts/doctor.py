@@ -21,9 +21,12 @@ Itens, na ordem em que aparecem no relatorio:
   ai-yml      .github/workflows/ai.yml na branch padrao igual ao modelo
               (fix: PR no repositorio com o arquivo novo; inputs inline do
               ai.yml antigo migram para .github/ai-workflows.yml no mesmo PR)
-  config      .github/ai-workflows.yml presente e valido
+  config      .github/ai-workflows.yml presente e valido; com related_repos,
+              a variavel AI_APP_CLIENT_ID (so informativo)
   secrets     CLAUDE_CODE_OAUTH_TOKEN; EVIDENCE_* quando ha bucket;
-              PROJECT_ENV so informativo (fix: grava a partir do config.env)
+              AI_APP_PRIVATE_KEY quando ha related_repos (uma chave PEM
+              nao cabe no config.env: sai como `manual`); PROJECT_ENV so
+              informativo (fix: grava a partir do config.env)
   vars        EVIDENCE_BUCKET, EVIDENCE_PUBLIC_URL, EVIDENCE_ENDPOINT
               (fix: grava a partir do config.env, na org ou no repositorio)
   labels      os 13 labels do fluxo com cor e descricao canonicas (fix: cria os
@@ -55,6 +58,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import related  # noqa: E402
 import web_domains  # noqa: E402
 
 TEMPLATE_REPO = "samuel-morrissey/ai-workflows"
@@ -66,11 +70,14 @@ BRANCH_PREFIX = "ai-workflows/"
 DOCTOR_BRANCH = BRANCH_PREFIX + "doctor"
 CONFIG_KEYS = ("setup_commands", "quality_checks", "evidence_tools",
                "evidence_bucket", "evidence_public_url", "evidence_endpoint",
-               "default_responsible", "web_domains", "auto_advance")
+               "default_responsible", "web_domains", "auto_advance", "related_repos")
 VAR_NAMES = ("EVIDENCE_BUCKET", "EVIDENCE_PUBLIC_URL", "EVIDENCE_ENDPOINT")
 SECRET_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
 SECRET_BUCKET = ("EVIDENCE_ACCESS_KEY_ID", "EVIDENCE_SECRET_ACCESS_KEY")
 SECRET_PROJECT = "PROJECT_ENV"
+# GitHub App dos repositorios relacionados (chave related_repos).
+SECRET_APP = "AI_APP_PRIVATE_KEY"
+VAR_APP = "AI_APP_CLIENT_ID"
 ITEMS = ("ai-yml", "config", "secrets", "vars", "labels", "evidencias", "topic", "bucket")
 SKILL_SECTIONS = ("evidencia ideal", "como subir", "dados e acesso", "antes", "limites")
 # Cor e descricao canonicas (skills/issue-labeling/SKILL.md).
@@ -550,8 +557,20 @@ def check_config(repo):
             invalid.append(f"{line} ({exc})")
     if invalid:
         notes.append(f"web_domains com linha ignorada pelo workflow: {'; '.join(invalid)}")
-    status = "diverge" if unknown or invalid else ("info" if notes else "ok")
+    # Mesma validacao da action related-repos, e a variavel do App dela.
+    ignored = related.read(repo.config_text, repo.owner, repo.full)["ignored"] if "related_repos" in repo.config else []
+    if ignored:
+        notes.append("related_repos com linha ignorada pelo workflow: "
+                     + "; ".join(f"{line} ({reason})" for line, reason in ignored))
+    if wants_related(repo) and VAR_APP not in repo.variables()[0]:
+        notes.append(f"related_repos sem a variavel {VAR_APP}: as etapas seguem sem os repositorios relacionados"
+                     " (README, Repositorios relacionados)")
+    status = "diverge" if unknown or invalid or ignored else ("info" if notes else "ok")
     return Finding("config", status, "; ".join(notes) or f"{CONFIG_FILE} valido")
+
+
+def wants_related(repo):
+    return bool(repo.config.get("related_repos", "").strip())
 
 
 def check_secrets(repo):
@@ -562,6 +581,8 @@ def check_secrets(repo):
     required = [SECRET_TOKEN]
     if effective_bucket(repo)[0]:
         required += list(SECRET_BUCKET)
+    if wants_related(repo):
+        required.append(SECRET_APP)
     for name in required:
         if name in found:
             notes.append(f"{name} ({found[name]})")

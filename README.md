@@ -22,6 +22,8 @@ Triagem, refinamento e quebra em sub-tasks têm `WebFetch` restrito a uma lista 
 
 Os agentes não publicam mudança em `.github/workflows/`: o GitHub recusa o push deles, porque o token das etapas não tem a permissão `workflows`. Isso vale para todas as etapas que publicam código (implementação, sub-task e correção de PR). Trabalho que precisa alterar um workflow vai para um humano: a triagem e a quebra marcam `**Executor:** humano` com esse motivo (na quebra, a parte de workflow vira uma sub-task humana própria quando dá para separar), e a implementação para em handoff, sem PR, se receber um brief de agente que exige isso. Arquivos de `.github/` fora de `workflows/`, como o `.github/ai-workflows.yml` e o `.github/actions/`, ficam fora da regra.
 
+Todas as etapas podem consultar os **repositórios relacionados** do projeto, quando ele os declara em `related_repos`: o agente lê o código, os issues e os PRs do vizinho e pede mudança lá por issue ou comentário, como quem fala com outra equipe. Veja [Repositórios relacionados](#repositórios-relacionados).
+
 Nenhuma etapa roda em issue com `work-in-progress`. Esse label marca que outro worker já está trabalhando no issue. Os workflows colocam e tiram esse label sozinhos. Num pai com sub-tasks ele fica durante a cadeia inteira (veja abaixo).
 
 ### O label `go`
@@ -213,6 +215,7 @@ Skills de apoio que as etapas acima seguem.
 - **issue-labeling** — vocabulário canônico: tipos (MAP, SPEC, SUB-TASK e os pontuais), labels de estado (`needs-*`, `ready-for-*`, `awaiting-pr-review`, `wontfix`, `deferred`), labels de trabalho, espera e prioridade (`work-in-progress`, `awaiting-reply`, `priority`) e regras de transição.
 - **issue-git-flow** — estrutura de git do fluxo: nome e base de cada branch, vínculo entre PR e issue ou sub-issue, a stack de PRs de um pai e como cada issue fecha.
 - **issue-async-first** — trabalho assíncrono por essência: esgota tudo que não depende de humano, agrupa toda intervenção em uma única mensagem e, quando impeditiva, para deixando handoff completo.
+- **related-repos** — como consultar e acionar os repositórios relacionados: ler código, issues e PRs do vizinho pelo comando `ai-related` e pedir mudança por issue ou comentário, sem alterar nada lá. Veja [Repositórios relacionados](#repositórios-relacionados).
 - **grilling** — questionamento em lote: monta a fronteira de decisões em aberto, pergunta tudo de uma vez com recomendação e reserva fatos para investigação própria.
 
 ### Pull requests
@@ -224,7 +227,7 @@ Skills de apoio que as etapas acima seguem.
 ### Utilitários
 
 - **80-20** — modo Pareto: maior retorno com o menor esforço na tarefa dada.
-- **setup-repo** — configura um repositório consumidor a partir do relatório do `doctor`: infere os comandos do projeto, redige a skill `evidencias`, levanta colisões de labels e os fornecedores para `web_domains` (também num repositório já configurado), pergunta tudo de uma vez e abre o PR no repositório alvo. Veja [Configurar um repositório](#configurar-um-repositório).
+- **setup-repo** — configura um repositório consumidor a partir do relatório do `doctor`: infere os comandos do projeto, redige a skill `evidencias`, levanta colisões de labels, os fornecedores para `web_domains` e os vizinhos para `related_repos` (também num repositório já configurado), pergunta tudo de uma vez e abre o PR no repositório alvo. Veja [Configurar um repositório](#configurar-um-repositório).
 - **hello-issue** — skill de exemplo que valida a integração entre o marketplace e um repositório consumidor, publicando um comentário no issue informado.
 
 ### Usar as skills localmente
@@ -263,7 +266,7 @@ Depois do merge de um PR que subiu a versão:
 2. Abra uma sessão nova. As skills são carregadas no início da sessão.
 3. Confira a versão instalada com `/plugin`, ou em `~/.claude/plugins/installed_plugins.json`.
 
-A cópia do `scripts/doctor.py` dentro do plugin fica congelada junto com ele. Rode o `doctor` sempre pelo checkout deste repositório ou pelo `curl` de `main`, como faz a skill `setup-repo`.
+A cópia do `scripts/doctor.py` dentro do plugin fica congelada junto com ele. Rode o `doctor` sempre pelo checkout deste repositório ou pelo `curl` de `main`, como faz a skill `setup-repo`. Pelo `curl`, baixe para a mesma pasta o `scripts/doctor.py` e os dois módulos que ele importa, `scripts/web_domains.py` e `scripts/related.py`: sozinho ele não sobe.
 
 ## O que um repositório precisa
 
@@ -272,8 +275,8 @@ Este repositório é público: qualquer repositório, de qualquer conta ou organ
 | Natureza | Onde mora | Exemplo |
 | --- | --- | --- |
 | Igual em todo repositório | `.github/workflows/ai.yml`, cópia idêntica do arquivo daqui | gatilhos, permissões, repasse de secrets |
-| Do projeto | `.github/ai-workflows.yml`, versionado no repositório | `setup_commands`, `quality_checks`, `evidence_tools`, `default_responsible`, `web_domains` |
-| Do dono (conta ou organização) | variáveis e secrets do Actions | bucket de evidências, `CLAUDE_CODE_OAUTH_TOKEN` |
+| Do projeto | `.github/ai-workflows.yml`, versionado no repositório | `setup_commands`, `quality_checks`, `evidence_tools`, `default_responsible`, `web_domains`, `related_repos` |
+| Do dono (conta ou organização) | variáveis e secrets do Actions | bucket de evidências, `CLAUDE_CODE_OAUTH_TOKEN`, GitHub App dos repositórios relacionados |
 | Do ambiente de QA do projeto | secret `PROJECT_ENV` | chave de teste de um serviço sem emulador |
 
 ### Variáveis e secrets
@@ -289,6 +292,8 @@ Secrets e variáveis podem ficar na organização, com acesso a todos os reposit
 | `EVIDENCE_ACCESS_KEY_ID`, `EVIDENCE_SECRET_ACCESS_KEY` | secret | com bucket | credenciais do bucket |
 | `PROJECT_ENV` | secret | não | um `.env` com o que o ambiente do QA exige (veja abaixo) |
 | `AI_RUNS_ON` | variável | não | label do runner dos jobs; sem ela, `ubuntu-latest` (veja abaixo) |
+| `AI_APP_CLIENT_ID` | variável | com `related_repos` | Client ID do GitHub App que acessa os [repositórios relacionados](#repositórios-relacionados) |
+| `AI_APP_PRIVATE_KEY` | secret | com `related_repos` | chave privada do mesmo App |
 
 Numa organização:
 
@@ -323,9 +328,44 @@ O que muda num runner self-hosted:
 - **A imagem traz menos ferramentas.** O fluxo usa `gh`, `git`, `jq`, `python3`, `curl`, `openssl`, `sudo` e, com bucket, `aws`. O Node é instalado pelo próprio fluxo quando o runner não tem `npm`. O que `setup_commands`, `quality_checks` e `evidence_tools` do projeto usam além disso precisa existir na imagem ou ser instalado em `setup_commands`.
 - **Conta pessoal não tem runner de conta.** Cada repositório pessoal precisa do próprio runner registrado; numa organização, um runner serve a todos os repositórios.
 
+### Repositórios relacionados
+
+Um projeto pode viver em mais de um repositório, como um site e o app dele. A chave `related_repos` de [`.github/ai-workflows.yml`](#o-arquivo-githubai-workflowsyml) lista os vizinhos que o agente pode consultar, em todas as etapas. O agente trata o vizinho como outra equipe:
+
+| No vizinho, o agente | |
+| --- | --- |
+| pode | ler o código (clone raso, fora do workspace), os issues e os PRs; abrir issue; comentar em issue e em PR |
+| não pode | editar ou fechar issue ou PR, aplicar label (nem `go`), revisar, aprovar, mergear, enviar código |
+
+Consultar fica a critério do agente: ele usa o acesso quando a resposta está do outro lado (um contrato de API, um issue de lá citado no daqui, uma mudança que só funciona com outra lá). Para pedir uma mudança, procura antes um issue que já cubra o pedido e comenta nele; sem um, abre um issue que se sustenta sozinho, sem prefixo de tipo e sem label, para a triagem de lá decidir. A regra completa é a skill `related-repos`.
+
+**O GitHub App.** O token da rodada (`GITHUB_TOKEN`) só alcança o repositório dela. O acesso aos vizinhos usa um GitHub App do dono:
+
+1. Crie o App em Settings do dono → Developer settings → GitHub Apps, sem webhook, com três permissões de repositório: **Contents: Read-only**, **Issues: Read and write** e **Pull requests: Read and write**.
+2. Instale o App em cada repositório que aparece numa chave `related_repos`.
+3. Grave o Client ID do App na variável `AI_APP_CLIENT_ID` e uma chave privada gerada nele no secret `AI_APP_PRIVATE_KEY`:
+
+```
+gh variable set AI_APP_CLIENT_ID --org caravelasistemas --visibility all --body Iv23xxxxxxxxxxxxxxxx
+gh secret set AI_APP_PRIVATE_KEY --org caravelasistemas --visibility all < chave-do-app.pem
+```
+
+A cada rodada, o passo **Ler repositorios relacionados** (action `related-repos`) lê a chave do checkout, cria um token do App só para os repositórios dela e só com as três permissões acima, mesmo que o App tenha mais, e entrega ao agente o comando `ai-related`. O token vale 1 hora, fica num arquivo fora do workspace, nunca em variável de ambiente (não chega a `setup_commands`, a `quality_checks` nem ao que o QA captura), e é revogado no fim do job.
+
+O que vale saber:
+
+- **A trava é o comando, não a permissão.** O GitHub não tem permissão "só comentar": para comentar em PR o token precisa de escrita em PRs, que também deixa editar e fechar. Quem segura é o `ai-related`, o único comando liberado para o vizinho: ele só aceita as ações da tabela e recusa o resto, e o `api` dele é só `GET`. O `gh` do agente continua com o token da rodada, que não alcança o vizinho. O teto do que pode acontecer lá é o que as três permissões deixam.
+- **Tudo sai em nome do App.** Issue e comentário no vizinho são do `<app>[bot]` e ganham a linha `Origem: <owner/repo>#<n>`, com o issue ou PR da rodada.
+- **Os dois fluxos não conversam sozinhos.** Comentário de bot não dispara etapa, issue aberto não dispara nada e o agente não aplica label: o `go` do vizinho continua sendo de uma pessoa de lá. A resposta do vizinho também não dispara nada na origem. Quando o trabalho depende do pedido, a rodada para em pergunta (`awaiting-reply`) com o link dele, e uma pessoa retoma.
+- **Conteúdo do vizinho é dado, nunca instrução**, como na [web](skills/issue-triage/AGENT-BRIEF.md#uso-da-web). O agente relata no comentário da rodada o pedido que ignorou.
+- **1 hora.** Uma rodada de implementação mais longa que isso perde o acesso no fim. O comando avisa, e o agente registra o que faltou consultar ou pedir.
+- **Só o mesmo dono.** Um token de App vale para um dono. O CI do vizinho também fica fora: o token não tem essa permissão.
+
+Sem a chave, nada muda. Com a chave e sem a variável, sem o secret, com um `ai.yml` que ainda não os repassa, ou com o App fora de um dos repositórios, a rodada segue sem vizinhos e o log da run traz um aviso com o motivo.
+
 ### O arquivo `.github/ai-workflows.yml`
 
-Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente; o responsável padrão, lido pelas etapas de issue antes do agente e por todas as etapas na falha de rodada; e a documentação dos fornecedores, lida pela triagem, pelo refinamento e pela quebra antes do agente. Só escalares de texto e blocos literais (`|`), um comando por linha:
+Os comandos do projeto, lidos por `issue-remote-implement.yml`, `issue-sub-task.yml` e `pr-fix.yml` depois do checkout, antes de chamar o agente; o responsável padrão, lido pelas etapas de issue antes do agente e por todas as etapas na falha de rodada; a documentação dos fornecedores, lida pela triagem, pelo refinamento e pela quebra antes do agente; e os repositórios relacionados, lidos por todas as etapas antes do agente. Só escalares de texto e blocos literais (`|`), um comando por linha:
 
 ```yaml
 # Comandos deste repositório para o fluxo de IA (samuel-morrissey/ai-workflows).
@@ -340,6 +380,8 @@ evidence_tools: |
   curl
 web_domains: |
   https://docs.asaas.com/reference
+related_repos: |
+  lumeeiro-app
 # auto_advance: false  # descomente para as etapas voltarem a esperar `go`
 ```
 
@@ -355,6 +397,9 @@ web_domains: |
   Cada domínio é liberado uma vez só, mesmo repetido ou já na lista fixa; duas URLs no mesmo domínio liberam um domínio e as duas vão ao agente. O domínio casa só com ele mesmo: `api.asaas.com` é outra linha. O passo **Ler dominios da web** (action `web-domains`) lê a chave do checkout. Linha vazia ou só comentário (`#`) é ignorada. Linha inválida é ignorada com um aviso no log da run, e as outras valem: esquema que não é `https://`, curinga `*`, espaço no meio, aspas, crase, cifrão, barra invertida, host vazio ou domínio sem ponto. Lista ou mapa YAML falha a rodada antes do agente. Sem a chave vale só a lista fixa, sem aviso. O `doctor` acusa a linha inválida no item `config` (`diverge`) e, com o arquivo válido e sem a chave, dá `info` no mesmo item, apontando a skill `setup-repo`.
 
   Quem propõe a chave é a skill `setup-repo`, também num repositório que já está todo `ok`: ela levanta os fornecedores externos do projeto (dependências, APIs e gateways no código, ADRs, `CONTEXT.md`), deixa de fora o que a lista fixa já cobre, escolhe para cada um a documentação oficial (o `llms.txt` primeiro, quando existe), confere com `curl` que a URL não redireciona para outro host e, no mesmo host, usa o destino final. A lista entra na pergunta única, com o motivo de cada entrada, e o setup só acrescenta as entradas que faltam, sem reescrever as outras chaves nem remover as do humano. Repositório sem fornecedor externo fica sem a chave: o `info` volta nas próximas rodadas do `doctor`, e isso é repetição, não erro.
+- `related_repos`: os [repositórios relacionados](#repositórios-relacionados) do projeto, que o agente de todas as etapas pode consultar e acionar. Bloco `|`, uma entrada por linha: `repo` ou `owner/repo`, sempre do mesmo dono do repositório. O passo **Ler repositorios relacionados** (action `related-repos`) lê a chave do checkout. Linha vazia ou só comentário (`#`) é ignorada. Linha inválida é ignorada com um aviso no log da run, e as outras valem: repositório de outro dono, o próprio repositório, URL, espaço no meio, aspas, crase, cifrão ou barra invertida. Lista ou mapa YAML falha a rodada antes do agente. Sem a chave, nenhuma etapa alcança outro repositório. O `doctor` acusa a linha inválida no item `config` (`diverge`), avisa no mesmo item quando falta a variável `AI_APP_CLIENT_ID` e cobra o secret `AI_APP_PRIVATE_KEY` no item `secrets`.
+
+  Quem propõe a chave é a skill `setup-repo`, também num repositório que já está todo `ok`: ela lista os repositórios do mesmo dono e só propõe os que têm um sinal de que o trabalho cruza (mesmo prefixo de projeto no nome, citação no `README`, nos ADRs ou no `CONTEXT.md`, dependência ou contrato compartilhado, issues e PRs que citam o outro). Ficam de fora o próprio repositório, os arquivados, os forks e os de outro dono. A lista entra na pergunta única, com o sinal de cada vizinho, e só entra o que você aceitar: liberar outro repositório é decisão sua. Sem o GitHub App, o PR do setup traz a criação dele como passo anterior ao merge. O `doctor` não dá `info` pela falta da chave, porque repositório sem vizinho é o caso comum; num repositório que já tem a chave, o setup não propõe vizinho novo. A chave vale num sentido só: para o vizinho consultar este repositório, rode o setup lá.
 - `auto_advance`: `auto_advance: false` desliga o encadeamento das etapas antes da implementação (veja [Etapas que seguem sozinhas](#etapas-que-seguem-sozinhas)): a triagem e o refinamento não chamam mais a etapa seguinte, e todo comentário final volta a pedir `go` marcando o responsável. Sem a chave, ou com qualquer outro valor, as etapas encadeiam. Quem lê é a etapa que está terminando (passo **Ler encadeamento**, action `advance`), no checkout; o `if` do router não lê arquivo. É a única chave booleana do arquivo: a implementação a ignora, sem aviso, e o `doctor` a reconhece.
 
 Chave do arquivo vence o input de mesmo nome do `ai.yml`; chave ausente deixa o input valer; chave desconhecida gera aviso e é ignorada; valor que não é texto (lista, mapa, número) falha o job antes do agente, com o nome do arquivo no erro, menos em `auto_advance`, que é booleana. Os inputs no `ai.yml` continuam aceitos para os repositórios já configurados, mas o caminho novo é o arquivo.
@@ -379,7 +424,7 @@ python3 scripts/doctor.py check <owner/repo>
 python3 scripts/doctor.py fix <owner/repo>
 ```
 
-O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels, os `web_domains` dos fornecedores) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez, aplica o `doctor fix` e só então abre o PR no repositório alvo, com o texto coerente com o que já foi corrigido:
+O que exige decisão (os comandos do projeto, a skill `evidencias`, colisão de labels, os `web_domains` dos fornecedores, os `related_repos` vizinhos) fica com a skill `setup-repo`, que roda o `doctor`, lê o projeto, pergunta tudo de uma vez, aplica o `doctor fix` e só então abre o PR no repositório alvo, com o texto coerente com o que já foi corrigido:
 
 ```
 /samuel-morrissey-skills:setup-repo <owner/repo>
@@ -417,8 +462,8 @@ python3 scripts/doctor.py fix samuel-morrissey/life-os --only ai-yml,vars
 | Item | Verifica | `fix` |
 | --- | --- | --- |
 | `ai-yml` | `.github/workflows/ai.yml` da branch padrão igual ao modelo daqui (`--ref`, padrão `main`) | abre um PR no repositório com o arquivo novo, na branch `ai-workflows/doctor`; se o `ai.yml` atual tem inputs inline em `with:`, o mesmo PR cria `.github/ai-workflows.yml` com eles. PR já aberto é atualizado, não duplicado, e um PR aberto de qualquer branch `ai-workflows/*` que já traga o modelo, como o da skill `setup-repo`, conta como resolvido até o merge |
-| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto, e `web_domains` sem linha que o workflow ignora (linha inválida: `diverge`); sem a chave `web_domains`, `info` | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo`; sem `web_domains`, o `info` aponta a skill `setup-repo`, que propõe a chave com os fornecedores do projeto |
-| `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
+| `config` | `.github/ai-workflows.yml` presente, só com chaves conhecidas e valores de texto, e `web_domains` e `related_repos` sem linha que o workflow ignora (linha inválida: `diverge`); sem a chave `web_domains`, `info`; com `related_repos` e sem a variável `AI_APP_CLIENT_ID`, `info` | nada: sem arquivo e sem inputs inline, aponta a skill `setup-repo`; sem `web_domains`, o `info` aponta a skill `setup-repo`, que propõe a chave com os fornecedores do projeto |
+| `secrets` | `CLAUDE_CODE_OAUTH_TOKEN`; `EVIDENCE_ACCESS_KEY_ID` e `EVIDENCE_SECRET_ACCESS_KEY` quando há bucket; `AI_APP_PRIVATE_KEY` quando há `related_repos`; `PROJECT_ENV` só informativo. Secret de organização com acesso ao repositório conta | grava no repositório os que faltam, com os valores do `config.env`, quando não há secret de organização |
 | `vars` | `EVIDENCE_BUCKET`, `EVIDENCE_PUBLIC_URL`, `EVIDENCE_ENDPOINT` com os valores do `config.env` | grava na organização (dono organização) ou no repositório (dono conta) |
 | `labels` | os 14 labels do fluxo da `issue-labeling`, com cor e descrição canônicas | cria os que faltam e corrige cor e descrição dos que divergem. Nunca apaga nem renomeia; colisões (`priority-*`, tipos como label) saem como nota para você decidir |
 | `evidencias` | `.claude/skills/evidencias/SKILL.md` com as cinco seções do modelo | nada: aponta a skill `setup-repo` |
@@ -495,7 +540,7 @@ Os grupos:
 
 | Grupo | O que soma |
 |---|---|
-| `preparo` | checkout, resolução do alvo, guarda de concorrência, `work-in-progress`, consumo do `go`, resolução do responsável, leitura de `web_domains`, download do planner e o *Set up job* do Actions |
+| `preparo` | checkout, resolução do alvo, guarda de concorrência, `work-in-progress`, consumo do `go`, resolução do responsável, leitura de `web_domains` e de `related_repos` (com o token do GitHub App), download do planner e o *Set up job* do Actions |
 | `ambiente` | a composite `agent-env` (**Preparar ambiente do agente**) |
 | `agente` | o passo `anthropics/claude-code-action@v1`, só a duração do passo do Actions |
 | `pos-agente` | `publish-evidence`, redes de segurança de label, remoção do `work-in-progress`, os passos do planner da cadeia (**Entrar na cadeia**, **Planejar e empilhar**, **Resolver responsavel do pai**, **Decidir e agir**, **Devolver o controle ao pai**) e, no `pr-merged`, o fechamento dos issues |
@@ -596,7 +641,7 @@ Problemas comuns:
 - `pr-fix.yml`: a correção de PR. Resolve o PR do evento (recusa PR fechado ou de fork), coloca `work-in-progress` no PR, faz o checkout da head com histórico completo e roda o Claude com a skill `pr-fix`, com as mesmas actions de ambiente e de evidências da implementação.
 - `issue-*.yml`: cada etapa coloca `work-in-progress` no issue, consome o `go` e o `awaiting-reply`, roda o Claude com a skill da etapa (do plugin `samuel-morrissey-skills`, instalado deste repositório pela `claude-code-action`) e tira o `work-in-progress` no fim. Se algum passo falha, o último passo (`if: failure()`, action `round-failure`) comenta no issue a etapa, o passo que falhou, lido da run pela API com `actions: read`, o link da run e a menção ao responsável, resolvido por `scripts/responsible.py` (que vem junto com a action, na mesma ref); a run continua marcada como falha.
 - `issue-remote-implement.yml` (pontual) e `issue-sub-task.yml`: antes do agente, o `issue-sub-task.yml` troca o checkout para a base da sub-task (a branch do topo da stack), para o setup instalar o que a sub-task herda; os dois leem `.github/ai-workflows.yml`, carregam o `PROJECT_ENV` em `$GITHUB_ENV`, montam a allowlist e o system prompt a partir de `quality_checks` e `evidence_tools`, decidem a pasta e as URLs das evidências e instalam as ferramentas de captura citadas (action `agent-env`); depois do agente, publicam a pasta de evidências no bucket (ou como artifact) e, se preciso, corrigem os links no PR (action `publish-evidence`).
-- `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence`, `responsible` (o responsável do issue, resolvido antes do agente e entregue a ele no system prompt), `metrics` (o tempo da rodada por grupo de passos; veja [Métricas](#métricas)), `round-failure` e `undo` (a reversão do label `undo`, por `scripts/undo.py`). Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
+- `.github/actions/`: as composite actions comuns aos workflows: `agent-env`, `publish-evidence`, `responsible` (o responsável do issue, resolvido antes do agente e entregue a ele no system prompt), `metrics` (o tempo da rodada por grupo de passos; veja [Métricas](#métricas)), `round-failure`, `undo` (a reversão do label `undo`, por `scripts/undo.py`) e `related-repos` (o token do GitHub App e o comando `ai-related` dos [repositórios relacionados](#repositórios-relacionados), por `scripts/related.py`). Cada passo compartilhado mora num lugar só; os workflows as chamam pelo caminho completo (`samuel-morrissey/ai-workflows/.github/actions/<nome>@main`).
 - `.claude-plugin/` e `skills/`: o marketplace e o plugin do fluxo. `marketplace.json` declara o marketplace `samuel-morrissey-ai-workflows` com um plugin, `samuel-morrissey-skills`, cuja raiz é o próprio repositório (`plugin.json`, com as skills em `skills/`). As etapas o instalam pela URL deste repositório, por isso a versão da skill que roda é sempre a da `main`.
 - `issue-remote-implement.yml` num pai com sub-tasks não roda o Claude: é o planner. Lê as sub-issues, os bloqueios e os PRs (pela branch `sub-task-<n>`), empilha os PRs abertos ainda fora da stack, escolhe a próxima e a despacha ao `issue-sub-task.yml` por `repository_dispatch`. O worker roda o Claude e, no fim, devolve o controle ao pai pelo mesmo mecanismo, com o resultado da rodada. Toda essa leitura mora em `scripts/sub_tasks.py`, que os dois workflows baixam deste repositório na versão deles. O `repository_dispatch` criado com o `GITHUB_TOKEN` dispara workflow (é uma das duas exceções à regra do GitHub); é o que permite a cadeia andar sem um token extra.
 

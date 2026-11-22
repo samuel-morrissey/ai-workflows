@@ -35,33 +35,33 @@ KEY = "web_domains"
 FIXED = ("docs.github.com", "code.claude.com", "platform.claude.com")
 LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 HOST_RE = re.compile(rf"{LABEL}(?:\.{LABEL})+")
-KEY_RE = re.compile(rf"^{KEY}[ \t]*:(.*)$", re.MULTILINE)
 BLOCK_RE = re.compile(r"^([|>])([+-]?)[1-9]?([+-]?)$")
 NOT_TEXT_RE = re.compile(r"(?i)(?:[-+]?[0-9][0-9_.eE+-]*|true|false|null|~|\.inf|\.nan)")
 UNSAFE = "\"'`$\\"
 
 
 class ConfigError(Exception):
-    """`web_domains` com valor que nao e texto."""
+    """Chave com valor que nao e texto."""
 
 
-def not_text(kind):
-    return ConfigError(f"{KEY} precisa ser texto (escalar ou bloco |), e veio como {kind}.")
+def not_text(kind, key=KEY):
+    return ConfigError(f"{key} precisa ser texto (escalar ou bloco |), e veio como {kind}.")
 
 
 def strip_comment(value):
     return re.sub(r"(^|\s+)#.*$", "", value).strip()
 
 
-def extract(text):
+def extract(text, key=KEY):
     """Valor de texto da chave no topo do arquivo, ou None sem a chave.
 
     Aceita escalar simples (com ou sem aspas) e bloco `|` ou `>`. Lista, mapa,
-    numero, booleano ou vazio levantam ConfigError.
+    numero, booleano ou vazio levantam ConfigError. `key` serve a outro leitor
+    de bloco do mesmo arquivo (scripts/related.py, chave `related_repos`).
     """
     if text is None:
         return None
-    match = KEY_RE.search(text)
+    match = re.search(rf"^{re.escape(key)}[ \t]*:(.*)$", text, re.MULTILINE)
     if not match:
         return None
     header = strip_comment(match.group(1))
@@ -69,23 +69,23 @@ def extract(text):
     if not header:
         nxt = next((l for l in rest if l.strip() and not l.lstrip().startswith("#")), "")
         if nxt.lstrip().startswith("-"):
-            raise not_text("lista")
+            raise not_text("lista", key)
         if nxt[:1] in " \t" and re.match(r"^\s*[^\s:]+\s*:(\s|$)", nxt):
-            raise not_text("mapa")
-        raise not_text("vazio")
+            raise not_text("mapa", key)
+        raise not_text("vazio", key)
     block = BLOCK_RE.match(header)
     if block:
         return read_block(rest, folded=block.group(1) == ">", chomp=block.group(2) or block.group(3))
     if header[0] in "[":
-        raise not_text("lista")
+        raise not_text("lista", key)
     if header[0] in "{":
-        raise not_text("mapa")
+        raise not_text("mapa", key)
     if header[0] in "&*!|>":
-        raise not_text("valor que o leitor nao entende")
+        raise not_text("valor que o leitor nao entende", key)
     if len(header) >= 2 and header[0] == header[-1] and header[0] in "\"'":
         return header[1:-1]
     if NOT_TEXT_RE.fullmatch(header):
-        raise not_text("numero, booleano ou nulo")
+        raise not_text("numero, booleano ou nulo", key)
     return header
 
 
